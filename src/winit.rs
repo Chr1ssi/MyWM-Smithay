@@ -58,19 +58,23 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
                 let elements;
+                let had_damage;
                 {
+                    let age = backend.buffer_age().unwrap_or(0);
                     let (renderer, mut framebuffer) = backend.bind().expect("bind");
                     elements = state.output_elements(renderer, &output);
                     let clear = state.clear_color();
-                    damage_tracker
-                        .render_output(renderer, &mut framebuffer, 0, &elements, clear)
-                        .expect("render");
+                    had_damage = damage_tracker
+                        .render_output(renderer, &mut framebuffer, age, &elements, clear)
+                        .expect("render")
+                        .damage
+                        .is_some_and(|d| !d.is_empty());
                 }
                 backend.submit(Some(&[damage])).expect("submit");
 
                 // Captures render offscreen, which must not happen while the window is being drawn.
                 state.fulfill_screencopy(backend.renderer(), &output, &elements, true);
-                state.fulfill_image_captures(backend.renderer(), &output, &elements, true);
+                state.fulfill_image_captures(backend.renderer(), &output, &elements, had_damage);
                 state.fulfill_screenshots(backend.renderer(), &output, &elements);
                 let outputs: Vec<_> = state.outputs.iter().map(|e| e.output.clone()).collect();
                 // Virtual outputs have no window of their own, but can still be captured.

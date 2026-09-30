@@ -82,10 +82,11 @@ try:
         source_type = re.search(r'"source_type" u (\d+)', out).group(1)
         return session, node, size, source_type
 
-    def grab(node, label):
+    def grab(node, label, caps=None):
         path = f"{work}/{label}.png"
+        convert = ["!", caps] if caps else []
         gst = subprocess.run(
-            ["gst-launch-1.0", "-q", "pipewiresrc", "target-object=mywm-screencast", "num-buffers=3", "!", "videoconvert", "!", "pngenc", "snapshot=true", "!", "filesink", f"location={path}"],
+            ["gst-launch-1.0", "-q", "pipewiresrc", "target-object=mywm-screencast", "num-buffers=3", *convert, "!", "videoconvert", "!", "pngenc", "snapshot=true", "!", "filesink", f"location={path}"],
             env=pw_env, capture_output=True, text=True, timeout=30)
         assert gst.returncode == 0 and os.path.exists(path), gst.stderr + open(f"{work}/portal.log").read()
         return subprocess.check_output(["identify", "-format", "%wx%h", path]).decode(), path
@@ -129,6 +130,51 @@ try:
     print("resize followed:", sorted(set(widths)))
     closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
+
+    # A consumer that asks for BGRA (Chromium does) must get opaque pixels.
+    session, node, size, source_type = stream(lambda: comp.key("Return"), "bgra")
+    dims, path = grab(node, "bgra", caps="video/x-raw,format=BGRA")
+    opaque = subprocess.check_output(["identify", "-format", "%[opaque]", path]).decode()
+    assert opaque.lower() == "true", f"BGRA frames are not opaque: {opaque}"
+    print("BGRA opaque OK")
+    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    assert closed.returncode == 0, closed.stderr
+
+    # A still picture keeps delivering frames (keepalive): no window is animating any more.
+    subprocess.run(["pkill", "-f", "^weston-simple-shm"])
+    time.sleep(1)
+    session, node, size, source_type = stream(lambda: comp.key("Return"), "still")
+    start = time.time()
+    # Four frames of a picture that never changes: the first at once, the others from the keepalive.
+    gst = subprocess.run(["gst-launch-1.0", "-q", "pipewiresrc", "target-object=mywm-screencast", "num-buffers=4", "!", "videoconvert", "!", "fakesink"],
+                         env=pw_env, capture_output=True, text=True, timeout=30)
+    assert gst.returncode == 0, gst.stderr
+    took = time.time() - start
+    assert 0.8 < took < 15, f"a still screen should deliver a frame about every 0.4 s, four took {took:.1f} s"
+    print("still picture stream OK in %.1f s" % took)
+    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    assert closed.returncode == 0, closed.stderr
+
+    # Two sessions of one app at once (Vesktop does this): both succeed and share the choice.
+    fresh_wireplumber()
+    sessions = []
+    for label in ("a", "b"):
+        session = f"/org/freedesktop/portal/desktop/session/test/two{label}"
+        busctl(*PORTAL[:2], PORTAL[2], "CreateSession", "oosa{sv}", f"/req/two{label}1", session, "test", "0")
+        busctl(*PORTAL[:2], PORTAL[2], "SelectSources", "oosa{sv}", f"/req/two{label}2", session, "test", "2", "types", "u", "3")
+        sessions.append(session)
+    starts = []
+    for index, session in enumerate(sessions):
+        starts.append(subprocess.Popen(["busctl", f"--address={bus_address}", "--user", "call", *PORTAL, "Start", "oossa{sv}", f"/req/two{index}3", session, "test", "", "0"],
+                                       env=pw_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+        time.sleep(0.4)
+    time.sleep(1)
+    comp.key("Return")
+    outputs = [p.communicate(timeout=30) for p in starts]
+    assert all(p.returncode == 0 and out.startswith("ua{sv} 0") for p, (out, _) in zip(starts, outputs)), outputs
+    print("two sessions at once OK")
+    for session in sessions:
+        busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
 
     # Escape cancels the chooser: response 1.
     def cancel():

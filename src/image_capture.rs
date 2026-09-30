@@ -88,13 +88,20 @@ struct SessionInner {
 pub struct ImageCaptureState {
     sessions: Vec<(ExtImageCopyCaptureSessionV1, Arc<SessionShared>)>,
     pending: Vec<PendingFrame>,
+    /// Outputs with a redraw timer for waiting frames.
+    timers: std::collections::HashSet<String>,
 }
 
 pub struct PendingFrame {
     frame: ExtImageCopyCaptureFrameV1,
     session: Arc<SessionShared>,
     buffer: WlBuffer,
+    requested: std::time::Instant,
 }
+
+/// A frame request that has waited this long gets an answer even if nothing changed, so a still
+/// picture does not make a stream go dead (players and Chromium treat silence as a broken source).
+const KEEPALIVE: std::time::Duration = std::time::Duration::from_millis(400);
 
 pub struct FrameData {
     session: Arc<SessionShared>,
@@ -190,6 +197,7 @@ impl State {
                 return true;
             }
             shared.inner.lock().unwrap().stopped = true;
+            tracing::info!("capture session ended: {}", describe(&shared.source));
             resource.stopped();
             false
         });
@@ -240,16 +248,19 @@ impl State {
                 continue;
             }
             let (changed, mark) = match &frame.session.source {
-                Source::Output(_) => (had_damage || inner.captured.is_none(), 0),
+                Source::Output(_) => (had_damage || inner.captured.is_none() || frame.requested.elapsed() >= KEEPALIVE, 0),
                 Source::Toplevel(handle) => {
                     let commits = self.managed_for_handle(handle).map_or(0, |m| m.commits);
-                    (inner.captured != Some(commits), commits)
+                    (inner.captured != Some(commits) || frame.requested.elapsed() >= KEEPALIVE, commits)
                 }
             };
             if !changed {
                 drop(inner);
                 waiting.push(frame);
                 continue;
+            }
+            if inner.captured.is_none() {
+                tracing::info!("capture session: first frame of {} ({}x{})", describe(&frame.session.source), size.w, size.h);
             }
             inner.captured = Some(mark);
             drop(inner);
@@ -268,7 +279,25 @@ impl State {
             }
         }
         waiting.append(&mut self.image_capture.pending);
+        // Frames still waiting for a change on this output get a redraw when their keepalive is due.
+        let due = waiting.iter().filter(|f| self.frame_belongs_to(f, output)).map(|f| KEEPALIVE.saturating_sub(f.requested.elapsed())).min();
         self.image_capture.pending = waiting;
+        if let Some(due) = due {
+            self.schedule_capture_redraw(output, due);
+        }
+    }
+
+    fn schedule_capture_redraw(&mut self, output: &Output, after: std::time::Duration) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        if !self.image_capture.timers.insert(output.name()) {
+            return;
+        }
+        let output = output.clone();
+        let _ = self.loop_handle.insert_source(Timer::from_duration(after.max(std::time::Duration::from_millis(20))), move |_, _, state| {
+            state.image_capture.timers.remove(&output.name());
+            state.queue_redraw_output(&output);
+            TimeoutAction::Drop
+        });
     }
 
     fn capture_frame(
@@ -423,6 +452,13 @@ impl Dispatch<ExtImageCopyCaptureManagerV1, (), State> for State {
                     paint_cursors,
                     inner: Mutex::new(SessionInner { size, has_frame: false, stopped: false, captured: None }),
                 });
+                tracing::info!(
+                    "capture session: {} {}x{}{}",
+                    describe(&shared.source),
+                    size.w,
+                    size.h,
+                    if shared.paint_cursors { ", with cursor" } else { "" }
+                );
                 let resource = init.init(session, shared.clone());
                 state.send_constraints(&resource, size);
                 state.image_capture.sessions.push((resource, shared));
@@ -435,6 +471,14 @@ impl Dispatch<ExtImageCopyCaptureManagerV1, (), State> for State {
                 let _ = manager;
             }
         }
+    }
+}
+
+/// The source in words, for the log.
+fn describe(source: &Source) -> String {
+    match source {
+        Source::Output(output) => format!("output {}", output.name()),
+        Source::Toplevel(handle) => format!("window {:?} ({})", handle.title(), handle.app_id()),
     }
 }
 
@@ -498,7 +542,10 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, Arc<SessionShared>, State> for State
         }
     }
 
-    fn destroyed(state: &mut State, _: ClientId, session: &ExtImageCopyCaptureSessionV1, _: &Arc<SessionShared>) {
+    fn destroyed(state: &mut State, _: ClientId, session: &ExtImageCopyCaptureSessionV1, data: &Arc<SessionShared>) {
+        if state.image_capture.sessions.iter().any(|(s, _)| s == session) {
+            tracing::info!("capture session closed: {}", describe(&data.source));
+        }
         state.image_capture.sessions.retain(|(s, _)| s != session);
     }
 }
@@ -553,7 +600,7 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, FrameData, State> for State {
                     frame.failed(FailureReason::BufferConstraints);
                     return;
                 }
-                state.image_capture.pending.push(PendingFrame { frame: frame.clone(), session: data.session.clone(), buffer });
+                state.image_capture.pending.push(PendingFrame { frame: frame.clone(), session: data.session.clone(), buffer, requested: std::time::Instant::now() });
                 state.queue_redraw_all();
             }
             _ => {}

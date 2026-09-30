@@ -8,7 +8,8 @@ mod stream;
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
+    time::Duration,
 };
 
 use mywm_ipc::{Chosen, SourceKinds};
@@ -83,7 +84,7 @@ impl ScreenCast {
         &self,
         _handle: ObjectPath<'_>,
         session_handle: ObjectPath<'_>,
-        _app_id: &str,
+        app_id: &str,
         _parent_window: &str,
         _options: HashMap<String, OwnedValue>,
         #[zbus(connection)] connection: &Connection,
@@ -97,7 +98,8 @@ impl ScreenCast {
         let bus = zbus::blocking::Connection::from(connection.clone());
         let sessions = self.sessions.clone();
         let session_path = path.clone();
-        let result = blocking::unblock(move || start_stream(types, cursor_mode, &session_path, bus)).await;
+        let app_id = app_id.to_owned();
+        let result = blocking::unblock(move || start_stream(&app_id, types, cursor_mode, &session_path, bus)).await;
         match result {
             Ok(Some((handle, node_id, size, source_type))) => {
                 if let Some(session) = sessions.lock().unwrap().get_mut(&path) {
@@ -141,8 +143,56 @@ impl ScreenCast {
 /// A running stream: its handle, PipeWire node id, size and `source_type`.
 type Shared = (StreamHandle, u32, (u32, u32), u32);
 
+/// One question to the compositor that several sessions of an app can wait for at the same time.
+#[derive(Default)]
+struct Answer {
+    value: Mutex<Option<Result<Chosen, String>>>,
+    ready: Condvar,
+}
+
+/// Chromium-based apps (Discord, Vesktop) open two sessions within a moment: ask once per app and
+/// let the second session, which arrives while the first is being answered, take that answer
+/// instead of being refused.
+static ANSWERS: Mutex<Vec<(String, Arc<Answer>)>> = Mutex::new(Vec::new());
+
+fn choose_once(app_id: &str, kinds: SourceKinds) -> Result<Chosen, String> {
+    let (answer, mine) = {
+        let mut answers = ANSWERS.lock().unwrap();
+        match answers.iter().find(|(id, _)| id == app_id) {
+            Some((_, answer)) => (answer.clone(), false),
+            None => {
+                let answer = Arc::new(Answer::default());
+                answers.push((app_id.to_owned(), answer.clone()));
+                (answer, true)
+            }
+        }
+    };
+    if mine {
+        // Another question (the overview, a screenshot selection) may be open: wait for it.
+        let mut result = chooser::choose(kinds);
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while matches!(&result, Err(e) if e.contains("busy")) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(500));
+            result = chooser::choose(kinds);
+        }
+        *answer.value.lock().unwrap() = Some(result.clone());
+        answer.ready.notify_all();
+        // Sessions that were waiting hold the answer; a later one asks again.
+        ANSWERS.lock().unwrap().retain(|(id, _)| id != app_id);
+        result
+    } else {
+        let mut value = answer.value.lock().unwrap();
+        while value.is_none() {
+            value = answer.ready.wait(value).unwrap();
+        }
+        tracing::info!("{app_id}: a second session shares the choice of the first");
+        value.clone().unwrap()
+    }
+}
+
 /// Ask the compositor what to share and start streaming it. `Ok(None)`: the user cancelled.
 fn start_stream(
+    app_id: &str,
     types: u32,
     cursor_mode: u32,
     session_path: &str,
@@ -153,7 +203,7 @@ fn start_stream(
         2 => SourceKinds::Window,
         _ => SourceKinds::Both,
     };
-    let source = match chooser::choose(kinds)? {
+    let source = match choose_once(app_id, kinds)? {
         Chosen::Monitor(name) => Source::Monitor(name),
         Chosen::Window(id) => Source::Window(id),
         Chosen::Nothing => return Ok(None),

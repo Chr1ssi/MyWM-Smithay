@@ -33,7 +33,7 @@ pub fn choose(kinds: SourceKinds) -> Result<Chosen, String> {
         }
         match line.as_str() {
             "v1 ok" => accepted = true,
-            "v1 error invalid-command" if !accepted => return Err("the compositor is busy or refused the request".into()),
+            "v1 error invalid-command" if !accepted => return Err("the compositor is busy (another selection is open)".into()),
             _ => {}
         }
     }

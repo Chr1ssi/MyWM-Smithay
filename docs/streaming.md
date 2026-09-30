@@ -33,6 +33,13 @@ Einrichtung:
    `dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP MYWM_SOCKET`.
 4. `xdg-desktop-portal-wlr` nicht mehr starten. Nötig bleiben `xdg-desktop-portal`, `pipewire`, `wireplumber`.
 
+Ruhige Bilder: Steht das Bild still, liefert der Compositor trotzdem etwa alle 0,4 s ein Bild (Keepalive),
+sonst hält Chromium (Discord, Vesktop) den Strom für tot. Öffnet eine App zwei Sitzungen gleichzeitig (Vesktop tut das),
+beantwortet die Auswahl beide; die zweite wird nicht abgelehnt.
+
+Logs: `journalctl --user -u 'dbus-*mywm*'` bzw. die Ausgabe von `mywm-portal` zeigt Format, Bildgröße,
+Verbraucher und Bilder pro 5 s; im Compositor-Log stehen `capture session: …` (Quelle, Größe, erstes Bild, Ende).
+
 Technik: Das Portal hängt als Wayland-Client am Compositor (`ext-image-copy-capture`) und schreibt
 die Bilder direkt in PipeWire-Puffer (gemeinsamer Speicher, keine zusätzliche Kopie im Portal). Dmabuf
 (GPU-Puffer ohne Umweg über die CPU) gibt es für diesen Weg noch nicht; bei 1440p144 ist der

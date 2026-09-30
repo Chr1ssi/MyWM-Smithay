@@ -227,6 +227,9 @@ struct Shared {
     ready_tx: Option<mpsc::Sender<Result<Started, String>>>,
     /// The stream ended without being asked to.
     ended_itself: bool,
+    /// Frames handed to PipeWire since the last statistics line, and when that was.
+    delivered: u32,
+    last_stats: std::time::Instant,
 }
 
 fn pod_bytes(value: Value) -> Vec<u8> {
@@ -408,6 +411,7 @@ impl Shared {
             stream.queue_raw_buffer(raw);
         }
         if outcome.is_ok() {
+            self.delivered += 1;
             let _ = stream.trigger_process();
         } else if matches!(outcome, Err(FailureReason::Stopped)) {
             self.wl.stopped = true;
@@ -517,6 +521,8 @@ fn run(
         in_flight: None,
         ready_tx: Some(ready_tx.clone()),
         ended_itself: false,
+        delivered: 0,
+        last_stats: std::time::Instant::now(),
     }));
 
     let stream = match pw::stream::StreamRc::new(
@@ -543,6 +549,7 @@ fn run(
                 let Ok(mut s) = shared.try_borrow_mut() else { return };
                 match new {
                     StreamState::Paused => {
+                        tracing::debug!("screen cast: stream paused");
                         s.streaming = false;
                         if !s.node_reported {
                             s.node_reported = true;
@@ -553,6 +560,7 @@ fn run(
                         }
                     }
                     StreamState::Streaming => {
+                        tracing::info!("screen cast: a consumer is reading the stream");
                         s.streaming = true;
                         s.request_frame(stream);
                         s.flush();
@@ -585,6 +593,7 @@ fn run(
                 return;
             }
             let size = (info.size().width, info.size().height);
+            tracing::info!("screen cast: negotiated {:?} {}x{} at up to {}/{} fps", info.format(), size.0, size.1, info.max_framerate().num, info.max_framerate().denom.max(1));
             if let Ok(mut s) = shared.try_borrow_mut() {
                 s.format = Some((info.format(), size));
             }
@@ -628,6 +637,7 @@ fn run(
                 let buffer = pool.create_buffer(0, size.0 as i32, size.1 as i32, stride, wl_format, &s.qh, ());
                 pool.destroy();
                 s.buffers.insert(raw as usize, (buffer, fd));
+                tracing::debug!("screen cast: buffer {} added ({} bytes, shared memory)", s.buffers.len(), len);
                 s.flush();
             }
         })
@@ -683,6 +693,13 @@ fn run(
             if let Ok(mut s) = shared.try_borrow_mut() {
                 s.request_frame(&stream);
                 s.flush();
+                if s.last_stats.elapsed() >= std::time::Duration::from_secs(5) {
+                    if s.streaming || s.delivered > 0 {
+                        tracing::info!("screen cast: {} frames in {:.0} s", s.delivered, s.last_stats.elapsed().as_secs_f64());
+                    }
+                    s.delivered = 0;
+                    s.last_stats = std::time::Instant::now();
+                }
             }
         }
     });
