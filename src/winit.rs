@@ -71,6 +71,14 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                 // Captures render offscreen, which must not happen while the window is being drawn.
                 state.fulfill_screencopy(backend.renderer(), &output, &elements, true);
                 let outputs: Vec<_> = state.outputs.iter().map(|e| e.output.clone()).collect();
+                // Virtual outputs have no window of their own, but can still be captured.
+                for other in outputs.iter().filter(|o| *o != &output) {
+                    if state.pending_copies.iter().any(|p| p.output() == other) {
+                        let renderer = backend.renderer();
+                        let elements = state.output_elements(renderer, other);
+                        state.fulfill_screencopy(renderer, other, &elements, true);
+                    }
+                }
                 for output in &outputs {
                     state.send_frames(output);
                     // Outputs without a picture have nothing to hide: count them as showing the lock.

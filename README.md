@@ -56,6 +56,7 @@ PYTHONPATH=tests python3 tests/screencopy_smoke.py    # Aufnahme mit grim
 PYTHONPATH=tests python3 tests/clipboard_smoke.py     # Kopieren/Einfügen (wl-clipboard)
 PYTHONPATH=tests python3 tests/layer_smoke.py         # Layer-Shell-Client mit Größe 0 (Quickshell-Marker)
 PYTHONPATH=tests python3 tests/x11_focus_smoke.py     # Tastatur in X11-Fenstern (xev)
+PYTHONPATH=tests python3 tests/scroll_clip_smoke.py   # herausgescrollte Fenster erscheinen nicht auf dem Nachbarmonitor
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

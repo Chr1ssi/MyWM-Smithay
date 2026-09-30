@@ -226,7 +226,7 @@ impl State {
                 let clicked = self.pointer_focus().map(|(surface, _)| surface);
                 self.note_click(clicked.as_ref());
             }
-            let under = self.space.element_under(self.pointer_location).map(|(w, _)| w.clone());
+            let under = self.window_at(self.pointer_location).map(|(w, _)| w);
             if let Some(window) = under.filter(|_| self.layer_focus.is_none() && !locked) {
                 self.space.raise_element(&window, true);
                 if let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).map(|m| m.id) {
@@ -262,7 +262,7 @@ impl State {
         // Panels above the windows first, then windows, then wallpapers and the like.
         self.layer_surface_at(&[Layer::Overlay, Layer::Top])
             .or_else(|| {
-                let (window, loc) = self.space.element_under(self.pointer_location)?;
+                let (window, loc) = self.window_at(self.pointer_location)?;
                 window
                     .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
                     .map(|(surface, origin)| (surface, (origin + loc).to_f64()))
@@ -277,8 +277,8 @@ impl State {
         let under = self.pointer_focus();
         // Focus follows mouse, like MyWM on River, unless a panel holds the keyboard.
         if self.keyboard_layer().is_none()
-            && let Some((window, _)) = self.space.element_under(self.pointer_location)
-            && let Some(id) = self.desktop.windows.iter().find(|m| &m.window == window).map(|m| m.id)
+            && let Some((window, _)) = self.window_at(self.pointer_location)
+            && let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).map(|m| m.id)
         {
             self.focus_window(id);
         }

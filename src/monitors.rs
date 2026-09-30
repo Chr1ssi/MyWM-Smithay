@@ -1,7 +1,7 @@
 //! Outputs as monitors: hotplug, pointer/monitor focus and the workspace commands that span monitors.
 use mywm_layout::{Direction, GAMING, Rect};
 use smithay::{
-    desktop::layer_map_for_output,
+    desktop::{Window, layer_map_for_output, space::SpaceElement},
     output::Output,
     utils::{Logical, Point},
 };
@@ -296,5 +296,28 @@ impl State {
             });
         }
         snapshot
+    }
+}
+
+impl State {
+    /// The window under `point` and its render location, front to back.
+    ///
+    /// Like the drawing, this only considers windows of the monitor the point is on, so tiles
+    /// scrolled off one monitor's edge cannot catch the pointer on its neighbour.
+    pub fn window_at(&self, point: Point<f64, Logical>) -> Option<(Window, Point<i32, Logical>)> {
+        let monitor = self.desktop.desk.monitor_at(point.x.floor() as i32, point.y.floor() as i32);
+        self.space.elements().rev().find_map(|window| {
+            let owner = self.desktop.windows.iter().find(|m| &m.window == window).map(|m| self.monitor_of_window(m));
+            if owner.is_some_and(|owner| owner != monitor) {
+                return None;
+            }
+            if !self.space.element_bbox(window)?.to_f64().contains(point) {
+                return None;
+            }
+            let render_location = self.space.element_location(window)? - window.geometry().loc;
+            window
+                .is_in_input_region(&(point - render_location.to_f64()))
+                .then(|| (window.clone(), render_location))
+        })
     }
 }

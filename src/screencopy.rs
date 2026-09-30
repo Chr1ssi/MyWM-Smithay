@@ -60,6 +60,12 @@ pub struct PendingCopy {
     wait_for_damage: bool,
 }
 
+impl PendingCopy {
+    pub fn output(&self) -> &Output {
+        &self.output
+    }
+}
+
 impl State {
     pub fn create_screencopy_global(display: &DisplayHandle) -> smithay::reexports::wayland_server::backend::GlobalId {
         display.create_global::<State, ZwlrScreencopyManagerV1, ()>(3, ())

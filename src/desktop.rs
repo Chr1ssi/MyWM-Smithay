@@ -7,6 +7,7 @@ use smithay::{
     backend::renderer::element::{
         Kind,
         solid::{SolidColorBuffer, SolidColorRenderElement},
+        utils::CropRenderElement,
     },
     desktop::Window,
     output::Output,
@@ -14,7 +15,7 @@ use smithay::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point, Rectangle},
+    utils::{Logical, Physical, Point, Rectangle},
     xwayland::{X11Surface, xwm::WmWindowType},
     wayland::{
         compositor::with_states, fractional_scale::with_fractional_scale, shell::xdg::XdgToplevelSurfaceData,
@@ -510,12 +511,27 @@ impl State {
         self.set_keyboard_focus(surface);
     }
 
+    /// The monitor a window is shown on: the scratchpad's follows the pointer, others their workspace's.
+    pub fn monitor_of_window(&self, m: &Managed) -> Option<usize> {
+        if self.desktop.in_scratchpad(m.id) {
+            self.desktop.scratchpad_visible.then(|| self.scratchpad_monitor())
+        } else {
+            self.desktop.desk.locate(&m.id).map(|(monitor, _)| monitor)
+        }
+    }
+
     /// Border rectangles that fall on `output`, top-most first, in output-local physical pixels.
-    pub fn border_elements(&self, output: &Output) -> Vec<SolidColorRenderElement> {
+    pub fn border_elements(&self, output: &Output) -> Vec<CropRenderElement<SolidColorRenderElement>> {
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
+        let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
+        // Nothing may show beyond the edge of the output it belongs to.
+        let visible_area = Rectangle::<i32, Physical>::from_size(geo.size.to_physical_precise_round(scale));
         let mut elements = Vec::new();
         for m in self.desktop.windows.iter().rev() {
+            if self.monitor_of_window(m) != Some(this_monitor) {
+                continue;
+            }
             let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) else { continue };
             let visible = frame.x < geo.loc.x + geo.size.w
                 && frame.x + frame.width > geo.loc.x
@@ -535,7 +551,10 @@ impl State {
                     ((x - geo.loc.x) as f64 * scale).round() as i32,
                     ((y - geo.loc.y) as f64 * scale).round() as i32,
                 );
-                elements.push(SolidColorRenderElement::from_buffer(buffer, local, scale, 1.0, Kind::Unspecified));
+                let element = SolidColorRenderElement::from_buffer(buffer, local, scale, 1.0, Kind::Unspecified);
+                if let Some(cropped) = CropRenderElement::from_element(element, scale, visible_area) {
+                    elements.push(cropped);
+                }
             }
         }
         elements
@@ -608,7 +627,7 @@ impl State {
     }
 
     pub fn begin_drag(&mut self, kind: DragKind) {
-        let under = self.space.element_under(self.pointer_location).map(|(w, _)| w.clone());
+        let under = self.window_at(self.pointer_location).map(|(w, _)| w);
         let Some(m) = self.desktop.windows.iter().find(|m| under.as_ref() == Some(&m.window)) else {
             return;
         };
