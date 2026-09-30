@@ -287,6 +287,7 @@ impl State {
                 let mut tracker = OutputDamageTracker::new(mode_size, scale, transform);
                 let visible: Vec<&OutputElement> = elements
                     .iter()
+                    .filter(|e| !matches!(e, OutputElement::Overlay(_)))
                     .filter(|e| frame.session.paint_cursors || !matches!(e, OutputElement::Cursor(_)))
                     .collect();
                 render_to_buffer(renderer, &mut tracker, &visible, self.clear_color(), &frame.buffer, size, region)

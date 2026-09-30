@@ -25,6 +25,8 @@ render_elements! {
     Border=CropRenderElement<SolidColorRenderElement>,
     /// The rounded border ring of a window.
     Ring=CropRenderElement<PixelShaderElement>,
+    /// Screenshot selection dimming; never captured.
+    Overlay=SolidColorRenderElement,
     /// A managed window with rounded corners.
     Rounded=crate::effects::Rounded<CropRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
     /// Panels, popups of unmanaged windows and lock screens.
@@ -38,6 +40,7 @@ impl State {
     pub fn output_elements(&mut self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
         let mut elements: Vec<OutputElement> =
             self.cursor_elements(renderer, output).into_iter().map(OutputElement::from).collect();
+        elements.extend(self.overlay_elements(output).into_iter().map(OutputElement::from));
         if self.session_lock.is_active() {
             // A locked session shows the locker's surface (or plain black) and nothing else.
             if let Some(surface) = self.lock_surface_for(output) {

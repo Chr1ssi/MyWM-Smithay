@@ -38,6 +38,7 @@ pub fn parse_key(key: &str) -> Result<(u32, Modifiers)> {
         "space" => 0x20,
         "tab" => 0xff09,
         "escape" | "esc" => 0xff1b,
+        "print" => 0xff61,
         "grave" => 0x60,
         "minus" => 0x2d,
         "equal" => 0x3d,

@@ -15,6 +15,7 @@ mod pacing;
 mod protocols;
 mod render;
 mod screencopy;
+mod screenshot;
 mod session;
 mod udev;
 mod xwayland;

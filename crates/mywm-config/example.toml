@@ -28,6 +28,7 @@
 # Programm und Argumente getrennt, ohne Shell-Auswertung.
 #terminal = ["kitty"]
 # Standard: $HOME/Bilder/Wallpaper. Muss ein absoluter Pfad sein.
+#screenshot_directory = "/home/nutzer/Bilder/Screenshots"
 #wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
 
 # Optional: adaptive sync remains off except while a recognized game is visibly
@@ -81,6 +82,11 @@
 #[bindings]
 #reload = ["Super+Shift+r"]
 #wallpaper = ["Super+Shift+w"]
+# Screenshot: Bereich ziehen oder Fenster anklicken (Enter = ganzer Monitor, Esc = abbrechen).
+# Speichert ein PNG in screenshot_directory und kopiert es in die Zwischenablage (wl-copy).
+#screenshot = ["Print"]
+#screenshot_screen = ["Shift+Print"]   # Monitor unter dem Mauszeiger
+#screenshot_window = ["Ctrl+Print"]    # fokussiertes Fenster
 #lock = ["Super+Escape"]
 #terminal = ["Super+Return"]
 #launcher = ["Super+Space"]

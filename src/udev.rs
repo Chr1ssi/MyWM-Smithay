@@ -787,6 +787,7 @@ impl State {
         }
         self.fulfill_screencopy(renderer, &output, &elements, had_damage);
         self.fulfill_image_captures(renderer, &output, &elements, had_damage);
+        self.fulfill_screenshots(renderer, &output, &elements);
         // With late scheduling frame callbacks go out at the vblank instead (see `on_vblank`).
         if !late {
             self.send_frames(&output);

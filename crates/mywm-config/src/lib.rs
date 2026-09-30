@@ -28,6 +28,10 @@ pub use mywm_layout::Direction as OutputDirection;
 pub enum Action {
     Reload,
     Wallpaper,
+    /// Pick a region or click a window; saves a PNG and copies it.
+    Screenshot,
+    ScreenshotScreen,
+    ScreenshotWindow,
     Lock,
     Terminal,
     Launcher,
@@ -67,6 +71,8 @@ pub struct Config {
     pub gaming_output: Option<String>,
     pub async_outputs: Vec<String>,
     pub wallpaper_directory: String,
+    /// Where screenshots are saved.
+    pub screenshot_directory: String,
     pub idle: IdleConfig,
     pub keyboard: KeyboardConfig,
     pub terminal: Vec<String>,
@@ -116,6 +122,9 @@ impl Default for Config {
         Self {
             workspace_outputs: Vec::new(),
             async_outputs: Vec::new(),
+            screenshot_directory: std::env::var("HOME")
+                .map(|home| format!("{home}/Bilder/Screenshots"))
+                .unwrap_or_else(|_| "/tmp".into()),
             wallpaper_directory: std::env::var("HOME")
                 .map(|home| format!("{home}/Bilder/Wallpaper"))
                 .unwrap_or_else(|_| "/usr/share/backgrounds".into()),
@@ -156,6 +165,9 @@ pub struct ProgramBinding {
 pub struct Bindings {
     reload: Vec<String>,
     wallpaper: Vec<String>,
+    screenshot: Vec<String>,
+    screenshot_screen: Vec<String>,
+    screenshot_window: Vec<String>,
     lock: Vec<String>,
     terminal: Vec<String>,
     launcher: Vec<String>,
@@ -197,6 +209,9 @@ impl Default for Bindings {
         Self {
             reload: keys(&["Super+Shift+r"]),
             wallpaper: keys(&["Super+Shift+w"]),
+            screenshot: keys(&["Print"]),
+            screenshot_screen: keys(&["Shift+Print"]),
+            screenshot_window: keys(&["Ctrl+Print"]),
             lock: keys(&["Super+Escape"]),
             toggle_floating: keys(&["Super+v"]),
             toggle_fullscreen: keys(&["Super+f"]),
@@ -281,6 +296,9 @@ impl Config {
         for (index, rule) in config.rules.iter().enumerate() {
             rule.validate().map_err(|error| format!("rules[{}]: {error}", index + 1))?;
         }
+        if !std::path::Path::new(&config.screenshot_directory).is_absolute() {
+            return Err("screenshot_directory must be an absolute path".into());
+        }
         if !std::path::Path::new(&config.wallpaper_directory).is_absolute() {
             return Err("wallpaper_directory must be an absolute path".into());
         }
@@ -346,6 +364,9 @@ impl Config {
         for (keys, action) in [
             (&b.reload, Action::Reload),
             (&b.wallpaper, Action::Wallpaper),
+            (&b.screenshot, Action::Screenshot),
+            (&b.screenshot_screen, Action::ScreenshotScreen),
+            (&b.screenshot_window, Action::ScreenshotWindow),
             (&b.lock, Action::Lock),
             (&b.terminal, Action::Terminal),
             (&b.launcher, Action::Launcher),

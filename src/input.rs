@@ -36,6 +36,7 @@ enum Constraint {
 enum Intercepted {
     Action(Action),
     Vt(i32),
+    Select(crate::screenshot::SelectKey),
 }
 
 fn modifiers(state: &ModifiersState) -> Modifiers {
@@ -68,6 +69,9 @@ impl State {
             Action::Reload => self.reload_config(),
             Action::Lock => self.start_locker(),
             Action::Wallpaper => self.open_wallpaper_picker(),
+            Action::Screenshot => self.start_selection(),
+            Action::ScreenshotScreen => self.screenshot_screen(),
+            Action::ScreenshotWindow => self.screenshot_window(),
             Action::Close => {
                 if let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get(id)) {
                     m.close();
@@ -114,6 +118,15 @@ impl State {
                         if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&raw) {
                             return FilterResult::Intercept(Intercepted::Vt((raw - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
                         }
+                        // While picking a screenshot region the keyboard belongs to the picker.
+                        if state.selecting.is_some() {
+                            use crate::screenshot::SelectKey;
+                            return FilterResult::Intercept(Intercepted::Select(match raw {
+                                keysyms::KEY_Escape => SelectKey::Cancel,
+                                keysyms::KEY_Return | keysyms::KEY_KP_Enter => SelectKey::Confirm,
+                                _ => SelectKey::Ignore,
+                            }));
+                        }
                         // A locked session hands every other key to the locker.
                         if state.session_lock.is_active() {
                             return FilterResult::Forward;
@@ -127,6 +140,7 @@ impl State {
                 );
                 match action {
                     Some(Intercepted::Action(action)) => self.run_action(action),
+                    Some(Intercepted::Select(key)) => self.selection_key(key),
                     Some(Intercepted::Vt(vt)) => {
                         if let Some(session) = &mut self.session
                             && let Err(error) = session.change_vt(vt)
@@ -202,6 +216,9 @@ impl State {
     }
 
     fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
+        if self.selecting.is_some() {
+            return self.selection_button(button, state);
+        }
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released && self.desktop.drag.is_some() {
@@ -248,6 +265,9 @@ impl State {
             self.queue_redraw_output(output);
         }
         self.cursor_output = current;
+        if self.selecting.is_some() {
+            return self.selection_moved();
+        }
         if self.desktop.drag.is_some() {
             self.update_drag();
         } else {

@@ -43,10 +43,10 @@ pub struct FrameData {
     used: AtomicBool,
 }
 
-struct CaptureGeometry {
-    mode_size: Size<i32, Physical>,
-    size: Size<i32, Physical>,
-    transform: Transform,
+pub(crate) struct CaptureGeometry {
+    pub mode_size: Size<i32, Physical>,
+    pub size: Size<i32, Physical>,
+    pub transform: Transform,
 }
 
 /// A `copy` request waiting for the next frame of its output.
@@ -72,7 +72,7 @@ impl State {
     }
 
     /// Mode size, size as displayed (after rotation) and the transform a capture of `output` is rendered with.
-    fn capture_geometry(&self, output: &Output) -> Option<CaptureGeometry> {
+    pub(crate) fn capture_geometry(&self, output: &Output) -> Option<CaptureGeometry> {
         let mode = output.current_mode()?;
         // The nested window renders upside down internally (see `winit.rs`); real outputs do not.
         let transform = if self.udev.is_some() { output.current_transform() } else { Transform::Normal };
@@ -127,6 +127,7 @@ impl State {
         // Without the cursor overlay, leave the cursor elements out.
         let visible: Vec<&OutputElement> = elements
             .iter()
+            .filter(|e| !matches!(e, OutputElement::Overlay(_)))
             .filter(|e| pending.overlay_cursor || !matches!(e, OutputElement::Cursor(_)))
             .collect();
 
@@ -341,6 +342,38 @@ pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<Gl
     }
 
     // Shared memory: render into a texture, read it back and copy the wanted part.
+    let pixels = render_to_pixels(renderer, tracker, elements, clear, size, region)?;
+    let region = Rectangle::<i32, BufferCoords>::new(
+        (region.loc.x, region.loc.y).into(),
+        (region.size.w, region.size.h).into(),
+    );
+    let row = region.size.w as usize * 4;
+    with_buffer_contents_mut(buffer, |ptr, len, data: BufferData| {
+        let (offset, stride) = (data.offset as usize, data.stride as usize);
+        for y in 0..region.size.h as usize {
+            let start = offset + y * stride;
+            if start + row > len || (y + 1) * row > pixels.len() {
+                return Err("the client's buffer is smaller than announced");
+            }
+            // SAFETY: bounds were checked above and the pool stays mapped during the callback.
+            unsafe { std::ptr::copy_nonoverlapping(pixels[y * row..].as_ptr(), ptr.add(start), row) };
+        }
+        Ok(())
+    })
+    .map_err(|e| format!("shm access: {e:?}"))?
+    .map_err(String::from)
+}
+
+/// Render `elements` with `tracker` (for a target of `size` pixels) and read back `region` as
+/// `Argb8888` bytes (little endian: B, G, R, A per pixel, top row first).
+pub fn render_to_pixels<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
+    renderer: &mut GlesRenderer,
+    tracker: &mut OutputDamageTracker,
+    elements: &[E],
+    clear: [f32; 4],
+    size: Size<i32, Physical>,
+    region: Rectangle<i32, Physical>,
+) -> Result<Vec<u8>, String> {
     let buffer_size: Size<i32, BufferCoords> = (size.w, size.h).into();
     let mut texture = Offscreen::<smithay::backend::renderer::gles::GlesTexture>::create_buffer(
         renderer,
@@ -358,19 +391,5 @@ pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<Gl
     );
     let mapping = renderer.copy_framebuffer(&target, region, Fourcc::Argb8888).map_err(|e| format!("read back: {e}"))?;
     let pixels = renderer.map_texture(&mapping).map_err(|e| format!("map: {e}"))?;
-    let row = region.size.w as usize * 4;
-    with_buffer_contents_mut(buffer, |ptr, len, data: BufferData| {
-        let (offset, stride) = (data.offset as usize, data.stride as usize);
-        for y in 0..region.size.h as usize {
-            let start = offset + y * stride;
-            if start + row > len || (y + 1) * row > pixels.len() {
-                return Err("the client's buffer is smaller than announced");
-            }
-            // SAFETY: bounds were checked above and the pool stays mapped during the callback.
-            unsafe { std::ptr::copy_nonoverlapping(pixels[y * row..].as_ptr(), ptr.add(start), row) };
-        }
-        Ok(())
-    })
-    .map_err(|e| format!("shm access: {e:?}"))?
-    .map_err(String::from)
+    Ok(pixels.to_vec())
 }
