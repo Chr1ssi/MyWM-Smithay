@@ -95,6 +95,8 @@ impl State {
             self.blur_dirty(&output);
         }
         self.layers_changed(Some(&output));
+        // A panel that now asks for the keyboard (a launcher, the wallpaper picker) gets it at once.
+        self.sync_focus();
         true
     }
 

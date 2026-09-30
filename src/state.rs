@@ -382,8 +382,24 @@ impl State {
     /// Open the wallpaper picker of the running wallpaper layer at the pointer.
     pub fn open_wallpaper_picker(&self) {
         let mut cmd = mywm_theme::picker_command(self.pointer_location.x as i32, self.pointer_location.y as i32);
-        cmd.env("WAYLAND_DISPLAY", &self.socket_name);
-        Self::spawn_reaped(cmd, "the wallpaper picker (is `mywm-compositor --wallpaper` running?)");
+        cmd.env("WAYLAND_DISPLAY", &self.socket_name).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+        match cmd.spawn() {
+            Ok(child) => {
+                // Say why when it fails (most often: the wallpaper layer is not running).
+                std::thread::spawn(move || match child.wait_with_output() {
+                    Ok(output) if !output.status.success() => {
+                        tracing::warn!(
+                            "the wallpaper picker could not be opened ({}): {} (is `mywm-compositor --wallpaper` running?)",
+                            output.status,
+                            String::from_utf8_lossy(&output.stderr).trim()
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(error) => tracing::warn!("the wallpaper picker command failed: {error}"),
+                });
+            }
+            Err(error) => tracing::warn!("cannot start `qs` for the wallpaper picker: {error}"),
+        }
     }
 
     fn spawn_reaped(mut cmd: std::process::Command, what: &str) {

@@ -7,13 +7,14 @@ use wayland_client::{
     Connection, Dispatch, QueueHandle, delegate_noop,
     globals::{GlobalListContents, registry_queue_init},
     protocol::{
+        wl_keyboard::{self, WlKeyboard},
         wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::{self, WlShm},
         wl_shm_pool::WlShmPool, wl_surface::WlSurface,
     },
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_shell_v1::{Layer, ZwlrLayerShellV1},
-    zwlr_layer_surface_v1::{self, ZwlrLayerSurfaceV1},
+    zwlr_layer_surface_v1::{self, KeyboardInteractivity, ZwlrLayerSurfaceV1},
 };
 use wayland_protocols::{
     wp::keyboard_shortcuts_inhibit::zv1::client::{
@@ -35,6 +36,7 @@ use wayland_protocols::{
 
 #[derive(Default)]
 struct App {
+    keyboard_entered: bool,
     configured: Vec<bool>,
     inhibitor_active: Option<bool>,
     token: Option<String>,
@@ -92,6 +94,14 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for App {
     }
 }
 
+impl Dispatch<WlKeyboard, ()> for App {
+    fn event(state: &mut Self, _: &WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_keyboard::Event::Enter { .. } = event {
+            state.keyboard_entered = true;
+        }
+    }
+}
+
 delegate_noop!(App: ignore ZwlrLayerShellV1);
 delegate_noop!(App: ignore WlCompositor);
 delegate_noop!(App: ignore WlShm);
@@ -143,6 +153,10 @@ fn main() {
             let layer = if layer_name == "overlay" { Layer::Overlay } else { Layer::Top };
             let layer_surface = shell.get_layer_surface(&surface, None, layer, "test".into(), &qh, ());
             layer_surface.set_size(w as u32, h as u32);
+            let exclusive = args.get(7).is_some_and(|a| a == "exclusive");
+            if exclusive {
+                layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+            }
             surface.commit();
             while !app.configured[0] {
                 queue.blocking_dispatch(&mut app).unwrap();
@@ -163,10 +177,17 @@ fn main() {
         surface.commit();
         queue.roundtrip(&mut app).unwrap();
         println!("shown");
+        let seat: WlSeat = globals.bind(&qh, 1..=1, ()).unwrap();
+        let _keyboard = seat.get_keyboard(&qh, ());
         let end = Instant::now() + Duration::from_secs(seconds);
+        let mut reported = false;
         while Instant::now() < end {
             let _ = queue.roundtrip(&mut app);
-            std::thread::sleep(Duration::from_millis(200));
+            if app.keyboard_entered && !reported {
+                println!("keyboard focus");
+                reported = true;
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
         return;
     }
