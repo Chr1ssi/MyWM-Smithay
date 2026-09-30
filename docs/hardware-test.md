@@ -109,6 +109,16 @@ Prüfen:
 - Der Cursor kommt aus dem xcursor-Theme (`XCURSOR_THEME`, `XCURSOR_SIZE`), animierte Cursor
   stehen still.
 
+## Logs
+
+Der Compositor schreibt jetzt immer eine Logdatei: `~/.local/state/mywm/compositor.log`
+(Pfad mit `MYWM_LOG_FILE` änderbar, `MYWM_LOG_FILE=off` schaltet sie ab; die Datei der vorigen
+Sitzung bleibt als `compositor.log.1` liegen). Darin stehen Start, Config-Pfad, jeder Monitor mit
+Position und Größe, GPU und Modus, neue Fenster mit App-ID, Layer-Surfaces (Bar, Wallpaper),
+Xwayland, VRR/Tearing und jeder Client, der wegen eines Protokollfehlers rausgeworfen wurde.
+Mit `RUST_LOG=debug` (oder z. B. `RUST_LOG=info,smithay::backend::drm=debug`) wird es
+ausführlicher. Panics landen ebenfalls dort.
+
 ## Fehler melden
 
 Bitte `compositor.log` (mit `RUST_LOG=debug` für Ausgaben von `smithay`) und die Ausgabe von

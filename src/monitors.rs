@@ -56,6 +56,15 @@ impl State {
         let area = Rect { x: geo.loc.x, y: geo.loc.y, width: geo.size.w, height: geo.size.h };
         let id = self.next_output_id;
         self.next_output_id += 1;
+        tracing::info!(
+            "output {} at {},{} size {}x{} scale {}",
+            output.name(),
+            area.x,
+            area.y,
+            area.width,
+            area.height,
+            output.current_scale().fractional_scale()
+        );
         let monitor = self.desktop.desk.add_monitor(Some(output.name()), area);
         debug_assert_eq!(monitor, self.outputs.len());
         self.outputs.push(OutputEntry { output, id, powered: true });

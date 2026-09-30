@@ -24,7 +24,7 @@ impl WlrLayerShellHandler for State {
         &mut self.layer_shell_state
     }
 
-    fn new_layer_surface(&mut self, surface: WlrLayerSurface, output: Option<WlOutput>, _layer: Layer, namespace: String) {
+    fn new_layer_surface(&mut self, surface: WlrLayerSurface, output: Option<WlOutput>, layer: Layer, namespace: String) {
         // Without a requested output, the focused monitor gets it.
         let output = output
             .as_ref()
@@ -34,9 +34,10 @@ impl WlrLayerShellHandler for State {
             surface.send_close();
             return;
         };
-        let layer = LayerSurface::new(surface, namespace);
-        if let Err(error) = layer_map_for_output(&output).map_layer(&layer) {
-            tracing::warn!("cannot map layer surface {:?}: {error}", layer.namespace());
+        tracing::info!("layer surface {namespace:?} on {} ({:?})", output.name(), layer);
+        let layer_surface = LayerSurface::new(surface, namespace);
+        if let Err(error) = layer_map_for_output(&output).map_layer(&layer_surface) {
+            tracing::warn!("cannot map layer surface {:?}: {error}", layer_surface.namespace());
         }
     }
 
@@ -50,6 +51,7 @@ impl WlrLayerShellHandler for State {
             let mut map = layer_map_for_output(&entry.output);
             let layer = map.layers().find(|l| l.layer_surface() == &surface).cloned();
             if let Some(layer) = layer {
+                tracing::info!("layer surface {:?} closed", layer.namespace());
                 map.unmap_layer(&layer);
             }
         }

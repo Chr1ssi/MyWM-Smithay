@@ -4,8 +4,9 @@ mod cursor;
 mod desktop;
 mod handlers;
 mod input;
-mod layers;
 mod ipc;
+mod layers;
+mod logging;
 mod monitors;
 mod protocols;
 mod render;
@@ -25,9 +26,21 @@ use tracing_subscriber::EnvFilter;
 pub use state::State;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .init();
+    // Client modes (`--lock`, `--idle`) write to the terminal only; the compositor logs to a file too.
+    let client_mode = matches!(std::env::args().nth(1).as_deref(), Some("--lock" | "--idle"));
+    let log_file = if client_mode {
+        tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))).init();
+        None
+    } else {
+        logging::init()
+    };
+    if !client_mode {
+        tracing::info!(
+            "mywm-compositor {} starting (log: {})",
+            env!("CARGO_PKG_VERSION"),
+            log_file.as_ref().map_or("stderr only".into(), |p| p.display().to_string())
+        );
+    }
 
     // Client modes shared with the River-based MyWM, used by the session scripts and swayidle.
     match std::env::args().nth(1).as_deref() {
@@ -39,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<State> = EventLoop::try_new()?;
     let display = smithay::reexports::wayland_server::Display::new()?;
     let config = mywm_config::Config::load()?;
+    tracing::info!("configuration: {}", mywm_config::Config::path().map_or("defaults".into(), |p| p.display().to_string()));
     // Inside another compositor or X server we run nested; on a bare seat we drive the hardware.
     // MYWM_BACKEND=winit|drm overrides the guess.
     let nested = match std::env::var("MYWM_BACKEND").as_deref() {

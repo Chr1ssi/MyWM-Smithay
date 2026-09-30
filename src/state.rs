@@ -112,11 +112,27 @@ pub struct State {
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    /// Program name of the client (from `/proc/<pid>/comm`), for the log.
+    pub name: std::sync::OnceLock<String>,
 }
 
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: ClientId) {}
-    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
+
+    fn disconnected(&self, _client_id: ClientId, reason: DisconnectReason) {
+        let name = self.name.get().map_or("?", String::as_str);
+        match reason {
+            DisconnectReason::ConnectionClosed => tracing::debug!("client {name} disconnected"),
+            // A protocol error means the compositor kicked the client out: that is worth a warning.
+            DisconnectReason::ProtocolError(error) => tracing::warn!(
+                "client {name} was disconnected for a protocol error: {} (object {}@{}, code {})",
+                error.message,
+                error.object_interface,
+                error.object_id,
+                error.code
+            ),
+        }
+    }
 }
 
 impl State {
@@ -139,10 +155,18 @@ impl State {
         let socket_name = socket.socket_name().to_os_string();
         loop_handle
             .insert_source(socket, |stream, _, state: &mut State| {
-                state
-                    .display_handle
-                    .insert_client(stream, Arc::new(ClientState::default()))
-                    .expect("insert client");
+                let data = Arc::new(ClientState::default());
+                let client = state.display_handle.insert_client(stream, data.clone()).expect("insert client");
+                let name = client
+                    .get_credentials(&state.display_handle)
+                    .ok()
+                    .map(|c| {
+                        let comm = std::fs::read_to_string(format!("/proc/{}/comm", c.pid)).unwrap_or_default();
+                        format!("{} (pid {})", comm.trim(), c.pid)
+                    })
+                    .unwrap_or_else(|| "unknown".into());
+                tracing::debug!("client {name} connected");
+                let _ = data.name.set(name);
             })
             .expect("socket source");
 
