@@ -1,0 +1,10 @@
+[package]
+name = "mywm-config"
+version = "0.1.0"
+edition = "2024"
+description = "TOML configuration for MyWM (same schema as the River-based MyWM)"
+
+[dependencies]
+mywm-layout = { path = "../mywm-layout" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"

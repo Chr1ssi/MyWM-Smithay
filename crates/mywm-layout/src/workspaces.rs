@@ -121,14 +121,19 @@ impl<T: Clone + Eq> Workspaces<T> {
         (1..=MAX_NUMBER).find(|number| !self.contains(*number))
     }
 
+    /// The next (`1`) or previous (`-1`) regular workspace, wrapping around.
+    pub fn relative(&self, direction: isize) -> Option<usize> {
+        let numbers: Vec<_> = self.numbers().filter(|number| *number != GAMING).collect();
+        let position = numbers.iter().position(|number| *number == self.active)?;
+        let next = (position as isize + direction).rem_euclid(numbers.len() as isize) as usize;
+        Some(numbers[next])
+    }
+
     /// Select the next (`1`) or previous (`-1`) regular workspace, wrapping around.
     pub fn cycle(&mut self, direction: isize) {
-        let numbers: Vec<_> = self.numbers().filter(|number| *number != GAMING).collect();
-        let Some(position) = numbers.iter().position(|number| *number == self.active) else {
-            return;
-        };
-        let next = (position as isize + direction).rem_euclid(numbers.len() as isize) as usize;
-        self.select(numbers[next]);
+        if let Some(number) = self.relative(direction) {
+            self.select(number);
+        }
     }
 
     pub fn select(&mut self, number: usize) {

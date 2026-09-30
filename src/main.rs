@@ -18,7 +18,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut event_loop: EventLoop<State> = EventLoop::try_new()?;
     let display = smithay::reexports::wayland_server::Display::new()?;
-    let mut state = State::new(&mut event_loop, display);
+    let config = mywm_config::Config::load()?;
+    // Nested, the host owns Super; MYWM_MODKEY=super keeps the configured modifiers.
+    let remap_super = std::env::var("MYWM_MODKEY").map_or(true, |v| !v.eq_ignore_ascii_case("super"));
+    let mut state = State::new(&mut event_loop, display, config, remap_super);
 
     winit::init(&mut event_loop, &mut state)?;
 
@@ -27,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("listening on WAYLAND_DISPLAY={:?}", state.socket_name);
 
     if let Some(cmd) = std::env::args().nth(1) {
-        state.spawn(&cmd);
+        state.spawn_command(&["sh".into(), "-c".into(), cmd], false);
     }
 
     event_loop.run(None, &mut state, |state| {

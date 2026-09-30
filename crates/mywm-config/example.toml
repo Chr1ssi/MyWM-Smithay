@@ -1,0 +1,128 @@
+# Beispielkonfiguration für mywm (nur zur Orientierung).
+#
+# Alle Einstellungen sind auskommentiert; es gelten die eingebauten Standardwerte.
+# Zum Anpassen die Datei nach $XDG_CONFIG_HOME/mywm/config.toml kopieren und die
+# gewünschten Zeilen aktivieren (führendes "#" entfernen). Auskommentierte
+# Einstellungen stehen ohne Leerzeichen nach dem "#", erklärende Kommentare mit.
+# Auf NixOS wird die echte Konfiguration über Home Manager erzeugt.
+
+# Jeder Monitor hat einen festen Workspace, nummeriert in der Reihenfolge dieser
+# Liste (der erste Monitor bekommt 1, der zweite 2, ...). Nicht aufgeführte Monitore
+# folgen danach. Zusätzliche Workspaces (bis Nummer 9) entstehen dynamisch auf dem
+# aktuellen Monitor und verschwinden wieder, sobald sie leer sind und man sie verlässt.
+# Änderungen gelten nach Neustart.
+#workspace_outputs = ["DP-3", "HDMI-A-1", "DP-1"]
+# Outputs not listed here use tear-free VSync presentation.
+#async_outputs = ["DP-3"]
+# Fenster mit Elternfenster (z. B. Dateidialoge) standardmäßig frei schwebend.
+#float_dialogs = true
+# Der Gaming-Workspace entsteht auf diesem Monitor, sobald ein Spiel startet, und
+# verschwindet mit dem letzten Spielfenster wieder (Standard: Monitor mit Workspace 1).
+# Er ist ausschließlich für Spiele reserviert: andere Fenster können weder dort
+# starten noch dorthin verschoben werden. Ohne Präfixe gibt es keinen Gaming-Workspace.
+#gaming_output = "DP-3"
+#game_app_id_prefixes = ["steam_app_", "gamescope"]
+# Programm und Argumente getrennt, ohne Shell-Auswertung.
+#terminal = ["kitty"]
+# Standard: $HOME/Bilder/Wallpaper. Muss ein absoluter Pfad sein.
+#wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
+
+# Optional: adaptive sync remains off except while a recognized game is visibly
+# fullscreen on this output. command receives wlr-randr-compatible arguments.
+#[vrr]
+#enabled = false
+#output = "DP-3"
+#command = ["wlr-randr"]
+
+# Sekunden; 0 deaktiviert den jeweiligen Inaktivitäts-Timer.
+#[idle]
+#lock_after_seconds = 300
+#monitor_off_after_seconds = 600
+
+#[keyboard]
+#layout = "de"
+#variant = ""
+#options = ""
+
+#[appearance]
+#gaps_inner = 4
+#gaps_outer = 4
+#border_width = 2
+#active_border = "#89b4fa"
+#inactive_border = "#45475a"
+# Gemeinsame Palette für WM und Quickshell.
+#background = "#1e1e2e"
+#surface = "#313244"
+#text = "#cdd6f4"
+#muted_text = "#a6adc8"
+
+#[bindings]
+#reload = ["Super+Shift+r"]
+#wallpaper = ["Super+Shift+w"]
+#lock = ["Super+Escape"]
+#terminal = ["Super+Return"]
+#launcher = ["Super+Space"]
+#close = ["Super+q"]
+#exit = ["Super+m"]
+#toggle_floating = ["Super+v"]
+# Neu im Smithay-Compositor: Vollbild umschalten, Spaltenbreite ändern.
+#toggle_fullscreen = ["Super+f"]
+#column_shrink = ["Super+minus"]
+#column_grow = ["Super+equal"]
+# Globaler Floating-Stack: ein-/ausblenden bzw. Fenster hinein-/herausverschieben.
+#toggle_scratchpad = ["Super+grave"]
+#move_to_scratchpad = ["Super+Shift+grave"]
+# Monitorfokus bzw. fokussiertes Fenster geometrisch zum Nachbarmonitor bewegen.
+#focus_output_left = ["Super+Alt+Left"]
+#focus_output_right = ["Super+Alt+Right"]
+#focus_output_up = ["Super+Alt+Up"]
+#focus_output_down = ["Super+Alt+Down"]
+#move_to_output_left = ["Super+Shift+Left"]
+#move_to_output_right = ["Super+Shift+Right"]
+#move_to_output_up = ["Super+Shift+Up"]
+#move_to_output_down = ["Super+Shift+Down"]
+# Mit linker Maustaste Floating-Fenster verschieben; mit rechter Floating-Fenster
+# oder gekachelte Spalten skalieren.
+#pointer_modifiers = "Super"
+#focus_left = ["Super+h", "Super+Left"]
+#focus_right = ["Super+l", "Super+Right"]
+#move_left = ["Super+Shift+h"]
+#move_right = ["Super+Shift+l"]
+# Workspace auf dem aktuellen Monitor wechseln (zyklisch, inklusive dynamischer).
+#workspace_previous = ["Super+Ctrl+Left", "Super+Ctrl+Up"]
+#workspace_next = ["Super+Ctrl+Right", "Super+Ctrl+Down"]
+# Fenster in den vorigen/nächsten Workspace des Monitors verschieben.
+#move_to_workspace_previous = ["Super+Ctrl+Shift+Up"]
+#move_to_workspace_next = ["Super+Ctrl+Shift+Down"]
+# Neuen Workspace auf dem aktuellen Monitor anlegen und wechseln bzw. das
+# fokussierte Fenster in einen neuen Workspace verschieben.
+#new_workspace = ["Super+n"]
+#move_to_new_workspace = ["Super+Shift+n"]
+# Zusammen mit den Ziffern 1 bis 9 (Nummern bestehender Workspaces).
+#workspace_modifiers = "Super"
+#move_to_workspace_modifiers = "Super+Shift"
+
+# Frei benannte Kürzel zum Starten beliebiger Programme.
+#[program_bindings.browser]
+#keys = ["Super+b"]
+#command = ["helium-browser"]
+
+#[program_bindings.file_manager]
+#keys = ["Super+e"]
+#command = ["thunar"]
+
+# Regeln gelten beim ersten Einordnen eines Fensters, nicht bei späteren Änderungen.
+# App-IDs werden beim Start einer Anwendung im mywm-Log ausgegeben.
+# Alle angegebenen Selektoren müssen exakt passen; letzte Angabe je Eigenschaft gewinnt.
+#
+#[[rules]]
+#app_id = "firefox"
+#workspace = 2  # Nummer wie in der Bar; wirkt nur, solange dieser Workspace existiert
+#
+#[[rules]]
+#app_id = "org.gnome.Calculator"
+#floating = true
+#
+#[[rules]]
+#dialog = true
+#floating = true

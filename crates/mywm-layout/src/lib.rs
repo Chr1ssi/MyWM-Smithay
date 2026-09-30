@@ -6,6 +6,6 @@ pub mod scrolling;
 mod workspaces;
 
 pub use appearance::{Appearance, Color};
-pub use arrange::{Placement, WindowInfo, arrange};
+pub use arrange::{Placement, WindowInfo, arrange, place_floating};
 pub use geometry::{DragKind, Edges, Rect};
 pub use workspaces::{GAMING, Kind, MAX_NUMBER, Workspace, Workspaces};

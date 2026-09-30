@@ -5,18 +5,28 @@ leicht, latenzarm (Gaming) und mit sauberem Screen-Capture (Streaming).
 
 ## Status
 
-**M0** (Skelett) und **M1** (Layout-Kern) sind fertig: nested Betrieb über winit,
-xdg-shell, Fokus folgt der Maus, horizontales Scrolling-Layout mit Gaps und
-Fokusrahmen, Workspaces (1–9, dynamisch, Wechsel/Verschieben), Floating mit
-Mausverschieben/-skalieren, Vollbild, Dialoge folgen ihrem Elternfenster.
+**M0** (Skelett), **M1** (Layout-Kern) und die **Konfiguration** sind fertig:
+nested Betrieb über winit, xdg-shell, Fokus folgt der Maus, horizontales
+Scrolling-Layout mit Gaps und Fokusrahmen, Workspaces (1–9, dynamisch), Floating
+mit Mausverschieben/-skalieren, Vollbild, Dialoge folgen ihrem Elternfenster,
+globaler Scratchpad, Fensterregeln, Gaming-Workspace (über
+`game_app_id_prefixes`), Live-Reload mit `Super+Shift+r`.
 
-Die Logik liegt in `crates/mywm-layout` (aus dem River-MyWM portiert, ohne
-Compositor-Abhängigkeit, mit Unit-Tests). `src/desktop.rs` bildet sie auf
-Smithays `Space` ab.
+Aufbau:
+
+- `crates/mywm-layout` – Scrolling, Workspaces, Geometrie (aus dem River-MyWM
+  portiert, ohne Compositor-Abhängigkeit, mit Tests)
+- `crates/mywm-config` – TOML-Konfiguration, **gleiches Schema wie das
+  River-MyWM** (`~/.config/mywm/config.toml` oder `$MYWM_CONFIG`); neu sind nur
+  `toggle_fullscreen`, `column_shrink`, `column_grow`. Beispiel:
+  `crates/mywm-config/example.toml`
+- `src/` – Compositor (`desktop.rs` bildet das Modell auf Smithays `Space` ab)
 
 Roadmap: M2 DRM/libinput + Multi-Monitor, M3 Direct Scanout / Tearing / VRR,
-M4 XWayland / Layer-Shell / Screencast, M5 Profiling. Offen aus MyWM:
-TOML-Konfiguration, Regeln, Scratchpad, Gaming-Workspace.
+M4 XWayland / Layer-Shell / Screencast, M5 Profiling. Noch nicht portiert:
+Sperrbildschirm/Idle, Wallpaper-Picker und Theme-Generierung, IPC für die
+Quickshell-Bar, `workspace_outputs`/`gaming_output` (brauchen Multi-Monitor).
+Die Bindings `lock`, `wallpaper` und `*_output_*` werden geparst, tun aber noch nichts.
 
 ## Entwickeln
 
@@ -28,20 +38,7 @@ cargo run -- "kitty"      # optionales Kommando wird nach dem Start ausgeführt
 cargo test --workspace    # Layout-Logik
 ```
 
-Im nested Betrieb dient **Alt** als Modifier (Super gehört dem Host):
-
-| Taste | Aktion |
-| --- | --- |
-| `Alt+Return` | Terminal (`$MYWM_TERMINAL`, Standard `kitty`) |
-| `Alt+Q` | Fokussiertes Fenster schließen |
-| `Alt+H/L` (oder Pfeile) | Fokus links/rechts |
-| `Alt+Shift+H/L` | Spalte verschieben |
-| `Alt+-` / `Alt+=` | Spaltenbreite ändern |
-| `Alt+1..9`, `Alt+Shift+1..9` | Workspace wechseln / Fenster verschieben |
-| `Alt+Ctrl+H/L` | Workspace zyklisch wechseln |
-| `Alt+N`, `Alt+Shift+N` | Neuer Workspace / Fenster in neuen Workspace |
-| `Alt+V` | Floating umschalten |
-| `Alt+F` | Vollbild umschalten |
-| `Alt`+linke Maustaste ziehen | Floating-Fenster verschieben |
-| `Alt`+rechte Maustaste ziehen | Floating-Fenster oder Spalte skalieren |
-| `Alt+Shift+E` | Compositor beenden |
+Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als
+**Alt** (Bindings mit `Super+Alt` entfallen). `MYWM_MODKEY=super` schaltet das ab,
+etwa unter einem Host ohne eigene Super-Belegung. Standard-Bindings: siehe
+`example.toml`; die Standardtastatur ist `de`.

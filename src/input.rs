@@ -1,3 +1,4 @@
+use mywm_config::{Action, Modifiers};
 use mywm_layout::{DragKind, Edges};
 use smithay::{
     backend::input::{
@@ -5,7 +6,7 @@ use smithay::{
         KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
     input::{
-        keyboard::{FilterResult, Keysym, ModifiersState, keysyms},
+        keyboard::{FilterResult, Keysym, ModifiersState},
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
     output::Output,
@@ -17,62 +18,31 @@ use crate::State;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 
-#[derive(Clone, Copy, Debug)]
-enum Action {
-    Spawn,
-    Close,
-    Quit,
-    Focus(isize),
-    MoveColumn(isize),
-    Workspace(usize),
-    MoveToWorkspace(usize),
-    CycleWorkspace(isize),
-    NewWorkspace,
-    MoveToNewWorkspace,
-    ToggleFloating,
-    ToggleFullscreen,
-    ResizeColumn(i32),
-}
-
-/// Key bindings. The modifier is Alt while nested (the host owns Super).
-fn binding(mods: &ModifiersState, sym: Keysym) -> Option<Action> {
-    if !mods.alt {
-        return None;
-    }
-    let digit = |sym: Keysym| match sym.raw() {
-        n @ keysyms::KEY_1..=keysyms::KEY_9 => Some((n - keysyms::KEY_1 + 1) as usize),
-        _ => None,
-    };
-    let (shift, ctrl) = (mods.shift, mods.ctrl);
-    Some(match sym.raw() {
-        keysyms::KEY_Return => Action::Spawn,
-        keysyms::KEY_q => Action::Close,
-        keysyms::KEY_e if shift => Action::Quit,
-        keysyms::KEY_h | keysyms::KEY_Left if ctrl => Action::CycleWorkspace(-1),
-        keysyms::KEY_l | keysyms::KEY_Right if ctrl => Action::CycleWorkspace(1),
-        keysyms::KEY_h | keysyms::KEY_Left if shift => Action::MoveColumn(-1),
-        keysyms::KEY_l | keysyms::KEY_Right if shift => Action::MoveColumn(1),
-        keysyms::KEY_h | keysyms::KEY_Left => Action::Focus(-1),
-        keysyms::KEY_l | keysyms::KEY_Right => Action::Focus(1),
-        keysyms::KEY_n if shift => Action::MoveToNewWorkspace,
-        keysyms::KEY_n => Action::NewWorkspace,
-        keysyms::KEY_v => Action::ToggleFloating,
-        keysyms::KEY_f => Action::ToggleFullscreen,
-        keysyms::KEY_minus => Action::ResizeColumn(-100),
-        keysyms::KEY_equal | keysyms::KEY_plus => Action::ResizeColumn(100),
-        _ => {
-            let n = digit(sym)?;
-            if shift { Action::MoveToWorkspace(n) } else { Action::Workspace(n) }
-        }
-    })
+fn modifiers(state: &ModifiersState) -> Modifiers {
+    Modifiers { logo: state.logo, shift: state.shift, ctrl: state.ctrl, alt: state.alt }
 }
 
 impl State {
+    fn binding_for(&self, mods: &ModifiersState, sym: Keysym) -> Option<Action> {
+        let mods = modifiers(mods);
+        self.bindings
+            .iter()
+            .find(|b| b.symbol == sym.raw() && b.modifiers == mods)
+            .map(|b| b.action)
+    }
+
     fn run_action(&mut self, action: Action) {
         match action {
-            Action::Spawn => {
-                let term = std::env::var("MYWM_TERMINAL").unwrap_or_else(|_| "kitty".into());
-                self.spawn(&term);
+            Action::Terminal => self.spawn_command(&self.config.terminal.clone(), false),
+            Action::Launcher => self.spawn_command(&self.config.launcher.clone(), true),
+            Action::Program(index) => {
+                if let Some(binding) = self.config.program_bindings.values().nth(index) {
+                    self.spawn_command(&binding.command.clone(), false);
+                }
+            }
+            Action::Reload => self.reload_config(),
+            Action::Wallpaper | Action::Lock => {
+                tracing::warn!("{action:?} is not implemented in the Smithay compositor yet");
             }
             Action::Close => {
                 if let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get(id))
@@ -81,17 +51,22 @@ impl State {
                     top.send_close();
                 }
             }
-            Action::Quit => self.loop_signal.stop(),
+            Action::Exit => self.loop_signal.stop(),
             Action::Focus(d) => self.focus_step(d),
-            Action::MoveColumn(d) => self.move_column(d),
+            Action::Move(d) => self.move_column(d),
             Action::Workspace(n) => self.select_workspace(n),
             Action::MoveToWorkspace(n) => self.move_to_workspace(n),
-            Action::CycleWorkspace(d) => self.cycle_workspace(d),
+            Action::WorkspaceRelative(d) => self.cycle_workspace(d),
+            Action::MoveToWorkspaceRelative(d) => self.move_to_workspace_relative(d),
             Action::NewWorkspace => self.new_workspace(),
             Action::MoveToNewWorkspace => self.move_to_new_workspace(),
             Action::ToggleFloating => self.toggle_floating(),
             Action::ToggleFullscreen => self.toggle_fullscreen(),
             Action::ResizeColumn(p) => self.resize_column(p),
+            Action::ToggleScratchpad => self.toggle_scratchpad(),
+            Action::MoveToScratchpad => self.move_to_scratchpad(),
+            // Multi-monitor actions arrive with the DRM backend.
+            Action::FocusOutput(_) | Action::MoveToOutput(_) => {}
         }
     }
 
@@ -107,12 +82,12 @@ impl State {
                     event.state(),
                     serial,
                     time,
-                    |_, mods, handle| {
+                    |state, mods, handle| {
                         if event.state() != KeyState::Pressed {
                             return FilterResult::Forward;
                         }
                         // Unmodified symbol, so Shift+1 is still "1".
-                        match handle.raw_syms().first().and_then(|sym| binding(mods, *sym)) {
+                        match handle.raw_syms().first().and_then(|sym| state.binding_for(mods, *sym)) {
                             Some(action) => FilterResult::Intercept(action),
                             None => FilterResult::Forward,
                         }
@@ -168,8 +143,8 @@ impl State {
             return;
         }
         if state == ButtonState::Pressed {
-            let mods = self.seat.get_keyboard().unwrap().modifier_state();
-            if mods.alt && (button == BTN_LEFT || button == BTN_RIGHT) {
+            let mods = modifiers(&self.seat.get_keyboard().unwrap().modifier_state());
+            if mods == self.pointer_modifiers && (button == BTN_LEFT || button == BTN_RIGHT) {
                 let kind = if button == BTN_LEFT {
                     DragKind::Move
                 } else {

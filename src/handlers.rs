@@ -46,6 +46,7 @@ impl CompositorHandler for State {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
+            self.place_pending(&root);
             if let Some(window) = self
                 .space
                 .elements()

@@ -1,10 +1,11 @@
 use std::{ffi::OsString, sync::Arc, time::Instant};
 
 use crate::desktop::Desktop;
+use mywm_config::{Binding, Config, Modifiers};
 use smithay::{
     output::Output,
     desktop::{PopupManager, Space, Window},
-    input::{Seat, SeatState},
+    input::{keyboard::XkbConfig, Seat, SeatState},
     reexports::{
         calloop::{generic::Generic, EventLoop, Interest, LoopSignal, Mode, PostAction},
         wayland_server::{
@@ -44,6 +45,13 @@ pub struct State {
 
     pub desktop: Desktop,
     pub output: Option<Output>,
+
+    pub config: Config,
+    /// Key bindings after the nested-modifier remapping.
+    pub bindings: Vec<Binding>,
+    pub pointer_modifiers: Modifiers,
+    /// While nested, Super belongs to the host, so bindings use Alt instead.
+    pub remap_super: bool,
 }
 
 #[derive(Default)]
@@ -57,13 +65,19 @@ impl ClientData for ClientState {
 }
 
 impl State {
-    pub fn new(event_loop: &mut EventLoop<State>, display: Display<State>) -> Self {
+    pub fn new(event_loop: &mut EventLoop<State>, display: Display<State>, config: Config, remap_super: bool) -> Self {
         let dh = display.handle();
         let loop_handle = event_loop.handle();
 
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&dh, "seat0");
-        seat.add_keyboard(Default::default(), 200, 25).expect("keyboard");
+        let xkb = XkbConfig {
+            layout: &config.keyboard.layout,
+            variant: &config.keyboard.variant,
+            options: (!config.keyboard.options.is_empty()).then(|| config.keyboard.options.clone()),
+            ..Default::default()
+        };
+        seat.add_keyboard(xkb, 200, 25).expect("keyboard");
         seat.add_pointer();
 
         let socket = ListeningSocketSource::new_auto().expect("wayland socket");
@@ -88,7 +102,9 @@ impl State {
             )
             .expect("display source");
 
-        Self {
+        let mut desktop = Desktop::default();
+        desktop.appearance = config.appearance.layout();
+        let mut state = Self {
             start_time: Instant::now(),
             socket_name,
             display_handle: dh.clone(),
@@ -103,14 +119,92 @@ impl State {
             data_device_state: DataDeviceState::new::<State>(&dh),
             seat,
             pointer_location: (0.0, 0.0).into(),
-            desktop: Desktop::default(),
+            desktop,
             output: None,
+            bindings: Vec::new(),
+            pointer_modifiers: Modifiers::default(),
+            remap_super,
+            config,
+        };
+        state.install_bindings();
+        state
+    }
+
+    /// Derive key bindings from the config; nested, Super is mapped to Alt.
+    pub fn install_bindings(&mut self) {
+        let remap = |mut m: Modifiers| -> Option<Modifiers> {
+            if self.remap_super && m.logo {
+                if m.alt {
+                    return None;
+                }
+                m.logo = false;
+                m.alt = true;
+            }
+            Some(m)
+        };
+        self.bindings = self
+            .config
+            .keybindings()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|b| Some(Binding { modifiers: remap(b.modifiers)?, ..b }))
+            .collect();
+        self.pointer_modifiers = remap(self.config.pointer_modifiers().unwrap_or_default()).unwrap_or_default();
+    }
+
+    /// Re-read the config file; on error keep the running configuration.
+    pub fn reload_config(&mut self) {
+        let new = match Config::load() {
+            Ok(new) => new,
+            Err(error) => {
+                tracing::error!("config reload failed: {error}");
+                return;
+            }
+        };
+        let xkb = XkbConfig {
+            layout: &new.keyboard.layout,
+            variant: &new.keyboard.variant,
+            options: (!new.keyboard.options.is_empty()).then(|| new.keyboard.options.clone()),
+            ..Default::default()
+        };
+        if let Some(keyboard) = self.seat.get_keyboard()
+            && let Err(error) = keyboard.set_xkb_config(self, xkb)
+        {
+            tracing::warn!("keyboard layout not applied: {error:?}");
+        }
+        // Monitor and session settings need a restart; everything else applies live.
+        let Config { workspace_outputs, gaming_output, async_outputs, idle, vrr, .. } =
+            std::mem::take(&mut self.config);
+        self.config = Config { workspace_outputs, gaming_output, async_outputs, idle, vrr, ..new };
+        self.desktop.appearance = self.config.appearance.layout();
+        self.install_bindings();
+        self.refresh();
+        tracing::info!("configuration reloaded");
+    }
+
+    /// Start a program without a shell; the child is reaped in the background.
+    pub fn spawn_command(&self, command: &[String], with_theme: bool) {
+        let Some((program, args)) = command.split_first() else { return };
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(args);
+        cmd.env("WAYLAND_DISPLAY", &self.socket_name);
+        if with_theme {
+            cmd.envs(self.config.theme_env());
+            cmd.env("MYWM_TERMINAL_COUNT", self.config.terminal.len().to_string());
+            for (index, argument) in self.config.terminal.iter().enumerate() {
+                cmd.env(format!("MYWM_TERMINAL_{index}"), argument);
+            }
+            cmd.env("MYWM_LAUNCHER_X", (self.pointer_location.x as i32).to_string())
+                .env("MYWM_LAUNCHER_Y", (self.pointer_location.y as i32).to_string());
+        }
+        match cmd.spawn() {
+            Ok(mut child) => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+            Err(error) => tracing::warn!("cannot start {program:?}: {error}"),
         }
     }
 
-    pub fn spawn(&self, cmd: &str) {
-        if let Err(err) = std::process::Command::new("sh").arg("-c").arg(cmd).spawn() {
-            tracing::warn!("failed to spawn {cmd:?}: {err}");
-        }
-    }
 }

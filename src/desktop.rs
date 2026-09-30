@@ -1,5 +1,8 @@
 //! Window management model: windows, workspaces and their mapping onto the smithay `Space`.
-use mywm_layout::{Appearance, DragKind, Edges, Rect, WindowInfo, Workspaces, arrange};
+use mywm_layout::{
+    Appearance, DragKind, Edges, GAMING, Kind as WorkspaceKind, Placement, Rect, WindowInfo, Workspace, Workspaces, arrange,
+    place_floating,
+};
 use smithay::{
     backend::renderer::element::{Kind, solid::{SolidColorBuffer, SolidColorRenderElement}},
     desktop::Window,
@@ -8,6 +11,7 @@ use smithay::{
         wayland_server::protocol::wl_surface::WlSurface,
     },
     utils::{Logical, Point},
+    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
 
 use crate::State;
@@ -22,6 +26,11 @@ pub struct Managed {
     pub tiled_width: Option<i32>,
     pub floating_rect: Option<Rect>,
     pub parent: Option<WindowId>,
+    pub app_id: Option<String>,
+    /// Floating state to restore when leaving the scratchpad.
+    pub scratchpad_floating: Option<bool>,
+    /// Rules and workspace are applied at the first commit, once the app id is known.
+    pub placed: bool,
     /// Frame (content plus border) in output coordinates, while placed.
     pub frame: Option<(Rect, i32)>,
     /// Top, bottom, left, right border strips. Buffers persist so damage tracking stays exact.
@@ -59,6 +68,11 @@ pub struct Desktop {
     pub workspaces: Workspaces<WindowId>,
     pub appearance: Appearance,
     pub drag: Option<Drag>,
+    /// Global floating stack shown above all workspaces.
+    pub scratchpad: Workspace<WindowId>,
+    pub scratchpad_visible: bool,
+    /// Whether keyboard focus is on the scratchpad rather than the workspace.
+    pub focus_scratch: bool,
     next_id: WindowId,
 }
 
@@ -69,6 +83,9 @@ impl Default for Desktop {
             workspaces: Workspaces::new(1),
             appearance: Appearance::default(),
             drag: None,
+            scratchpad: Workspace::default(),
+            scratchpad_visible: false,
+            focus_scratch: false,
             next_id: 1,
         }
     }
@@ -88,7 +105,15 @@ impl Desktop {
     }
 
     pub fn focused(&self) -> Option<WindowId> {
-        self.workspaces.current().focused
+        if self.scratchpad_visible && self.focus_scratch && self.scratchpad.focused.is_some() {
+            self.scratchpad.focused
+        } else {
+            self.workspaces.current().focused
+        }
+    }
+
+    pub fn in_scratchpad(&self, id: WindowId) -> bool {
+        self.scratchpad.windows.contains(&id)
     }
 }
 
@@ -99,31 +124,115 @@ impl State {
         Some(Rect { x: geo.loc.x, y: geo.loc.y, width: geo.size.w, height: geo.size.h })
     }
 
+    /// Register a new toplevel. It joins a workspace at its first commit (see `place_pending`).
     pub fn add_window(&mut self, window: Window) {
         let toplevel = window.toplevel().expect("wayland window").clone();
-        let parent = toplevel
-            .parent()
-            .and_then(|surface| self.desktop.by_surface(&surface).map(|w| w.id));
         let d = &mut self.desktop;
         let id = d.next_id;
         d.next_id += 1;
-        // Dialogs float above their parent and share its workspace.
-        let workspace = parent
-            .and_then(|p| d.workspaces.location(&p))
-            .unwrap_or(d.workspaces.active);
-        d.workspaces.add_to(workspace, id);
         d.windows.push(Managed {
             id,
             window,
-            floating: parent.is_some(),
+            floating: false,
             fullscreen: false,
             tiled_width: None,
             floating_rect: None,
-            parent,
+            parent: None,
+            app_id: None,
+            scratchpad_floating: None,
+            placed: false,
             frame: None,
             borders: Default::default(),
         });
+        // The client waits for a configure before it may attach a buffer.
+        toplevel.send_configure();
+    }
+
+    /// Apply window rules and pick the workspace once the app id is known.
+    pub fn place_pending(&mut self, surface: &WlSurface) {
+        let Some(id) = self.desktop.by_surface(surface).filter(|m| !m.placed).map(|m| m.id) else {
+            return;
+        };
+        self.place(id);
         self.refresh();
+    }
+
+    fn place(&mut self, id: WindowId) {
+        let Some(m) = self.desktop.get(id) else { return };
+        if m.placed {
+            return;
+        }
+        let surface = m.surface().cloned();
+        let app_id = surface.as_ref().and_then(|surface| {
+            with_states(surface, |states| {
+                states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .and_then(|data| data.lock().unwrap().app_id.clone())
+            })
+        });
+        let parent = m
+            .window
+            .toplevel()
+            .and_then(|t| t.parent())
+            .and_then(|surface| self.desktop.by_surface(&surface).map(|p| p.id));
+        // A child may be announced before its parent; place the parent first.
+        if let Some(parent) = parent {
+            self.place(parent);
+        }
+        tracing::info!("new window: app_id={app_id:?} dialog={}", parent.is_some());
+
+        let placement = mywm_config::resolve(
+            &self.config.rules,
+            app_id.as_deref(),
+            parent.is_some(),
+            self.config.float_dialogs,
+        );
+        let game = self.is_game(app_id.as_deref(), parent);
+        let d = &mut self.desktop;
+        let ws = &mut d.workspaces;
+        let active = parent.and_then(|p| ws.location(&p)).unwrap_or(ws.active);
+        // Rules only apply while their workspace exists.
+        let mut number = placement.workspace.filter(|n| ws.contains(*n)).unwrap_or(active);
+        if game {
+            ws.ensure(GAMING, WorkspaceKind::Gaming);
+            number = GAMING;
+            ws.select(GAMING);
+        } else if number == GAMING {
+            // Only games start on the gaming workspace.
+            number = ws.home;
+            ws.select(number);
+        }
+        if number == ws.active {
+            ws.add(id);
+        } else {
+            ws.add_to(number, id);
+        }
+        d.focus_scratch = false;
+        if let Some(m) = d.get_mut(id) {
+            m.placed = true;
+            m.floating = placement.floating;
+            m.parent = parent;
+            m.app_id = app_id;
+        }
+    }
+
+    /// Games (and their dialogs) are recognized by app id prefix.
+    fn is_game(&self, app_id: Option<&str>, parent: Option<WindowId>) -> bool {
+        let prefixes = &self.config.game_app_id_prefixes;
+        let matches = |id: Option<&str>| id.is_some_and(|id| prefixes.iter().any(|p| id.starts_with(p)));
+        if matches(app_id) {
+            return true;
+        }
+        let mut current = parent;
+        for _ in 0..=self.desktop.windows.len() {
+            let Some(m) = current.and_then(|id| self.desktop.get(id)) else { return false };
+            if matches(m.app_id.as_deref()) {
+                return true;
+            }
+            current = m.parent;
+        }
+        false
     }
 
     pub fn remove_window(&mut self, surface: &WlSurface) {
@@ -132,6 +241,10 @@ impl State {
             self.space.unmap_elem(&managed.window);
         }
         self.desktop.workspaces.remove(&id);
+        self.desktop.scratchpad.remove(&id);
+        if self.desktop.scratchpad.windows.is_empty() {
+            self.desktop.scratchpad_visible = false;
+        }
         self.desktop.windows.retain(|w| w.id != id);
         // Dialogs of a closed window lose their parent but stay where they are.
         for w in &mut self.desktop.windows {
@@ -155,8 +268,18 @@ impl State {
     fn apply_layout(&mut self) {
         let Some(area) = self.work_area() else { return };
         let d = &mut self.desktop;
-        let infos: Vec<_> = d.windows.iter().map(Managed::info).collect();
-        let placements = arrange(d.workspaces.current_mut(), &infos, area, &d.appearance);
+        let infos: Vec<_> = d.windows.iter().filter(|m| m.placed).map(Managed::info).collect();
+        let mut placements: Vec<Placement<WindowId>> =
+            arrange(d.workspaces.current_mut(), &infos, area, &d.appearance);
+        if d.scratchpad_visible {
+            placements.extend(
+                d.scratchpad
+                    .windows
+                    .iter()
+                    .filter_map(|id| infos.iter().find(|i| i.id == *id))
+                    .map(|info| place_floating(info, area, &d.appearance)),
+            );
+        }
 
         let visible: Vec<_> = placements.iter().map(|p| p.id).collect();
         for m in &mut d.windows {
@@ -247,8 +370,61 @@ impl State {
     }
 
     pub fn focus_window(&mut self, id: WindowId) {
-        if self.desktop.focused() != Some(id) && self.desktop.workspaces.focus(&id) {
-            self.refresh();
+        let d = &mut self.desktop;
+        if d.focused() == Some(id) {
+            return;
+        }
+        if d.scratchpad_visible && d.in_scratchpad(id) {
+            d.scratchpad.focused = Some(id);
+            d.focus_scratch = true;
+        } else if d.workspaces.focus(&id) {
+            d.focus_scratch = false;
+        } else {
+            return;
+        }
+        self.refresh();
+    }
+
+    pub fn toggle_scratchpad(&mut self) {
+        let d = &mut self.desktop;
+        if d.scratchpad.windows.is_empty() {
+            return;
+        }
+        d.scratchpad_visible = !d.scratchpad_visible;
+        d.focus_scratch = d.scratchpad_visible;
+        self.refresh();
+    }
+
+    pub fn move_to_scratchpad(&mut self) {
+        let Some(id) = self.desktop.focused() else { return };
+        let d = &mut self.desktop;
+        if d.in_scratchpad(id) {
+            d.scratchpad.remove(&id);
+            d.scratchpad_visible = !d.scratchpad.windows.is_empty();
+            d.focus_scratch = d.scratchpad_visible;
+            d.workspaces.add(id);
+            if let Some(m) = d.get_mut(id) {
+                m.floating = m.scratchpad_floating.take().unwrap_or(true);
+            }
+        } else {
+            d.workspaces.remove(&id);
+            d.workspaces.prune();
+            d.scratchpad.windows.push(id);
+            d.scratchpad.focused = Some(id);
+            d.scratchpad_visible = true;
+            d.focus_scratch = true;
+            if let Some(m) = d.get_mut(id) {
+                m.scratchpad_floating = Some(m.floating);
+                m.floating = true;
+                m.fullscreen = false;
+            }
+        }
+        self.refresh();
+    }
+
+    pub fn move_to_workspace_relative(&mut self, direction: isize) {
+        if let Some(number) = self.desktop.workspaces.relative(direction) {
+            self.move_to_workspace(number);
         }
     }
 
@@ -285,8 +461,11 @@ impl State {
     }
 
     pub fn move_to_workspace(&mut self, number: usize) {
-        let ws = &mut self.desktop.workspaces;
-        let Some(id) = ws.current().focused else { return };
+        let d = &mut self.desktop;
+        let ws = &mut d.workspaces;
+        let Some(id) = ws.current().focused.filter(|id| !d.scratchpad.windows.contains(id)) else {
+            return;
+        };
         if number == ws.active || number == mywm_layout::GAMING || number > mywm_layout::MAX_NUMBER {
             return;
         }

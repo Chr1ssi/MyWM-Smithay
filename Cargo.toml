@@ -9,6 +9,7 @@ members = [".", "crates/*"]
 
 [dependencies]
 mywm-layout = { path = "crates/mywm-layout" }
+mywm-config = { path = "crates/mywm-config" }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_egl",

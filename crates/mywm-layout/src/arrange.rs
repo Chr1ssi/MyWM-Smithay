@@ -26,6 +26,25 @@ pub struct Placement<Id> {
     pub floating_rect: Option<Rect>,
 }
 
+/// Place one floating window; its rect is constrained to the work area.
+pub fn place_floating<Id: Clone>(
+    window: &WindowInfo<Id>,
+    work_area: Rect,
+    appearance: &Appearance,
+) -> Placement<Id> {
+    let rect = window
+        .floating_rect
+        .unwrap_or_else(|| Rect::centered(work_area.width, work_area.height))
+        .constrained(work_area.width, work_area.height);
+    let (content, border) = appearance.content(Rect {
+        x: work_area.x + rect.x,
+        y: work_area.y + rect.y,
+        width: rect.width,
+        height: rect.height,
+    });
+    Placement { id: window.id.clone(), content, border, fullscreen: false, floating_rect: Some(rect) }
+}
+
 /// Compute placements for the windows of `workspace` on an output whose usable
 /// area is `work_area` (output-local). Updates the workspace's scroll offset.
 /// Tiled windows come first, then floating, then fullscreen (paint order).
@@ -83,23 +102,7 @@ pub fn arrange<Id: Clone + Eq>(
     }
 
     for window in in_workspace.iter().filter(|w| w.floating && !w.fullscreen) {
-        let rect = window
-            .floating_rect
-            .unwrap_or_else(|| Rect::centered(work_area.width, work_area.height))
-            .constrained(work_area.width, work_area.height);
-        let (content, border) = appearance.content(Rect {
-            x: work_area.x + rect.x,
-            y: work_area.y + rect.y,
-            width: rect.width,
-            height: rect.height,
-        });
-        placements.push(Placement {
-            id: window.id.clone(),
-            content,
-            border,
-            fullscreen: false,
-            floating_rect: Some(rect),
-        });
+        placements.push(place_floating(window, work_area, appearance));
     }
 
     // Only the workspace's focused window may be fullscreen; others keep their normal place.
