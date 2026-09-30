@@ -43,6 +43,9 @@
 #[effects]
 #corner_radius = 12        # abgerundete Fenster und Rahmen, logische Pixel
 #inactive_opacity = 0.95   # Fenster ohne Fokus leicht durchsichtig
+#animation_ms = 160        # Fenster gleiten an ihren Platz und blenden ein (0 = aus)
+#shadow = 24               # weicher Schatten, Ausdehnung in logischen Pixeln
+#blur = 6                  # unscharfes Wallpaper hinter durchsichtigen Fenstern (1-16, 0 = aus)
 # Transparenz pro Programm: in einer Regel, z. B.
 # [[rules]]
 # app_id = "kitty"

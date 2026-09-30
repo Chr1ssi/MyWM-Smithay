@@ -47,7 +47,10 @@ Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, He
 `--launcher` der Binary; `--wallpaper` muss in der Sitzung laufen, das Binding `wallpaper`
 öffnet dort den Picker).
 
-Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling und den neuen Protokollen.
+Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-Blur; siehe
+`docs/effects.md`), eingebaute Screenshots (`Print`) und eine Workspace-Übersicht (`Super+Tab`).
+
+Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Protokollen und der Effekt-Shader.
 
 ## Entwickeln
 
@@ -69,6 +72,9 @@ PYTHONPATH=tests python3 tests/x11_focus_smoke.py     # Tastatur in X11-Fenstern
 PYTHONPATH=tests python3 tests/scroll_clip_smoke.py   # herausgescrollte Fenster erscheinen nicht auf dem Nachbarmonitor
 PYTHONPATH=tests python3 tests/output_management_smoke.py  # wlr-randr: Position/Skalierung
 PYTHONPATH=tests python3 tests/image_capture_smoke.py # Fenster-/Monitoraufnahme (crates/mywm-capture-test)
+PYTHONPATH=tests python3 tests/effects_smoke.py       # runde Ecken, Transparenz, Schatten, Fade, Blur (braucht swaybg)
+PYTHONPATH=tests python3 tests/screenshot_smoke.py    # eingebaute Screenshots
+PYTHONPATH=tests python3 tests/overview_smoke.py      # Workspace-Übersicht
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

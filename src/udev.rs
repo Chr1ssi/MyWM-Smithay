@@ -763,6 +763,7 @@ impl State {
                 false
             }
         };
+        let animating = self.animations_active();
         let took = started.elapsed();
         if queued {
             surface.times.record(took);
@@ -795,7 +796,7 @@ impl State {
         self.note_locked_frame(&output);
 
         if queued {
-            surface.redraw = Redraw::WaitingForVBlank { again: false };
+            surface.redraw = Redraw::WaitingForVBlank { again: animating };
         } else {
             // No vblank will arrive for an unchanged frame: pretend one does.
             let refresh = output.current_mode().map_or(60_000, |m| m.refresh.max(1000)) as u64;

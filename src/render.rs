@@ -27,6 +27,8 @@ render_elements! {
     Ring=CropRenderElement<PixelShaderElement>,
     /// Screenshot selection dimming; never captured.
     Overlay=SolidColorRenderElement,
+    /// The blurred wallpaper behind a translucent window.
+    Backdrop=crate::effects::Rounded<CropRenderElement<smithay::backend::renderer::element::texture::TextureRenderElement<smithay::backend::renderer::gles::GlesTexture>>>,
     /// A managed window with rounded corners.
     Rounded=crate::effects::Rounded<CropRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
     /// Panels, popups of unmanaged windows and lock screens.
@@ -58,12 +60,14 @@ impl State {
         }
         if let Some(overview) = self.overview_elements(renderer, output) {
             elements.extend(overview);
-            elements.extend(self.scene_elements(renderer, output, false));
+            elements.extend(self.scene_elements(renderer, output, false, Vec::new()));
             return elements;
         }
         let borders = self.border_elements(renderer, output);
         elements.extend(borders);
-        elements.extend(self.scene_elements(renderer, output, true));
+        let mut shadows = self.blur_elements(renderer, output);
+        shadows.extend(self.shadow_elements(renderer, output));
+        elements.extend(self.scene_elements(renderer, output, true, shadows));
         elements
     }
 
@@ -72,7 +76,14 @@ impl State {
     /// Windows are drawn only on the output their workspace is on and are cut off at its edge.
     /// Tiles scrolled out of view lie beyond the edge in the shared coordinate space, where the
     /// neighbouring monitor would otherwise show them.
-    fn scene_elements(&self, renderer: &mut GlesRenderer, output: &Output, with_windows: bool) -> Vec<OutputElement> {
+    /// `behind`: elements between the windows and the layers below them (shadows).
+    fn scene_elements(
+        &self,
+        renderer: &mut GlesRenderer,
+        output: &Output,
+        with_windows: bool,
+        behind: Vec<OutputElement>,
+    ) -> Vec<OutputElement> {
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
@@ -108,13 +119,11 @@ impl State {
                 continue;
             }
             let Some(location) = self.space.element_location(window) else { continue };
-            let render_location = (location - window.geometry().loc - geo.loc).to_physical_precise_round(scale);
+            let anim_ms = self.config.effects.animation_ms;
+            let slide = managed.map_or((0, 0).into(), |m| m.slide_offset(anim_ms));
+            let render_location = (location + slide - window.geometry().loc - geo.loc).to_physical_precise_round(scale);
             // Opacity: the window's rule, dimmed further while it has no focus. Not in fullscreen.
-            let alpha = managed.filter(|m| !m.fullscreen).map_or(1.0, |m| {
-                let rule = mywm_config::opacity(&self.config.rules, m.app_id.as_deref(), m.parent.is_some());
-                let focus = if self.desktop.focused() == Some(m.id) { 1.0 } else { self.config.effects.inactive_opacity };
-                rule.unwrap_or(1.0) * focus
-            });
+            let alpha = managed.map_or(1.0, |m| self.window_opacity(m) * m.fade(anim_ms));
             let surfaces = AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
                 window,
                 renderer,
@@ -156,8 +165,40 @@ impl State {
                 elements.extend(surfaces.into_iter().map(OutputElement::from));
             }
         }
+        elements.extend(behind);
         elements.extend(layer_elements(renderer, &[Layer::Bottom, Layer::Background]));
         elements
+    }
+
+    /// Opacity of a window from its rule and focus (1.0 in fullscreen).
+    pub fn window_opacity(&self, m: &crate::desktop::Managed) -> f32 {
+        if m.fullscreen {
+            return 1.0;
+        }
+        let rule = mywm_config::opacity(&self.config.rules, m.app_id.as_deref(), m.parent.is_some());
+        let focus = if self.desktop.focused() == Some(m.id) { 1.0 } else { self.config.effects.inactive_opacity };
+        rule.unwrap_or(1.0) * focus
+    }
+
+    /// The layers below the windows (wallpaper), front to back.
+    pub fn background_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
+        let scale = output.current_scale().fractional_scale();
+        let map = layer_map_for_output(output);
+        map.layers()
+            .rev()
+            .filter(|surface| matches!(surface.layer(), Layer::Bottom | Layer::Background))
+            .filter_map(|surface| map.layer_geometry(surface).map(|geo| (geo.loc, surface)))
+            .flat_map(|(loc, surface)| {
+                AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                    surface,
+                    renderer,
+                    loc.to_physical_precise_round(scale),
+                    Scale::from(scale),
+                    1.0,
+                )
+            })
+            .map(OutputElement::from)
+            .collect()
     }
 
     /// Background color: the palette's, or black while locked.

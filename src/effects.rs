@@ -17,6 +17,7 @@ use smithay::{
 pub struct Shaders {
     pub tex: GlesTexProgram,
     pub ring: GlesPixelProgram,
+    pub shadow: GlesPixelProgram,
 }
 
 const ROUNDED_SDF: &str = "
@@ -95,6 +96,27 @@ void main() {{
     )
 }
 
+fn shadow_shader() -> String {
+    format!(
+        "{PRECISION}
+uniform vec2 size;
+uniform float alpha;
+varying vec2 v_coords;
+uniform float spread;
+uniform float radius;
+uniform float strength;
+{ROUNDED_SDF}
+void main() {{
+    vec2 p = (v_coords - 0.5) * size;
+    float d = rounded_box(p - vec2(0.0, spread * 0.25), size * 0.5 - vec2(spread), radius);
+    float fall = 1.0 - smoothstep(0.0, spread, d);
+    float a = fall * fall * strength * clamp(d + 0.5, 0.0, 1.0);
+    gl_FragColor = vec4(0.0, 0.0, 0.0, a) * alpha;
+}}
+"
+    )
+}
+
 pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
     let tex = renderer.compile_custom_texture_shader(
         tex_shader(),
@@ -112,7 +134,15 @@ pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
             UniformName::new("radius", UniformType::_1f),
         ],
     )?;
-    Ok(Shaders { tex, ring })
+    let shadow = renderer.compile_custom_pixel_shader(
+        shadow_shader(),
+        &[
+            UniformName::new("spread", UniformType::_1f),
+            UniformName::new("radius", UniformType::_1f),
+            UniformName::new("strength", UniformType::_1f),
+        ],
+    )?;
+    Ok(Shaders { tex, ring, shadow })
 }
 
 /// Uniforms of the ring around a window frame (physical pixels; premultiplied color).
@@ -123,6 +153,10 @@ pub fn ring_uniforms(color: [f32; 4], border: f32, radius: f32) -> Vec<Uniform<'
         Uniform::new("border", border),
         Uniform::new("radius", radius),
     ]
+}
+
+pub fn shadow_uniforms(spread: f32, radius: f32, strength: f32) -> Vec<Uniform<'static>> {
+    vec![Uniform::new("spread", spread), Uniform::new("radius", radius), Uniform::new("strength", strength)]
 }
 
 /// A surface element drawn with the rounded-corner shader.

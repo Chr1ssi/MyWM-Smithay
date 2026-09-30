@@ -1,5 +1,6 @@
 //! MyWM compositor entry point: DRM/libinput on hardware, or nested in a window for development.
 
+mod blur;
 mod cursor;
 mod desktop;
 mod effects;

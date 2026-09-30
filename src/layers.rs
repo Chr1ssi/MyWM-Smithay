@@ -88,6 +88,12 @@ impl State {
                 layer.layer_surface().send_configure();
             }
         }
+        if !matches!(
+            layer_map_for_output(&output).layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).map(|l| l.layer()),
+            Some(Layer::Top | Layer::Overlay)
+        ) {
+            self.blur_dirty(&output);
+        }
         self.layers_changed(Some(&output));
         true
     }

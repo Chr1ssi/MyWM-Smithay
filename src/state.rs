@@ -67,6 +67,9 @@ pub struct State {
     /// Shaders for rounded corners, compiled when first needed.
     pub effect_shaders: Option<crate::effects::Shaders>,
     pub effect_shaders_failed: bool,
+    pub blur: std::collections::HashMap<String, crate::blur::BlurCache>,
+    pub blur_programs: Option<crate::blur::Programs>,
+    pub blur_failed: bool,
     pub foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState,
     pub image_capture: crate::image_capture::ImageCaptureState,
     pub output_management: crate::output_management::OutputManagement,
@@ -221,6 +224,9 @@ impl State {
             pending_shots: Vec::new(),
             effect_shaders: None,
             effect_shaders_failed: false,
+            blur: Default::default(),
+            blur_programs: None,
+            blur_failed: false,
             foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState::new::<State>(&dh),
             image_capture: Default::default(),
             output_management: Default::default(),
@@ -336,6 +342,8 @@ impl State {
             udev.late_margin = crate::udev::late_margin(&self.config.render);
             udev.reset_all_buffers();
         }
+        self.blur_reset();
+        self.blur_failed = false;
         self.install_bindings();
         self.refresh();
         tracing::info!("configuration reloaded");

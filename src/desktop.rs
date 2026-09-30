@@ -48,6 +48,12 @@ pub struct Managed {
     /// Border color for the current focus state.
     pub border_color: [f32; 4],
     /// The rounded border ring and what it was built for (frame, radius, width, color).
+    /// Sliding to a new place: where it comes from, relative to its place, and since when.
+    pub slide: Option<(Point<i32, Logical>, std::time::Instant)>,
+    /// When the window (re)appeared, for fading in.
+    pub shown: Option<std::time::Instant>,
+    pub last_monitor: Option<usize>,
+    pub shadow: Option<(smithay::backend::renderer::gles::element::PixelShaderElement, RingKey)>,
     pub ring: Option<(smithay::backend::renderer::gles::element::PixelShaderElement, RingKey)>,
     /// Floating state to restore when leaving the scratchpad.
     pub scratchpad_floating: Option<bool>,
@@ -59,7 +65,36 @@ pub struct Managed {
     borders: [SolidColorBuffer; 4],
 }
 
+fn ease_out(t: f64) -> f64 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+}
+
 impl Managed {
+    /// How far the window is still from its place (logical pixels), `ms` being the animation length.
+    pub fn slide_offset(&self, ms: u32) -> Point<i32, Logical> {
+        match self.slide {
+            Some((from, start)) if ms > 0 => {
+                let left = 1.0 - ease_out(start.elapsed().as_secs_f64() * 1000.0 / f64::from(ms));
+                ((f64::from(from.x) * left).round() as i32, (f64::from(from.y) * left).round() as i32).into()
+            }
+            _ => (0, 0).into(),
+        }
+    }
+
+    /// Opacity factor while fading in (1.0 when done).
+    pub fn fade(&self, ms: u32) -> f32 {
+        match self.shown {
+            Some(start) if ms > 0 => ease_out(start.elapsed().as_secs_f64() * 1000.0 / f64::from(ms)) as f32,
+            _ => 1.0,
+        }
+    }
+
+    /// An animation is running (or finished less than a frame ago and needs one last redraw).
+    pub fn animating(&self, ms: u32) -> bool {
+        let running = |start: std::time::Instant| start.elapsed().as_millis() <= u128::from(ms) + 40;
+        ms > 0 && (self.slide.is_some_and(|(_, s)| running(s)) || self.shown.is_some_and(running))
+    }
+
     /// The window's main surface (an X11 window has none until Xwayland associates one).
     pub fn surface(&self) -> Option<WlSurface> {
         self.window.wl_surface().map(|s| s.into_owned())
@@ -202,6 +237,10 @@ impl State {
             commits: 0,
             border_color: [0.0; 4],
             ring: None,
+            slide: None,
+            shown: None,
+            last_monitor: None,
+            shadow: None,
             scratchpad_floating: None,
             placed: false,
             frame: None,
@@ -399,6 +438,9 @@ impl State {
 
     fn apply_layout(&mut self) {
         let scratch_monitor = self.scratchpad_monitor();
+        let anim_ms = self.config.effects.animation_ms;
+        let monitors: Vec<(WindowId, Option<usize>)> =
+            self.desktop.windows.iter().map(|m| (m.id, self.monitor_of_window(m))).collect();
         let d = &mut self.desktop;
         if d.desk.monitors.is_empty() {
             return;
@@ -462,6 +504,8 @@ impl State {
             // Mapping in paint order keeps floating windows above tiled ones.
             self.space
                 .map_element(m.window.clone(), (p.content.x, p.content.y), false);
+            let old_place = m.frame.map(|(f, _)| (f.x, f.y));
+            let monitor = monitors.iter().find(|(id, _)| *id == m.id).and_then(|(_, monitor)| *monitor);
             m.frame = Some((
                 Rect {
                     x: p.content.x - p.border,
@@ -471,6 +515,25 @@ impl State {
                 },
                 p.border,
             ));
+            // Animations: slide to the new place on the same monitor, fade in when (re)appearing.
+            let new_place = (p.content.x - p.border, p.content.y - p.border);
+            if anim_ms == 0 || p.fullscreen {
+                m.slide = None;
+                m.shown = None;
+            } else {
+                match old_place {
+                    Some(old) if old != new_place && m.last_monitor == monitor => {
+                        let current = m.slide_offset(anim_ms);
+                        m.slide = Some((
+                            (old.0 - new_place.0 + current.x, old.1 - new_place.1 + current.y).into(),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    Some(_) => {}
+                    None => m.shown = Some(std::time::Instant::now()),
+                }
+            }
+            m.last_monitor = monitor;
             let color = if focused == Some(m.id) { active } else { inactive };
             m.border_color = color;
             if let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) {
@@ -570,6 +633,7 @@ impl State {
         let scale = output.current_scale().fractional_scale();
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
         let radius = self.config.effects.corner_radius;
+        let anim_ms = self.config.effects.animation_ms;
         let rounded = radius > 0 && self.ensure_effect_shaders(renderer);
         let ring_shader = self.effect_shaders.as_ref().map(|s| s.ring.clone());
         let monitors: Vec<Option<usize>> = self.desktop.windows.iter().map(|m| self.monitor_of_window(m)).collect();
@@ -581,6 +645,8 @@ impl State {
                 continue;
             }
             let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) else { continue };
+            let (slide, fade) = (m.slide_offset(anim_ms), m.fade(anim_ms));
+            let frame = Rect { x: frame.x + slide.x, y: frame.y + slide.y, ..frame };
             let visible = frame.x < geo.loc.x + geo.size.w
                 && frame.x + frame.width > geo.loc.x
                 && frame.y < geo.loc.y + geo.size.h
@@ -594,8 +660,10 @@ impl State {
                     (frame.width, frame.height).into(),
                 );
                 let (border, radius) = ((f64::from(b) * scale) as f32, (f64::from(radius) * scale) as f32);
-                let key = (area, (border * 64.0) as i32, (radius * 64.0) as i32, m.border_color);
-                let uniforms = || crate::effects::ring_uniforms(m.border_color, border, radius);
+                let [r, g, bl, a] = m.border_color;
+                let color = [r, g, bl, a * fade];
+                let key = (area, (border * 64.0) as i32, (radius * 64.0) as i32, color);
+                let uniforms = || crate::effects::ring_uniforms(color, border, radius);
                 match &mut m.ring {
                     Some((_, old)) if *old == key => {}
                     Some((element, old)) => {
@@ -626,13 +694,80 @@ impl State {
                     ((x - geo.loc.x) as f64 * scale).round() as i32,
                     ((y - geo.loc.y) as f64 * scale).round() as i32,
                 );
-                let element = SolidColorRenderElement::from_buffer(buffer, local, scale, 1.0, Kind::Unspecified);
+                let element = SolidColorRenderElement::from_buffer(buffer, local, scale, fade, Kind::Unspecified);
                 if let Some(cropped) = CropRenderElement::from_element(element, scale, visible_area) {
                     elements.push(OutputElement::from(cropped));
                 }
             }
         }
         elements
+    }
+
+    /// Soft shadows around the windows on `output` (behind all windows), when `[effects] shadow` is set.
+    pub fn shadow_elements(
+        &mut self,
+        renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+        output: &Output,
+    ) -> Vec<crate::render::OutputElement> {
+        use crate::render::OutputElement;
+        let spread_logical = self.config.effects.shadow;
+        if spread_logical <= 0 || !self.ensure_effect_shaders(renderer) {
+            return Vec::new();
+        }
+        let Some(shader) = self.effect_shaders.as_ref().map(|s| s.shadow.clone()) else { return Vec::new() };
+        let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
+        let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
+        let scale = output.current_scale().fractional_scale();
+        let (radius_logical, anim_ms) = (self.config.effects.corner_radius, self.config.effects.animation_ms);
+        let monitors: Vec<Option<usize>> = self.desktop.windows.iter().map(|m| self.monitor_of_window(m)).collect();
+        let visible_area = Rectangle::<i32, Physical>::from_size(geo.size.to_physical_precise_round(scale));
+        let mut elements = Vec::new();
+        for (m, monitor) in self.desktop.windows.iter_mut().zip(monitors).rev() {
+            if monitor != Some(this_monitor) || m.fullscreen {
+                continue;
+            }
+            let Some((frame, b)) = m.frame else { continue };
+            let slide = m.slide_offset(anim_ms);
+            let area = Rectangle::<i32, Logical>::new(
+                (frame.x + slide.x - geo.loc.x - spread_logical, frame.y + slide.y - geo.loc.y - spread_logical).into(),
+                (frame.width + 2 * spread_logical, frame.height + 2 * spread_logical).into(),
+            );
+            let spread = (f64::from(spread_logical) * scale) as f32;
+            let radius = (f64::from(radius_logical + if radius_logical > 0 { b } else { 0 }) * scale) as f32;
+            let strength = 0.5 * m.fade(anim_ms);
+            let key = (area, (spread * 64.0) as i32, (radius * 64.0) as i32, [strength, 0.0, 0.0, 0.0]);
+            match &mut m.shadow {
+                Some((_, old)) if *old == key => {}
+                Some((element, old)) => {
+                    element.resize(area, None);
+                    element.update_uniforms(crate::effects::shadow_uniforms(spread, radius, strength));
+                    *old = key;
+                }
+                None => {
+                    let element = PixelShaderElement::new(
+                        shader.clone(),
+                        area,
+                        None,
+                        1.0,
+                        crate::effects::shadow_uniforms(spread, radius, strength),
+                        Kind::Unspecified,
+                    );
+                    m.shadow = Some((element, key));
+                }
+            }
+            if let Some((element, _)) = &m.shadow
+                && let Some(cropped) = CropRenderElement::from_element(element.clone(), scale, visible_area)
+            {
+                elements.push(OutputElement::from(cropped));
+            }
+        }
+        elements
+    }
+
+    /// Some window is still animating: keep redrawing.
+    pub fn animations_active(&self) -> bool {
+        let ms = self.config.effects.animation_ms;
+        ms > 0 && self.desktop.windows.iter().any(|m| m.animating(ms))
     }
 
     pub fn focus_window(&mut self, id: WindowId) {

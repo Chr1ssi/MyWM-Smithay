@@ -79,11 +79,17 @@ pub struct EffectsConfig {
     pub corner_radius: i32,
     /// Opacity of windows that do not have the focus (1.0 = opaque).
     pub inactive_opacity: f32,
+    /// Milliseconds windows take to slide to a new place and to fade in; 0 turns animations off.
+    pub animation_ms: u32,
+    /// Soft drop shadow around windows, extent in logical pixels; 0 for none.
+    pub shadow: i32,
+    /// Blur of the wallpaper behind translucent windows, 1 (light) to 16 (strong); 0 for none.
+    pub blur: u32,
 }
 
 impl Default for EffectsConfig {
     fn default() -> Self {
-        Self { corner_radius: 0, inactive_opacity: 1.0 }
+        Self { corner_radius: 0, inactive_opacity: 1.0, animation_ms: 0, shadow: 0, blur: 0 }
     }
 }
 
@@ -94,6 +100,15 @@ impl EffectsConfig {
         }
         if !(0.1..=1.0).contains(&self.inactive_opacity) {
             return Err("effects.inactive_opacity must be between 0.1 and 1.0".into());
+        }
+        if self.animation_ms > 1000 {
+            return Err("effects.animation_ms must be between 0 and 1000".into());
+        }
+        if self.blur > 16 {
+            return Err("effects.blur must be between 0 and 16".into());
+        }
+        if !(0..=64).contains(&self.shadow) {
+            return Err("effects.shadow must be between 0 and 64".into());
         }
         Ok(())
     }

@@ -2,7 +2,7 @@
 
 Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/effects_smoke.py
 """
-import subprocess, time
+import subprocess, tempfile, time
 from smoke_support import Compositor
 
 BACKGROUND, ACTIVE = "#1E1E2E", "#89B4FA"
@@ -63,4 +63,59 @@ faded = brightness(path)
 assert comp.stop()
 print("brightness", plain, faded)
 assert faded < plain * 0.8, (plain, faded)
+
+# Shadow: the strip next to the window is darker than the plain background.
+comp, path = run("[effects]\nshadow = 30\n")
+try:
+    assert pixel(path, 4, 400) != BACKGROUND, pixel(path, 4, 400)
+    assert pixel(path, 640, 400) != BACKGROUND
+    assert comp.stop()
+except BaseException:
+    comp.process.kill()
+    raise
+
+# Animation: right after the window appears it is still fading in.
+comp = Compositor(config="[effects]\nanimation_ms = 1000\n", windows=1)
+try:
+    from smoke_support import wait
+    assert wait(lambda: "new window" in open(comp.dir + "/log").read(), 10)
+    early = brightness(shot(comp, "early"))
+    time.sleep(1.5)
+    late = brightness(shot(comp, "late"))
+    print("fade", early, late)
+    assert early < late * 0.9, (early, late)
+    assert comp.stop()
+except BaseException:
+    comp.process.kill()
+    print(open(comp.dir + "/log").read()[-3000:])
+    raise
+
+# Blur: behind a nearly transparent window the wallpaper shows soft instead of sharp.
+def contrast(path):
+    out = subprocess.check_output(["convert", path, "-crop", "400x300+400+250", "-colorspace", "Gray", "-format", "%[fx:standard_deviation]", "info:"])
+    return float(out.decode())
+
+
+wallpaper = f"{tempfile.mkdtemp()}/checks.png"
+subprocess.run(["convert", "-size", "40x40", "pattern:checkerboard", "-scale", "200%", "/tmp/tile.png"], check=True)
+subprocess.run(["convert", "-size", "1280x800", "tile:/tmp/tile.png", wallpaper], check=True)
+
+
+def blurred(amount):
+    cfg = f"[effects]\nblur = {amount}\n[[rules]]\napp_id = 'org.freedesktop.weston.simple-shm'\nopacity = 0.1\n"
+    comp = Compositor(config=cfg, windows=1, extra_args=f"swaybg -i {wallpaper} -m fill & sleep 1; ")
+    try:
+        time.sleep(4)
+        value = contrast(shot(comp, "blur"))
+        assert comp.stop()
+        return value
+    except BaseException:
+        comp.process.kill()
+        print(open(comp.dir + "/log").read()[-3000:])
+        raise
+
+
+sharp, soft = blurred(0), blurred(8)
+print("contrast", sharp, soft)
+assert soft < sharp * 0.6, (sharp, soft)
 print("OK")
