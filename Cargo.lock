@@ -1677,6 +1677,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mywm-test-client"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wayland-client",
+ "wayland-protocols",
+]
+
+[[package]]
 name = "mywm-theme"
 version = "0.1.0"
 dependencies = [

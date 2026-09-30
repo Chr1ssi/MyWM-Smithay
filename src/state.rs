@@ -61,6 +61,10 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub pointer_location: Point<f64, Logical>,
+    pub gamma: crate::gamma::GammaOwners,
+    pub gamma_global: Option<smithay::reexports::wayland_server::backend::GlobalId>,
+    pub shortcuts_inhibit: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
+    pub activation_state: smithay::wayland::xdg_activation::XdgActivationState,
     pub selecting: Option<crate::screenshot::Selecting>,
     pub overview: Option<crate::overview::Overview>,
     pub pending_shots: Vec<crate::screenshot::PendingShot>,
@@ -165,7 +169,7 @@ impl State {
             options: (!config.keyboard.options.is_empty()).then(|| config.keyboard.options.clone()),
             ..Default::default()
         };
-        seat.add_keyboard(xkb, 200, 25).expect("keyboard");
+        seat.add_keyboard(xkb, config.input.repeat_delay, config.input.repeat_rate).expect("keyboard");
         seat.add_pointer();
 
         let socket = ListeningSocketSource::new_auto().expect("wayland socket");
@@ -219,6 +223,10 @@ impl State {
             data_device_state: DataDeviceState::new::<State>(&dh),
             seat,
             pointer_location: (0.0, 0.0).into(),
+            gamma: Default::default(),
+            gamma_global: None,
+            shortcuts_inhibit: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState::new::<State>(&dh),
+            activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<State>(&dh),
             selecting: None,
             overview: None,
             pending_shots: Vec::new(),
@@ -338,9 +346,13 @@ impl State {
             std::mem::take(&mut self.config);
         self.config = Config { workspace_outputs, gaming_output, async_outputs, idle, vrr, ..new };
         self.desktop.appearance = self.config.appearance.layout();
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.change_repeat_info(self.config.input.repeat_rate, self.config.input.repeat_delay);
+        }
         if let Some(udev) = &mut self.udev {
             udev.late_margin = crate::udev::late_margin(&self.config.render);
             udev.reset_all_buffers();
+            udev.apply_input_config(&self.config.input);
         }
         self.blur_reset();
         self.blur_failed = false;

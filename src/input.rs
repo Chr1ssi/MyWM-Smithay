@@ -70,6 +70,7 @@ impl State {
             Action::Lock => self.start_locker(),
             Action::Wallpaper => self.open_wallpaper_picker(),
             Action::Overview => self.toggle_overview(),
+            Action::ReleaseShortcuts => self.release_shortcuts(),
             Action::Screenshot => self.start_selection(),
             Action::ScreenshotScreen => self.screenshot_screen(),
             Action::ScreenshotWindow => self.screenshot_window(),
@@ -137,7 +138,10 @@ impl State {
                             return FilterResult::Forward;
                         }
                         // Unmodified symbol, so Shift+1 is still "1".
-                        match handle.raw_syms().first().and_then(|sym| state.binding_for(mods, *sym)) {
+                        let action = handle.raw_syms().first().and_then(|sym| state.binding_for(mods, *sym));
+                        // A client that took the shortcuts (a game, a VM) gets every key but the way out.
+                        let action = action.filter(|a| !state.shortcuts_inhibited() || *a == Action::ReleaseShortcuts);
+                        match action {
                             Some(action) => FilterResult::Intercept(Intercepted::Action(action)),
                             None => FilterResult::Forward,
                         }

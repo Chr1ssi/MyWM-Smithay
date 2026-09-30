@@ -1,0 +1,11 @@
+[package]
+name = "mywm-test-client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Wayland test client: keyboard-shortcuts-inhibit and xdg-activation (used by the smoke tests)"
+
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+libc = "0.2"

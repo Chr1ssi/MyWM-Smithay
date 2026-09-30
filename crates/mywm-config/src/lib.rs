@@ -16,7 +16,7 @@ use mywm_layout::MAX_NUMBER;
 pub use rules::{Placement, Rule, opacity, resolve};
 use serde::Deserialize;
 pub use sections::{
-    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig,
+    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig, InputConfig, AccelProfile,
 };
 
 /// Leaves at least one number of 1 to 9 free for dynamic workspaces.
@@ -42,6 +42,8 @@ pub enum Action {
     ToggleFloating,
     ToggleFullscreen,
     ToggleScratchpad,
+    /// Take the keyboard back from a client that inhibits shortcuts (games, VMs).
+    ReleaseShortcuts,
     MoveToScratchpad,
     FocusOutput(OutputDirection),
     MoveToOutput(OutputDirection),
@@ -86,6 +88,7 @@ pub struct Config {
     pub game_app_id_prefixes: Vec<String>,
     pub vrr: VrrConfig,
     pub render: RenderConfig,
+    pub input: InputConfig,
     pub effects: EffectsConfig,
     pub rules: Vec<Rule>,
     /// Addition over the River-based MyWM: run Xwayland for legacy X11 apps (Steam, older games).
@@ -147,6 +150,7 @@ impl Default for Config {
             game_app_id_prefixes: Vec::new(),
             vrr: VrrConfig::default(),
             render: RenderConfig::default(),
+            input: InputConfig::default(),
             effects: EffectsConfig::default(),
             rules: Vec::new(),
             xwayland: true,
@@ -192,6 +196,7 @@ pub struct Bindings {
     column_shrink: Vec<String>,
     column_grow: Vec<String>,
     toggle_scratchpad: Vec<String>,
+    release_shortcuts: Vec<String>,
     move_to_scratchpad: Vec<String>,
     focus_output_left: Vec<String>,
     focus_output_right: Vec<String>,
@@ -222,6 +227,7 @@ impl Default for Bindings {
             column_shrink: keys(&["Super+minus"]),
             column_grow: keys(&["Super+equal"]),
             toggle_scratchpad: keys(&["Super+grave"]),
+            release_shortcuts: keys(&["Super+Shift+Escape"]),
             move_to_scratchpad: keys(&["Super+Shift+grave"]),
             focus_output_left: keys(&["Super+Alt+Left"]),
             focus_output_right: keys(&["Super+Alt+Right"]),
@@ -279,6 +285,7 @@ impl Config {
         }
         config.vrr.validate()?;
         config.render.validate()?;
+        config.input.validate()?;
         config.effects.validate()?;
         if !non_empty(&config.terminal) {
             return Err("terminal must contain a program, e.g. [\"kitty\"]".into());
@@ -368,6 +375,7 @@ impl Config {
         for (keys, action) in [
             (&b.reload, Action::Reload),
             (&b.wallpaper, Action::Wallpaper),
+            (&b.release_shortcuts, Action::ReleaseShortcuts),
             (&b.screenshot, Action::Screenshot),
             (&b.screenshot_screen, Action::ScreenshotScreen),
             (&b.screenshot_window, Action::ScreenshotWindow),
@@ -479,7 +487,7 @@ mod tests {
     fn defaults_and_partial_configuration() {
         let defaults = Config::parse("").unwrap();
         // The River-based MyWM has 50 default bindings; seven are additions here.
-        assert_eq!(defaults.keybindings().unwrap().len(), 57);
+        assert_eq!(defaults.keybindings().unwrap().len(), 58);
         assert!(defaults.program_bindings.is_empty());
         let config = Config::parse("terminal = ['kitty', '--single-instance']").unwrap();
         assert_eq!(config.terminal[1], "--single-instance");
@@ -519,6 +527,9 @@ mod tests {
             "[program_bindings.browser]\nkeys = ['Super+b']\ncommand = []",
             "[program_bindings.browser]\nkeys = ['Super+q']\ncommand = ['firefox']",
             "game_app_id_prefixes = ['']",
+            "[input]\naccel_speed = 2.0",
+            "[input]\naccel_profile = 'bogus'",
+            "[input]\nrepeat_rate = 0",
             "[effects]\ncorner_radius = 65",
             "[effects]\ninactive_opacity = 0",
             "[effects]\nanimation_ms = 5000",
@@ -551,7 +562,7 @@ mod tests {
             "[program_bindings.browser]\nkeys = ['Super+b', 'Super+Shift+b']\ncommand = ['firefox', '--private-window']",
         )
         .unwrap();
-        assert_eq!(config.keybindings().unwrap().len(), 59);
+        assert_eq!(config.keybindings().unwrap().len(), 60);
         let binding = config.program_bindings.get("browser").unwrap();
         assert_eq!(binding.command, ["firefox", "--private-window"]);
     }

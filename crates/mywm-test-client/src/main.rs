@@ -1,0 +1,176 @@
+//! Usage: `mywm-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts) or
+//! `mywm-test-client urgent <seconds>` (two windows; the second asks to activate the first
+//! without any user input behind the request).
+use std::{os::fd::AsFd, time::{Duration, Instant}};
+
+use wayland_client::{
+    Connection, Dispatch, QueueHandle, delegate_noop,
+    globals::{GlobalListContents, registry_queue_init},
+    protocol::{
+        wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::{self, WlShm},
+        wl_shm_pool::WlShmPool, wl_surface::WlSurface,
+    },
+};
+use wayland_protocols::{
+    wp::keyboard_shortcuts_inhibit::zv1::client::{
+        zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1,
+        zwp_keyboard_shortcuts_inhibitor_v1::{self, ZwpKeyboardShortcutsInhibitorV1},
+    },
+    xdg::{
+        activation::v1::client::{
+            xdg_activation_token_v1::{self, XdgActivationTokenV1},
+            xdg_activation_v1::XdgActivationV1,
+        },
+        shell::client::{
+            xdg_surface::{self, XdgSurface},
+            xdg_toplevel::XdgToplevel,
+            xdg_wm_base::{self, XdgWmBase},
+        },
+    },
+};
+
+#[derive(Default)]
+struct App {
+    configured: Vec<bool>,
+    inhibitor_active: Option<bool>,
+    token: Option<String>,
+}
+
+impl Dispatch<WlRegistry, GlobalListContents> for App {
+    fn event(_: &mut Self, _: &WlRegistry, _: wayland_client::protocol::wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<XdgWmBase, ()> for App {
+    fn event(_: &mut Self, base: &XdgWmBase, event: xdg_wm_base::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_wm_base::Event::Ping { serial } = event {
+            base.pong(serial);
+        }
+    }
+}
+
+impl Dispatch<XdgSurface, usize> for App {
+    fn event(state: &mut Self, surface: &XdgSurface, event: xdg_surface::Event, index: &usize, _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_surface::Event::Configure { serial } = event {
+            surface.ack_configure(serial);
+            state.configured[*index] = true;
+        }
+    }
+}
+
+impl Dispatch<XdgToplevel, ()> for App {
+    fn event(_: &mut Self, _: &XdgToplevel, _: wayland_protocols::xdg::shell::client::xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<ZwpKeyboardShortcutsInhibitorV1, ()> for App {
+    fn event(state: &mut Self, _: &ZwpKeyboardShortcutsInhibitorV1, event: zwp_keyboard_shortcuts_inhibitor_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            zwp_keyboard_shortcuts_inhibitor_v1::Event::Active => state.inhibitor_active = Some(true),
+            zwp_keyboard_shortcuts_inhibitor_v1::Event::Inactive => state.inhibitor_active = Some(false),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<XdgActivationTokenV1, ()> for App {
+    fn event(state: &mut Self, _: &XdgActivationTokenV1, event: xdg_activation_token_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_activation_token_v1::Event::Done { token } = event {
+            state.token = Some(token);
+        }
+    }
+}
+
+delegate_noop!(App: ignore WlCompositor);
+delegate_noop!(App: ignore WlShm);
+delegate_noop!(App: ignore WlShmPool);
+delegate_noop!(App: ignore WlBuffer);
+delegate_noop!(App: ignore WlSurface);
+delegate_noop!(App: ignore WlSeat);
+delegate_noop!(App: ignore ZwpKeyboardShortcutsInhibitManagerV1);
+delegate_noop!(App: ignore XdgActivationV1);
+
+struct Window {
+    surface: WlSurface,
+    _xdg: XdgSurface,
+    _toplevel: XdgToplevel,
+}
+
+fn main() {
+    let mode = std::env::args().nth(1).unwrap_or_default();
+    let seconds: u64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(30);
+    let conn = Connection::connect_to_env().expect("connect");
+    let (globals, mut queue) = registry_queue_init::<App>(&conn).expect("registry");
+    let qh = queue.handle();
+    let mut app = App::default();
+
+    let compositor: WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
+    let shm: WlShm = globals.bind(&qh, 1..=1, ()).unwrap();
+    let wm_base: XdgWmBase = globals.bind(&qh, 1..=1, ()).unwrap();
+
+    let count = if mode == "urgent" { 2 } else { 1 };
+    app.configured = vec![false; count];
+    let (w, h) = (200i32, 150i32);
+    let file = std::fs::File::options().read(true).write(true).create(true).truncate(true).open(std::env::temp_dir().join(format!("mywm-tc-{}", std::process::id()))).unwrap();
+    file.set_len((w * h * 4) as u64).unwrap();
+    let pixels = vec![0x80u8; (w * h * 4) as usize];
+    std::os::unix::fs::FileExt::write_all_at(&file, &pixels, 0).unwrap();
+    let pool = shm.create_pool(file.as_fd(), w * h * 4, &qh, ());
+    let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, &qh, ());
+
+    let mut windows = Vec::new();
+    for index in 0..count {
+        let surface = compositor.create_surface(&qh, ());
+        let xdg = wm_base.get_xdg_surface(&surface, &qh, index);
+        let toplevel = xdg.get_toplevel(&qh, ());
+        toplevel.set_app_id(format!("mywm.test.{index}"));
+        surface.commit();
+        windows.push(Window { surface, _xdg: xdg, _toplevel: toplevel });
+        // One window at a time so the second is the newest (and focused).
+        while !app.configured[index] {
+            queue.blocking_dispatch(&mut app).unwrap();
+        }
+        windows[index].surface.attach(Some(&buffer), 0, 0);
+        windows[index].surface.commit();
+        queue.roundtrip(&mut app).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+    }
+
+    match mode.as_str() {
+        "inhibit" => {
+            let manager: ZwpKeyboardShortcutsInhibitManagerV1 = globals.bind(&qh, 1..=1, ()).expect("shortcuts inhibit manager");
+            let seat: WlSeat = globals.bind(&qh, 1..=1, ()).unwrap();
+            let _inhibitor = manager.inhibit_shortcuts(&windows[0].surface, &seat, &qh, ());
+            queue.roundtrip(&mut app).unwrap();
+            println!("inhibitor {:?}", app.inhibitor_active);
+        }
+        "urgent" => {
+            let activation: XdgActivationV1 = globals.bind(&qh, 1..=1, ()).expect("xdg_activation_v1");
+            let token = activation.get_activation_token(&qh, ());
+            token.commit();
+            while app.token.is_none() {
+                queue.blocking_dispatch(&mut app).unwrap();
+            }
+            // The first window is not focused (the second is): ask for attention.
+            activation.activate(app.token.clone().unwrap(), &windows[0].surface);
+            queue.roundtrip(&mut app).unwrap();
+            println!("activation requested");
+        }
+        other => panic!("unknown mode {other}"),
+    }
+    let end = Instant::now() + Duration::from_secs(seconds);
+    while Instant::now() < end {
+        if queue.dispatch_pending(&mut app).is_err() {
+            break;
+        }
+        let _ = queue.flush();
+        if let Some(guard) = queue.prepare_read() {
+            // Wait a little for events without blocking forever.
+            let mut pfd = libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(&guard.connection_fd()), events: libc::POLLIN, revents: 0 };
+            // SAFETY: a valid pollfd for a single descriptor.
+            let ready = unsafe { libc::poll(&mut pfd, 1, 100) };
+            if ready > 0 {
+                let _ = guard.read();
+            }
+        }
+    }
+    drop(buffer);
+}

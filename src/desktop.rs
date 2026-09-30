@@ -45,6 +45,8 @@ pub struct Managed {
     pub foreign: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
     /// Commits of the main surface, to tell capture sessions when the window changed.
     pub commits: u64,
+    /// Asked for attention without having the focus (`xdg-activation`).
+    pub urgent: bool,
     /// Border color for the current focus state.
     pub border_color: [f32; 4],
     /// The rounded border ring and what it was built for (frame, radius, width, color).
@@ -235,6 +237,7 @@ impl State {
             app_id: None,
             foreign: None,
             commits: 0,
+            urgent: false,
             border_color: [0.0; 4],
             ring: None,
             slide: None,
@@ -439,6 +442,7 @@ impl State {
     fn apply_layout(&mut self) {
         let scratch_monitor = self.scratchpad_monitor();
         let anim_ms = self.config.effects.animation_ms;
+        let urgent_color = self.config.appearance.urgent_border.0.0;
         let monitors: Vec<(WindowId, Option<usize>)> =
             self.desktop.windows.iter().map(|m| (m.id, self.monitor_of_window(m))).collect();
         let d = &mut self.desktop;
@@ -534,7 +538,16 @@ impl State {
                 }
             }
             m.last_monitor = monitor;
-            let color = if focused == Some(m.id) { active } else { inactive };
+            if focused == Some(m.id) {
+                m.urgent = false;
+            }
+            let color = if focused == Some(m.id) {
+                active
+            } else if m.urgent {
+                urgent_color
+            } else {
+                inactive
+            };
             m.border_color = color;
             if let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) {
                 let strips = [

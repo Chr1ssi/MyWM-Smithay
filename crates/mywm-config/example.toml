@@ -39,6 +39,16 @@
 #output = "DP-3"
 #command = ["wlr-randr"]
 
+# Maus und Tastatur. Nicht gesetzte Werte lassen die Einstellung des Geräts unverändert.
+#[input]
+#accel_profile = "flat"    # "flat" (roh, ideal für Spiele) oder "adaptive"
+#accel_speed = 0.0         # -1.0 bis 1.0
+#natural_scroll = false
+#tap = true                # Tippen zum Klicken (Touchpad)
+#left_handed = false
+#repeat_rate = 25          # Wiederholungen pro Sekunde
+#repeat_delay = 200        # Millisekunden bis zur ersten Wiederholung
+
 # Effekte (nie bei Vollbildfenstern, also nicht in Spielen).
 #[effects]
 #corner_radius = 12        # abgerundete Fenster und Rahmen, logische Pixel
@@ -76,6 +86,7 @@
 #border_width = 2
 #active_border = "#89b4fa"
 #inactive_border = "#45475a"
+#urgent_border = "#f38ba8"   # Fenster, das Aufmerksamkeit will (xdg-activation)
 # Gemeinsame Palette für WM und Quickshell.
 #background = "#1e1e2e"
 #surface = "#313244"
@@ -92,6 +103,8 @@
 #screenshot_window = ["Super+Ctrl+s"]    # fokussiertes Fenster
 # Übersicht: alle Workspaces des Monitors als Vorschau; Klick oder Pfeiltasten + Enter wählen, Esc schließt.
 #overview = ["Super+Tab"]
+# Spiele und VMs dürfen Tastenkürzel abfangen (keyboard-shortcuts-inhibit). Mit dieser Taste holt man sich die Tastatur zurück.
+#release_shortcuts = ["Super+Shift+Escape"]
 #lock = ["Super+Escape"]
 #terminal = ["Super+Return"]
 #launcher = ["Super+Space"]

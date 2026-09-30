@@ -123,6 +123,9 @@ struct Surface {
     vrr_failed: bool,
     /// Every mode the display offers, for mode switches requested at runtime.
     modes: Vec<smithay::reexports::drm::control::Mode>,
+    /// The color ramp a night-light client set, and whether it must be written again.
+    gamma: Option<crate::gamma::Ramp>,
+    gamma_dirty: bool,
     /// Monotonic time of the last vblank, the anchor for late scheduling.
     last_vblank: Option<Duration>,
     /// Recent CPU time spent rendering and queueing a frame.
@@ -166,6 +169,45 @@ pub struct UdevData {
     handle: LoopHandle<'static, State>,
     /// `[render] late_scheduling`: the safety margin before the vblank, if enabled.
     pub late_margin: Option<Duration>,
+    /// Input devices seen so far, so a config reload can reconfigure them.
+    devices: Vec<smithay::reexports::input::Device>,
+}
+
+/// Apply `[input]` to a pointer device; settings the device does not support are skipped.
+fn apply_input_config(device: &mut smithay::reexports::input::Device, config: &mywm_config::InputConfig) {
+    use smithay::reexports::input::AccelProfile;
+    if !device.has_capability(DeviceCapability::Pointer) {
+        return;
+    }
+    if let Some(profile) = config.accel_profile
+        && device.config_accel_is_available()
+    {
+        let profile = match profile {
+            mywm_config::AccelProfile::Flat => AccelProfile::Flat,
+            mywm_config::AccelProfile::Adaptive => AccelProfile::Adaptive,
+        };
+        let _ = device.config_accel_set_profile(profile);
+    }
+    if let Some(speed) = config.accel_speed
+        && device.config_accel_is_available()
+    {
+        let _ = device.config_accel_set_speed(speed);
+    }
+    if let Some(natural) = config.natural_scroll
+        && device.config_scroll_has_natural_scroll()
+    {
+        let _ = device.config_scroll_set_natural_scroll_enabled(natural);
+    }
+    if let Some(left_handed) = config.left_handed
+        && device.config_left_handed_is_available()
+    {
+        let _ = device.config_left_handed_set(left_handed);
+    }
+    if let Some(tap) = config.tap
+        && device.config_tap_finger_count() > 0
+    {
+        let _ = device.config_tap_set_enabled(tap);
+    }
 }
 
 pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Result<(), Box<dyn Error>> {
@@ -179,7 +221,7 @@ pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Re
     tracing::info!("seat {seat}, primary GPU {primary:?}");
 
     state.session = Some(session.clone());
-    state.udev = Some(UdevData { session, libinput: libinput.clone(), primary, gpu: None, handle: handle.clone(), late_margin: late_margin(&state.config.render) });
+    state.udev = Some(UdevData { session, libinput: libinput.clone(), primary, gpu: None, handle: handle.clone(), late_margin: late_margin(&state.config.render), devices: Vec::new() });
 
     handle
         .insert_source(notifier, |event, _, state| match event {
@@ -191,8 +233,14 @@ pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Re
     handle
         .insert_source(LibinputInputBackend::new(libinput), |event, _, state| match event {
             InputEvent::DeviceAdded { mut device } => {
-                if device.has_capability(DeviceCapability::Pointer) && device.config_tap_finger_count() > 0 {
-                    let _ = device.config_tap_set_enabled(true);
+                if let Some(udev) = &mut state.udev {
+                    apply_input_config(&mut device, &state.config.input);
+                    udev.devices.push(device);
+                }
+            }
+            InputEvent::DeviceRemoved { device } => {
+                if let Some(udev) = &mut state.udev {
+                    udev.devices.retain(|d| *d != device);
                 }
             }
             event => state.process_input_event(event, None),
@@ -312,6 +360,36 @@ impl UdevData {
         let crtc = self.gpu.iter().flat_map(|g| &g.surfaces).find(|(_, s)| s.output == *output).map(|(crtc, _)| *crtc);
         if let Some(crtc) = crtc {
             self.queue_redraw(crtc);
+        }
+    }
+
+    /// Entries of the gamma table of `output`'s CRTC (`None`: no table, no night light).
+    pub fn gamma_size(&self, output: &Output) -> Option<u32> {
+        use smithay::reexports::drm::control::Device as ControlDevice;
+        let gpu = self.gpu.as_ref()?;
+        let crtc = gpu.surfaces.iter().find(|(_, s)| &s.output == output).map(|(crtc, _)| *crtc)?;
+        let size = gpu.drm.get_crtc(crtc).ok()?.gamma_length();
+        (size > 1).then_some(size)
+    }
+
+    /// Set (or with `None`, reset) the color ramp of an output; false if it cannot be written.
+    pub fn apply_gamma(&mut self, output: &Output, ramp: Option<crate::gamma::Ramp>) -> bool {
+        let Some(gpu) = &mut self.gpu else { return false };
+        let Some((crtc, surface)) = gpu.surfaces.iter_mut().find(|(_, s)| &s.output == output).map(|(c, s)| (*c, s)) else {
+            return false;
+        };
+        surface.gamma = ramp;
+        surface.gamma_dirty = !surface.powered;
+        if !surface.powered {
+            return true;
+        }
+        write_gamma(&gpu.drm, crtc, surface.gamma.as_ref())
+    }
+
+    /// Apply `[input]` to every known device (config reload).
+    pub fn apply_input_config(&mut self, config: &mywm_config::InputConfig) {
+        for device in &mut self.devices {
+            apply_input_config(device, config);
         }
     }
 
@@ -456,6 +534,8 @@ impl State {
             tracing::info!("explicit sync unavailable: the kernel lacks syncobj eventfd support");
         }
         self.presentation_state = Some(PresentationState::new::<State>(&self.display_handle, Monotonic::ID as u32));
+        // Night-light tools set the CRTC's gamma table through this.
+        self.gamma_global = Some(State::create_gamma_global(&self.display_handle));
 
         let token = handle
             .insert_source(notifier, move |event, metadata, state| state.on_drm_event(dev_id, event, metadata))
@@ -597,6 +677,8 @@ impl State {
                 tearing_works: true,
                 vrr_failed: false,
                 modes: info.modes().to_vec(),
+                gamma: None,
+                gamma_dirty: false,
                 last_vblank: None,
                 times: RenderTimes::default(),
                 stats: FrameStats::new(),
@@ -631,6 +713,11 @@ impl State {
             _ => Clock::<Monotonic>::new().now(),
         };
         surface.last_vblank = Some(time.into());
+        // After a power-on or VT switch the table is gone; put the night-light ramp back.
+        let gamma_again = surface.gamma_dirty && surface.gamma.is_some();
+        if gamma_again {
+            surface.gamma_dirty = false;
+        }
         match surface.compositor.frame_submitted() {
             Ok(Some(Some(mut feedback))) => {
                 // Tell clients when their frame reached the screen.
@@ -650,6 +737,12 @@ impl State {
         let again = matches!(surface.redraw, Redraw::WaitingForVBlank { again: true });
         surface.redraw = Redraw::Idle;
         let output = surface.output.clone();
+        if gamma_again {
+            let ramp = surface.gamma.clone();
+            if let Some(gpu) = udev.gpu.as_ref() {
+                write_gamma(&gpu.drm, crtc, ramp.as_ref());
+            }
+        }
         let late = udev.late_margin.is_some();
         if again {
             udev.queue_redraw(crtc);
@@ -877,6 +970,7 @@ impl State {
         surface.powered = on;
         if on {
             let _ = surface.compositor.reset_state();
+            surface.gamma_dirty = true;
             surface.redraw = Redraw::Idle;
             udev.queue_redraw(crtc);
         } else {
@@ -911,6 +1005,7 @@ impl State {
             for surface in gpu.surfaces.values_mut() {
                 let _ = surface.compositor.reset_state();
                 surface.compositor.reset_buffers();
+                surface.gamma_dirty = true;
                 surface.redraw = Redraw::Idle;
             }
         }
@@ -919,6 +1014,27 @@ impl State {
             self.udev_scan(dev_id);
         }
         self.queue_redraw_all();
+    }
+}
+
+/// Write a ramp (or the identity) to the CRTC.
+fn write_gamma(drm: &DrmDevice, crtc: crtc::Handle, ramp: Option<&crate::gamma::Ramp>) -> bool {
+    use smithay::reexports::drm::control::Device as ControlDevice;
+    let Ok(info) = drm.get_crtc(crtc) else { return false };
+    let identity;
+    let (r, g, b) = match ramp {
+        Some((r, g, b)) => (r, g, b),
+        None => {
+            identity = crate::gamma::identity_ramp(info.gamma_length() as usize);
+            (&identity.0, &identity.1, &identity.2)
+        }
+    };
+    match drm.set_gamma(crtc, r, g, b) {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!("cannot set the gamma ramp: {error}");
+            false
+        }
     }
 }
 

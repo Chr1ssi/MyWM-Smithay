@@ -71,6 +71,56 @@ impl VrrConfig {
     }
 }
 
+/// Pointer and keyboard behaviour; unset values leave the device's own setting alone.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct InputConfig {
+    /// `flat` (raw, no acceleration: best for games) or `adaptive`.
+    pub accel_profile: Option<AccelProfile>,
+    /// -1.0 (slow) to 1.0 (fast).
+    pub accel_speed: Option<f64>,
+    pub natural_scroll: Option<bool>,
+    /// Tap to click on touchpads.
+    pub tap: Option<bool>,
+    pub left_handed: Option<bool>,
+    /// Key repeats per second and the delay before repeating starts (milliseconds).
+    pub repeat_rate: i32,
+    pub repeat_delay: i32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AccelProfile {
+    Flat,
+    Adaptive,
+}
+
+impl Default for InputConfig {
+    fn default() -> Self {
+        Self {
+            accel_profile: None,
+            accel_speed: None,
+            natural_scroll: None,
+            tap: Some(true),
+            left_handed: None,
+            repeat_rate: 25,
+            repeat_delay: 200,
+        }
+    }
+}
+
+impl InputConfig {
+    pub fn validate(&self) -> Result<()> {
+        if self.accel_speed.is_some_and(|s| !(-1.0..=1.0).contains(&s)) {
+            return Err("input.accel_speed must be between -1.0 and 1.0".into());
+        }
+        if !(1..=200).contains(&self.repeat_rate) || !(50..=2000).contains(&self.repeat_delay) {
+            return Err("input.repeat_rate must be 1-200 and input.repeat_delay 50-2000".into());
+        }
+        Ok(())
+    }
+}
+
 /// Visual effects outside of fullscreen windows (games never get them).
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -178,6 +228,8 @@ pub struct AppearanceConfig {
     pub surface: HexColor,
     pub text: HexColor,
     pub muted_text: HexColor,
+    /// Border of a window that asks for attention (`xdg-activation`) without being focused.
+    pub urgent_border: HexColor,
 }
 
 impl Default for AppearanceConfig {
@@ -188,6 +240,7 @@ impl Default for AppearanceConfig {
             border_width: 2,
             active_border: hex("#89b4fa"),
             inactive_border: hex("#45475a"),
+            urgent_border: hex("#f38ba8"),
             background: hex("#1e1e2e"),
             surface: hex("#313244"),
             text: hex("#cdd6f4"),
