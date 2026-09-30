@@ -52,6 +52,10 @@ impl State {
     }
 
     pub fn run_action(&mut self, action: Action) {
+        // Behind a lock nothing but locking again does anything.
+        if self.session_lock.is_active() && !matches!(action, Action::Lock) {
+            return;
+        }
         tracing::debug!("action {action:?}");
         match action {
             Action::Terminal => self.spawn_command(&self.config.terminal.clone(), false),
@@ -62,9 +66,8 @@ impl State {
                 }
             }
             Action::Reload => self.reload_config(),
-            Action::Wallpaper | Action::Lock => {
-                tracing::warn!("{action:?} is not implemented in the Smithay compositor yet");
-            }
+            Action::Lock => self.start_locker(),
+            Action::Wallpaper => tracing::warn!("the wallpaper picker is not implemented in the Smithay compositor yet"),
             Action::Close => {
                 if let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get(id))
                     && let Some(top) = m.window.toplevel()
@@ -92,6 +95,7 @@ impl State {
     }
 
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>, output: Option<&Output>) {
+        self.idle_notifier_state.notify_activity(&self.seat);
         match event {
             InputEvent::Keyboard { event } => {
                 let serial = SERIAL_COUNTER.next_serial();
@@ -111,6 +115,10 @@ impl State {
                         let raw = handle.modified_sym().raw();
                         if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&raw) {
                             return FilterResult::Intercept(Intercepted::Vt((raw - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
+                        }
+                        // A locked session hands every other key to the locker.
+                        if state.session_lock.is_active() {
+                            return FilterResult::Forward;
                         }
                         // Unmodified symbol, so Shift+1 is still "1".
                         match handle.raw_syms().first().and_then(|sym| state.binding_for(mods, *sym)) {
@@ -203,8 +211,9 @@ impl State {
             return;
         }
         if state == ButtonState::Pressed {
+            let locked = self.session_lock.is_active();
             let mods = modifiers(&self.seat.get_keyboard().unwrap().modifier_state());
-            if mods == self.pointer_modifiers && (button == BTN_LEFT || button == BTN_RIGHT) {
+            if !locked && mods == self.pointer_modifiers && (button == BTN_LEFT || button == BTN_RIGHT) {
                 let kind = if button == BTN_LEFT {
                     DragKind::Move
                 } else {
@@ -215,10 +224,12 @@ impl State {
                     return;
                 }
             }
-            let clicked = self.pointer_focus().map(|(surface, _)| surface);
-            self.note_click(clicked.as_ref());
+            if !locked {
+                let clicked = self.pointer_focus().map(|(surface, _)| surface);
+                self.note_click(clicked.as_ref());
+            }
             let under = self.space.element_under(self.pointer_location).map(|(w, _)| w.clone());
-            if let Some(window) = under.filter(|_| self.layer_focus.is_none()) {
+            if let Some(window) = under.filter(|_| self.layer_focus.is_none() && !locked) {
                 self.space.raise_element(&window, true);
                 if let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).map(|m| m.id) {
                     self.focus_window(id);
@@ -247,6 +258,9 @@ impl State {
 
     /// The surface under the pointer and the global position of its origin.
     fn pointer_focus(&self) -> Option<(WlSurface, Point<f64, Logical>)> {
+        if self.session_lock.is_active() {
+            return self.lock_surface_at_pointer();
+        }
         // Panels above the windows first, then windows, then wallpapers and the like.
         self.layer_surface_at(&[Layer::Overlay, Layer::Top])
             .or_else(|| {

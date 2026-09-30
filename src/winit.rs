@@ -1,10 +1,9 @@
 //! Nested backend for development: renders into a window of the host compositor or X server.
 use smithay::{
     backend::{
-        renderer::{damage::OutputDamageTracker, element::solid::SolidColorRenderElement, gles::GlesRenderer},
+        renderer::{damage::OutputDamageTracker, gles::GlesRenderer},
         winit::{self, WinitEvent},
     },
-    desktop::space::render_output,
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::calloop::EventLoop,
     utils::{Rectangle, Transform},
@@ -60,25 +59,19 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                 let damage = Rectangle::from_size(size);
                 {
                     let (renderer, mut framebuffer) = backend.bind().expect("bind");
-                    let borders = state.border_elements(&output);
-                    let background = state.desktop.appearance.background.0;
-                    render_output::<_, SolidColorRenderElement, _, _>(
-                        &output,
-                        renderer,
-                        &mut framebuffer,
-                        1.0,
-                        0,
-                        [&state.space],
-                        &borders,
-                        &mut damage_tracker,
-                        background,
-                    )
-                    .expect("render");
+                    let elements = state.output_elements(renderer, &output);
+                    let clear = state.clear_color();
+                    damage_tracker
+                        .render_output(renderer, &mut framebuffer, 0, &elements, clear)
+                        .expect("render");
                 }
                 backend.submit(Some(&[damage])).expect("submit");
 
-                for entry in &state.outputs {
-                    state.send_frames(&entry.output);
+                let outputs: Vec<_> = state.outputs.iter().map(|e| e.output.clone()).collect();
+                for output in &outputs {
+                    state.send_frames(output);
+                    // Outputs without a picture have nothing to hide: count them as showing the lock.
+                    state.note_locked_frame(output);
                 }
                 backend.window().request_redraw();
             }

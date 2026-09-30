@@ -2,6 +2,7 @@
 //! existing `config.toml` keeps working; a few new keys are additions.
 mod keys;
 mod rules;
+pub mod session;
 mod sections;
 
 use std::{

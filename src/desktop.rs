@@ -398,6 +398,11 @@ impl State {
     }
 
     fn sync_focus(&mut self) {
+        if self.session_lock.is_active() {
+            let surface = self.active_lock_surface().map(|l| l.wl_surface().clone());
+            self.set_keyboard_focus(surface);
+            return;
+        }
         // A launcher or lock prompt holds the keyboard; windows look unfocused meanwhile.
         let layer = self.keyboard_layer();
         let focused = self.desktop.focused().filter(|_| layer.is_none());

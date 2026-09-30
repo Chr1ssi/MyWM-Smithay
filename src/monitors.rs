@@ -13,6 +13,8 @@ pub struct OutputEntry {
     pub output: Output,
     /// Stable id for the bar protocol.
     pub id: u32,
+    /// The display is on (`false` while switched off for idle).
+    pub powered: bool,
 }
 
 impl State {
@@ -56,7 +58,7 @@ impl State {
         self.next_output_id += 1;
         let monitor = self.desktop.desk.add_monitor(Some(output.name()), area);
         debug_assert_eq!(monitor, self.outputs.len());
-        self.outputs.push(OutputEntry { output, id });
+        self.outputs.push(OutputEntry { output, id, powered: true });
         self.place_all_pending();
         self.end_drag();
         self.refresh();
@@ -256,6 +258,7 @@ impl State {
         let mut snapshot = mywm_ipc::Snapshot {
             scratchpad_visible: d.scratchpad_visible,
             scratchpad_occupied: !d.scratchpad.windows.is_empty(),
+            locked: self.session_lock.is_locked(),
             ..Default::default()
         };
         for (entry, monitor) in self.outputs.iter().zip(&d.desk.monitors) {

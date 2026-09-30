@@ -181,6 +181,9 @@ impl State {
 
     /// Whether the command was valid; valid ones have been carried out.
     fn run_ipc_command(&mut self, command: Command) -> bool {
+        if self.session_lock.is_active() && command != Command::Lock {
+            return false;
+        }
         match command {
             Command::Lock => self.run_action(Action::Lock),
             Command::Logout => self.run_action(Action::Exit),

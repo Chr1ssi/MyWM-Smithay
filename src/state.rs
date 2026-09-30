@@ -1,13 +1,15 @@
-use std::{any::Any, ffi::OsString, sync::Arc, time::Instant};
+use std::{any::Any, collections::HashSet, ffi::OsString, sync::Arc, time::Instant};
 
-use crate::{cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, udev::UdevData};
+use crate::{cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, session::SessionLock, udev::UdevData};
 use mywm_config::{Binding, Config, Modifiers};
 use smithay::{
     desktop::{PopupManager, Space, Window},
+    output::Output,
     backend::session::libseat::LibSeatSession,
     input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatState},
     reexports::{
         calloop::{generic::Generic, EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction},
+        wayland_protocols_wlr::output_power_management::v1::server::zwlr_output_power_v1::ZwlrOutputPowerV1,
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
             protocol::wl_surface::WlSurface,
@@ -18,6 +20,9 @@ use smithay::{
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         content_type::ContentTypeState,
+        idle_inhibit::IdleInhibitManagerState,
+        idle_notify::IdleNotifierState,
+        session_lock::SessionLockManagerState,
         cursor_shape::CursorShapeManagerState,
         fractional_scale::FractionalScaleManagerState,
         pointer_constraints::PointerConstraintsState,
@@ -67,6 +72,12 @@ pub struct State {
     pub session: Option<LibSeatSession>,
     pub dmabuf_state: DmabufState,
     pub layer_shell_state: WlrLayerShellState,
+    pub lock_manager_state: SessionLockManagerState,
+    pub session_lock: SessionLock,
+    pub idle_notifier_state: IdleNotifierState<State>,
+    /// Surfaces that ask the desktop not to go idle (video players).
+    pub idle_inhibitors: HashSet<WlSurface>,
+    pub output_power_objects: Vec<(Output, ZwlrOutputPowerV1)>,
     /// Layer surface the user clicked and that accepts keyboard input.
     pub layer_focus: Option<WlSurface>,
     pub primary_selection_state: PrimarySelectionState,
@@ -166,6 +177,11 @@ impl State {
             session: None,
             dmabuf_state: DmabufState::new(),
             layer_shell_state: WlrLayerShellState::new::<State>(&dh),
+            lock_manager_state: SessionLockManagerState::new::<State, _>(&dh, |_| true),
+            session_lock: SessionLock::default(),
+            idle_notifier_state: IdleNotifierState::new(&dh, loop_handle.clone()),
+            idle_inhibitors: HashSet::new(),
+            output_power_objects: Vec::new(),
             layer_focus: None,
             primary_selection_state: PrimarySelectionState::new::<State>(&dh),
             syncobj_state: None,
@@ -180,6 +196,8 @@ impl State {
                 Box::new(PointerConstraintsState::new::<State>(&dh)),
                 Box::new(XdgDecorationState::new::<State>(&dh)),
                 Box::new(State::create_tearing_control_global(&dh)),
+                Box::new(IdleInhibitManagerState::new::<State>(&dh)),
+                Box::new(State::create_output_power_global(&dh)),
             ],
             pointer_focus_surface: None,
             dmabuf_global: None,

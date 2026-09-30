@@ -8,6 +8,8 @@ mod layers;
 mod ipc;
 mod monitors;
 mod protocols;
+mod render;
+mod session;
 mod udev;
 mod state;
 mod winit;
@@ -24,6 +26,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
+
+    // Client modes shared with the River-based MyWM, used by the session scripts and swayidle.
+    match std::env::args().nth(1).as_deref() {
+        Some("--lock") => return mywm_config::session::lock_and_wait(&mywm_config::Config::load()?),
+        Some("--idle") => return mywm_config::session::exec_idle(&mywm_config::Config::load()?.idle),
+        _ => {}
+    }
 
     let mut event_loop: EventLoop<State> = EventLoop::try_new()?;
     let display = smithay::reexports::wayland_server::Display::new()?;
@@ -58,6 +67,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Err(error) = ipc::init(&event_loop.handle(), &mut state) {
         tracing::error!("cannot start the bar socket: {error}");
+    }
+
+    // On hardware, idle handling (lock after a while, then monitors off) is swayidle's job.
+    if !nested
+        && let Ok(executable) = std::env::current_exe()
+        && let Some(mut command) = mywm_config::session::idle_command(&state.config.idle, &executable.to_string_lossy())
+    {
+        command.env("WAYLAND_DISPLAY", &state.socket_name);
+        match command.spawn() {
+            Ok(mut child) => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+            Err(error) => tracing::warn!("cannot start swayidle: {error}"),
+        }
     }
 
     if let Some(cmd) = std::env::args().nth(1) {

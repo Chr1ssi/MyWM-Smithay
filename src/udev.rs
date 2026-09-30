@@ -27,17 +27,13 @@ use smithay::{
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             ImportDma,
-            element::{
-                default_primary_scanout_output_compare, render_elements, solid::SolidColorRenderElement,
-                surface::WaylandSurfaceRenderElement, utils::select_dmabuf_feedback,
-            },
+            element::{default_primary_scanout_output_compare, utils::select_dmabuf_feedback},
             gles::GlesRenderer,
         },
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::{UdevBackend, UdevEvent, primary_gpu},
     },
     desktop::{
-        space::{SpaceRenderElements, space_render_elements},
         utils::{
             OutputPresentationFeedback, surface_presentation_feedback_flags_from_states,
             surface_primary_scanout_output, update_surface_primary_scanout_output,
@@ -66,14 +62,7 @@ use smithay::{
 };
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 
-use crate::{State, cursor::CursorElement};
-
-render_elements! {
-    pub OutputElement<=GlesRenderer>;
-    Cursor=CursorElement,
-    Border=SolidColorRenderElement,
-    Space=SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
-}
+use crate::State;
 
 type GbmCompositor = DrmCompositor<
     GbmAllocator<DrmDeviceFd>,
@@ -110,6 +99,8 @@ struct Surface {
     vrr: bool,
     /// Frames currently flip immediately (tearing).
     tearing: bool,
+    /// The display is on; while off nothing is drawn.
+    powered: bool,
     /// Cleared when the driver rejected an immediate flip.
     tearing_works: bool,
     /// Adaptive sync was requested but cannot be enabled on this output.
@@ -228,7 +219,7 @@ fn connector_name(info: &connector::Info) -> String {
 impl UdevData {
     fn queue_redraw(&mut self, crtc: crtc::Handle) {
         let Some(gpu) = &mut self.gpu else { return };
-        let Some(surface) = gpu.surfaces.get_mut(&crtc) else { return };
+        let Some(surface) = gpu.surfaces.get_mut(&crtc).filter(|s| s.powered) else { return };
         surface.redraw = match surface.redraw {
             Redraw::Idle => {
                 let dev_id = gpu.dev_id;
@@ -447,6 +438,7 @@ impl State {
                 feedback,
                 vrr: false,
                 tearing: false,
+                powered: true,
                 tearing_works: true,
                 vrr_failed: false,
             },
@@ -519,14 +511,8 @@ impl State {
         }
         let output = surface.output.clone();
 
-        let mut elements: Vec<OutputElement> = Vec::new();
-        elements.extend(self.cursor_elements(renderer, &output).into_iter().map(OutputElement::from));
-        elements.extend(self.border_elements(&output).into_iter().map(OutputElement::from));
-        match space_render_elements(renderer, [&self.space], &output, 1.0) {
-            Ok(space) => elements.extend(space.into_iter().map(OutputElement::from)),
-            Err(error) => tracing::warn!("{}: {error:?}", output.name()),
-        }
-        let background = self.desktop.appearance.background.0;
+        let elements = self.output_elements(renderer, &output);
+        let background = self.clear_color();
 
         // Adaptive sync and tearing only while a game owns the output.
         let (vrr_wanted, tearing_wanted) = self.presentation_policy(&output);
@@ -575,6 +561,7 @@ impl State {
             }
         };
         self.send_frames(&output);
+        self.note_locked_frame(&output);
 
         if queued {
             surface.redraw = Redraw::WaitingForVBlank { again: false };
@@ -639,6 +626,25 @@ impl State {
                     select_dmabuf_feedback(surface, states, &feedback.render, &feedback.scanout)
                 });
             }
+        }
+    }
+
+    /// DPMS: switch the display of `output` on or off.
+    pub fn udev_set_power(&mut self, output: &Output, on: bool) {
+        let Some(udev) = &mut self.udev else { return };
+        let Some(gpu) = &mut udev.gpu else { return };
+        let Some((&crtc, surface)) = gpu.surfaces.iter_mut().find(|(_, s)| &s.output == output) else { return };
+        surface.powered = on;
+        if on {
+            let _ = surface.compositor.reset_state();
+            surface.redraw = Redraw::Idle;
+            udev.queue_redraw(crtc);
+        } else {
+            // Dropping the pending frame and disabling the planes puts the display to sleep.
+            if let Err(error) = surface.compositor.clear() {
+                tracing::warn!("{}: cannot power the display off: {error}", output.name());
+            }
+            surface.redraw = Redraw::Idle;
         }
     }
 

@@ -17,7 +17,7 @@ def wait(cond, timeout=8):
 
 
 class Compositor:
-    def __init__(self, config="", extra_env=None, windows=0):
+    def __init__(self, config="", extra_env=None, windows=0, extra_args=""):
         self.dir = tempfile.mkdtemp()
         self.sock = f"{self.dir}/ctl.sock"
         with open(f"{self.dir}/config.toml", "w") as f:
@@ -25,10 +25,22 @@ class Compositor:
         env = dict(os.environ, MYWM_SOCKET=self.sock, MYWM_CONFIG=f"{self.dir}/config.toml", RUST_LOG="info")
         env.update(extra_env or {})
         env.pop("WAYLAND_DISPLAY", None)
-        clients = "sleep 1; " + "".join("weston-simple-shm & sleep 0.3; " for _ in range(windows)) + "wait"
+        clients = "sleep 1; " + extra_args + "".join("weston-simple-shm & sleep 0.3; " for _ in range(windows)) + "wait"
         self.log = open(f"{self.dir}/log", "w")
         self.process = subprocess.Popen([DEBUG_BINARY, clients], env=env, stdout=self.log, stderr=subprocess.STDOUT)
         assert wait(lambda: os.path.exists(self.sock)), "bar socket missing"
+
+    @property
+    def display(self):
+        """Name of the compositor's Wayland socket (from its log)."""
+        import re
+        assert wait(lambda: re.search(r'WAYLAND_DISPLAY="([^"]+)"', open(self.dir + "/log").read()))
+        return re.search(r'WAYLAND_DISPLAY="([^"]+)"', open(self.dir + "/log").read()).group(1)
+
+    def env(self):
+        """Environment for running a Wayland client against this compositor."""
+        env = dict(os.environ, WAYLAND_DISPLAY=self.display, MYWM_SOCKET=self.sock, MYWM_CONFIG=self.dir + "/config.toml")
+        return env
 
     def stop(self):
         self.process.terminate()
@@ -49,6 +61,7 @@ class Bar:
         self.socket.settimeout(0.1)
         self.pending = b""
         self.state = None
+        self.locked = False
         self.replies = []
 
     def poll(self):
@@ -61,6 +74,8 @@ class Bar:
             text = line.decode()
             if text.startswith("v1 state"):
                 self.state = parse_state(text)
+            elif text.startswith("v1 locked"):
+                self.locked = text.endswith("1")
             elif text.startswith("v1 ok") or text.startswith("v1 error"):
                 self.replies.append(text)
 
