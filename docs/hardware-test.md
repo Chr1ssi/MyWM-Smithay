@@ -132,7 +132,6 @@ erhöhen oder die Option auslassen. Bitte Eindruck (Latenz/Ruckler) und die `per
 - Tearing setzt einen Kernel mit atomaren Async-Flips (Linux ≥ 6.8) und Treiberunterstützung voraus;
   die dafür nötige kleine Änderung an smithay steckt in `vendor/` (siehe `vendor/README.md`).
 - Fensteraufnahme über das Portal (nur Monitore) und der Wallpaper-Picker fehlen noch.
-- Nur die primäre GPU rendert; Ausgänge an anderen GPUs werden ignoriert.
 - Der Cursor kommt aus dem xcursor-Theme (`XCURSOR_THEME`, `XCURSOR_SIZE`), animierte Cursor
   stehen still.
 
