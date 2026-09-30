@@ -4,6 +4,7 @@ mod desktop;
 mod handlers;
 mod input;
 mod ipc;
+mod monitors;
 mod state;
 mod winit;
 

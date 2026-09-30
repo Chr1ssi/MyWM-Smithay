@@ -14,18 +14,14 @@ use keys::Result;
 use mywm_layout::MAX_NUMBER;
 pub use rules::{Placement, Rule, resolve};
 use serde::Deserialize;
-pub use sections::{AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, VrrConfig};
+pub use sections::{
+    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, VrrConfig,
+};
 
 /// Leaves at least one number of 1 to 9 free for dynamic workspaces.
 const MAX_HOME_WORKSPACES: usize = MAX_NUMBER - 1;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OutputDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-}
+pub use mywm_layout::Direction as OutputDirection;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -81,6 +77,8 @@ pub struct Config {
     pub game_app_id_prefixes: Vec<String>,
     pub vrr: VrrConfig,
     pub rules: Vec<Rule>,
+    /// Addition over the River-based MyWM (which used kanshi): native output setup.
+    pub outputs: Vec<OutputConfig>,
 }
 
 /// Resolve the independently versioned shell at runtime.
@@ -121,6 +119,7 @@ impl Default for Config {
             game_app_id_prefixes: Vec::new(),
             vrr: VrrConfig::default(),
             rules: Vec::new(),
+            outputs: Vec::new(),
         }
     }
 }
@@ -263,6 +262,13 @@ impl Config {
         if !std::path::Path::new(&config.wallpaper_directory).is_absolute() {
             return Err("wallpaper_directory must be an absolute path".into());
         }
+        let mut names = HashSet::new();
+        for (index, output) in config.outputs.iter().enumerate() {
+            output.validate().map_err(|error| format!("outputs[{}]: {error}", index + 1))?;
+            if !names.insert(&output.name) {
+                return Err(format!("outputs[{}]: duplicate output {}", index + 1, output.name).into());
+            }
+        }
         config.idle.validate()?;
         config.appearance.validate()?;
         config.keybindings()?;
@@ -297,7 +303,7 @@ impl Config {
     }
 
     pub fn keybindings(&self) -> Result<Vec<Binding>> {
-        use OutputDirection::*;
+        use mywm_layout::Direction::*;
         let b = &self.bindings;
         let mut bindings = Vec::new();
         let mut seen = HashSet::new();
@@ -445,6 +451,13 @@ mod tests {
             "[vrr]\nenabled = true\noutput = ''",
             "[vrr]\nenabled = true\noutput = 'DP-3'\ncommand = []",
             "[appearance]\nactive_border = 'blue'",
+            "[[outputs]]\nname = ''",
+            "[[outputs]]\nname = 'DP-1'\nmode = '1920'",
+            "[[outputs]]\nname = 'DP-1'\nmode = '1920x1080@'",
+            "[[outputs]]\nname = 'DP-1'\nscale = 0",
+            "[[outputs]]\nname = 'DP-1'\ntransform = 'sideways'",
+            "[[outputs]]\nname = 'DP-1'\n[[outputs]]\nname = 'DP-1'",
+            "[[outputs]]\nname = 'DP-1'\nposition = [1]",
             "[appearance]\ngaps_outer = 129",
         ] {
             assert!(Config::parse(text).is_err(), "accepted {text}");
@@ -460,6 +473,40 @@ mod tests {
         assert_eq!(config.keybindings().unwrap().len(), 55);
         let binding = config.program_bindings.get("browser").unwrap();
         assert_eq!(binding.command, ["firefox", "--private-window"]);
+    }
+
+    #[test]
+    fn outputs_mirror_the_kanshi_profile() {
+        let config = Config::parse(
+            r#"
+            [[outputs]]
+            name = "HDMI-A-1"
+            mode = "2560x1080@60Hz"
+            position = [0, 0]
+            [[outputs]]
+            name = "DP-3"
+            mode = "2560x1440@143.97"
+            position = [0, 1080]
+            [[outputs]]
+            name = "DP-1"
+            position = [2560, 0]
+            transform = "270"
+            [[outputs]]
+            name = "DP-2"
+            enable = false
+        "#,
+        )
+        .unwrap();
+        let dp3 = &config.outputs[1];
+        assert_eq!(
+            dp3.parsed_mode().unwrap(),
+            Some(OutputMode { width: 2560, height: 1440, refresh_mhz: Some(143_970) })
+        );
+        assert_eq!(config.outputs[0].parsed_mode().unwrap().unwrap().refresh_mhz, Some(60_000));
+        assert_eq!(config.outputs[2].parsed_mode().unwrap(), None);
+        assert_eq!(config.outputs[2].transform, OutputTransform::Rotate270);
+        assert_eq!(config.outputs[2].scale, 1.0);
+        assert!(!config.outputs[3].enable);
     }
 
     #[test]

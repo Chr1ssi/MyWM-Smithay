@@ -1,11 +1,9 @@
+//! Nested backend for development: renders into a window of the host compositor or X server.
 use std::time::Duration;
 
 use smithay::{
     backend::{
-        renderer::{
-            damage::OutputDamageTracker, element::solid::SolidColorRenderElement,
-            gles::GlesRenderer,
-        },
+        renderer::{damage::OutputDamageTracker, element::solid::SolidColorRenderElement, gles::GlesRenderer},
         winit::{self, WinitEvent},
     },
     desktop::space::render_output,
@@ -16,28 +14,38 @@ use smithay::{
 
 use crate::State;
 
-pub fn init(
-    event_loop: &mut EventLoop<State>,
-    state: &mut State,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (mut backend, winit) = winit::init::<GlesRenderer>()?;
-
-    let mode = Mode { size: backend.window_size(), refresh: 60_000 };
+fn new_output(name: &str, model: &str, mode: Mode, state: &State) -> Output {
     let output = Output::new(
-        "winit".to_string(),
+        name.to_string(),
         PhysicalProperties {
             size: (0, 0).into(),
             subpixel: Subpixel::Unknown,
             make: "MyWM".into(),
-            model: "Winit".into(),
+            model: model.into(),
         },
     );
-    let _global = output.create_global::<State>(&state.display_handle);
-    output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
+    output.create_global::<State>(&state.display_handle);
     output.set_preferred(mode);
-    state.space.map_output(&output, (0, 0));
-    state.output = Some(output.clone());
-    state.refresh();
+    output
+}
+
+pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), Box<dyn std::error::Error>> {
+    let (mut backend, winit) = winit::init::<GlesRenderer>()?;
+
+    let mode = Mode { size: backend.window_size(), refresh: 60_000 };
+    let output = new_output("winit", "Winit", mode, state);
+    output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
+    state.add_output(output.clone(), Some((0, 0).into()));
+
+    // Extra outputs without a picture, to exercise multi-monitor logic (workspaces, focus,
+    // the bar protocol) without a second screen: MYWM_VIRTUAL_OUTPUTS=<count>.
+    let virtual_count: usize = std::env::var("MYWM_VIRTUAL_OUTPUTS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    for index in 1..=virtual_count {
+        let mode = Mode { size: (1280, 800).into(), refresh: 60_000 };
+        let extra = new_output(&format!("virtual-{index}"), "Virtual", mode, state);
+        extra.change_current_state(Some(mode), Some(Transform::Normal), None, None);
+        state.add_output(extra, None);
+    }
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
@@ -48,13 +56,13 @@ pub fn init(
                 output.change_current_state(Some(Mode { size, refresh: 60_000 }), None, None, None);
                 state.refresh();
             }
-            WinitEvent::Input(event) => state.process_input_event(event, &output),
+            WinitEvent::Input(event) => state.process_input_event(event, Some(&output)),
             WinitEvent::Redraw => {
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
                 {
                     let (renderer, mut framebuffer) = backend.bind().expect("bind");
-                    let borders = state.border_elements();
+                    let borders = state.border_elements(&output);
                     let background = state.desktop.appearance.background.0;
                     render_output::<_, SolidColorRenderElement, _, _>(
                         &output,
@@ -72,8 +80,12 @@ pub fn init(
                 backend.submit(Some(&[damage])).expect("submit");
 
                 let elapsed = state.start_time.elapsed();
-                for window in state.space.elements() {
-                    window.send_frame(&output, elapsed, Some(Duration::ZERO), |_, _| Some(output.clone()));
+                for entry in &state.outputs {
+                    for window in state.space.elements_for_output(&entry.output) {
+                        window.send_frame(&entry.output, elapsed, Some(Duration::ZERO), |_, _| {
+                            Some(entry.output.clone())
+                        });
+                    }
                 }
                 backend.window().request_redraw();
             }

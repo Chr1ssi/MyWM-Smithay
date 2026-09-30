@@ -141,3 +141,92 @@ impl AppearanceConfig {
         self.layout().validate()
     }
 }
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OutputTransform {
+    #[default]
+    Normal,
+    #[serde(rename = "90")]
+    Rotate90,
+    #[serde(rename = "180")]
+    Rotate180,
+    #[serde(rename = "270")]
+    Rotate270,
+    Flipped,
+    #[serde(rename = "flipped-90")]
+    Flipped90,
+    #[serde(rename = "flipped-180")]
+    Flipped180,
+    #[serde(rename = "flipped-270")]
+    Flipped270,
+}
+
+/// A video mode request; the refresh rate is optional and in millihertz.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputMode {
+    pub width: u32,
+    pub height: u32,
+    pub refresh_mhz: Option<u32>,
+}
+
+/// One `[[outputs]]` entry, equivalent to a line of the kanshi profile.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutputConfig {
+    /// Connector name, e.g. `DP-3`.
+    pub name: String,
+    #[serde(default = "yes")]
+    pub enable: bool,
+    /// `WIDTHxHEIGHT` or `WIDTHxHEIGHT@HZ` (a trailing `Hz` is allowed); default: preferred mode.
+    pub mode: Option<String>,
+    /// Top-left corner in logical pixels; default: to the right of the previous output.
+    pub position: Option<[i32; 2]>,
+    #[serde(default = "one")]
+    pub scale: f64,
+    #[serde(default)]
+    pub transform: OutputTransform,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn one() -> f64 {
+    1.0
+}
+
+impl OutputConfig {
+    pub fn parsed_mode(&self) -> std::result::Result<Option<OutputMode>, String> {
+        let Some(mode) = &self.mode else { return Ok(None) };
+        let invalid = || format!("mode {mode:?} must look like 2560x1440 or 2560x1440@144");
+        let (size, refresh) = match mode.split_once('@') {
+            Some((size, refresh)) => (size, Some(refresh)),
+            None => (mode.as_str(), None),
+        };
+        let (width, height) = size.split_once('x').ok_or_else(invalid)?;
+        let refresh_mhz = refresh
+            .map(|hz| {
+                let hz: f64 = hz.trim_end_matches("Hz").parse().map_err(|_| invalid())?;
+                (hz > 0.0 && hz < 1000.0).then(|| (hz * 1000.0).round() as u32).ok_or_else(invalid)
+            })
+            .transpose()?;
+        let (width, height): (u32, u32) =
+            (width.parse().map_err(|_| invalid())?, height.parse().map_err(|_| invalid())?);
+        if width == 0 || height == 0 {
+            return Err(invalid());
+        }
+        Ok(Some(OutputMode { width, height, refresh_mhz }))
+    }
+
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("name must not be empty".into());
+        }
+        self.parsed_mode()?;
+        if !(0.1..=10.0).contains(&self.scale) {
+            return Err("scale must be between 0.1 and 10".into());
+        }
+        Ok(())
+    }
+}

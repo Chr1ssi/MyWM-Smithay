@@ -126,3 +126,22 @@
 #[[rules]]
 #dialog = true
 #floating = true
+
+# Neu im Smithay-Compositor (ersetzt kanshi): Monitore einrichten. Position in
+# logischen Pixeln (links oben); ohne Angabe folgt der Monitor rechts vom vorigen.
+# transform: normal, 90, 180, 270, flipped, flipped-90, flipped-180, flipped-270.
+#[[outputs]]
+#name = "HDMI-A-1"
+#mode = "2560x1080@60"
+#position = [0, 0]
+#
+#[[outputs]]
+#name = "DP-3"
+#mode = "2560x1440@143.97"
+#position = [0, 1080]
+#
+#[[outputs]]
+#name = "DP-1"
+#mode = "2560x1440@59.95"
+#position = [2560, 0]
+#transform = "270"

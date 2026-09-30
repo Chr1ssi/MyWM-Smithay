@@ -1,11 +1,15 @@
-//! Window management model: windows, workspaces and their mapping onto the smithay `Space`.
+//! Window management model: windows, per-monitor workspaces and their mapping onto the smithay `Space`.
 use mywm_layout::{
-    Appearance, DragKind, Edges, GAMING, Kind as WorkspaceKind, Placement, Rect, WindowInfo, Workspace, Workspaces, arrange,
-    place_floating,
+    Appearance, Desk, DragKind, Edges, GAMING, Placement, Rect, WindowInfo, Workspace,
+    arrange, place_floating,
 };
 use smithay::{
-    backend::renderer::element::{Kind, solid::{SolidColorBuffer, SolidColorRenderElement}},
+    backend::renderer::element::{
+        Kind,
+        solid::{SolidColorBuffer, SolidColorRenderElement},
+    },
     desktop::Window,
+    output::Output,
     reexports::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::protocol::wl_surface::WlSurface,
@@ -31,14 +35,14 @@ pub struct Managed {
     pub scratchpad_floating: Option<bool>,
     /// Rules and workspace are applied at the first commit, once the app id is known.
     pub placed: bool,
-    /// Frame (content plus border) in output coordinates, while placed.
+    /// Frame (content plus border) in global coordinates, while placed.
     pub frame: Option<(Rect, i32)>,
     /// Top, bottom, left, right border strips. Buffers persist so damage tracking stays exact.
     borders: [SolidColorBuffer; 4],
 }
 
 impl Managed {
-    fn surface(&self) -> Option<&WlSurface> {
+    pub fn surface(&self) -> Option<&WlSurface> {
         self.window.toplevel().map(|t| t.wl_surface())
     }
 
@@ -65,10 +69,12 @@ pub struct Drag {
 
 pub struct Desktop {
     pub windows: Vec<Managed>,
-    pub workspaces: Workspaces<WindowId>,
+    pub desk: Desk<WindowId>,
+    /// The monitor keyboard commands act on; follows the pointer.
+    pub focused_monitor: usize,
     pub appearance: Appearance,
     pub drag: Option<Drag>,
-    /// Global floating stack shown above all workspaces.
+    /// Global floating stack shown above all workspaces, on the monitor under the pointer.
     pub scratchpad: Workspace<WindowId>,
     pub scratchpad_visible: bool,
     /// Whether keyboard focus is on the scratchpad rather than the workspace.
@@ -76,12 +82,13 @@ pub struct Desktop {
     next_id: WindowId,
 }
 
-impl Default for Desktop {
-    fn default() -> Self {
+impl Desktop {
+    pub fn new(workspace_outputs: Vec<String>, gaming_output: Option<String>, appearance: Appearance) -> Self {
         Self {
             windows: Vec::new(),
-            workspaces: Workspaces::new(1),
-            appearance: Appearance::default(),
+            desk: Desk::new(workspace_outputs, gaming_output),
+            focused_monitor: 0,
+            appearance,
             drag: None,
             scratchpad: Workspace::default(),
             scratchpad_visible: false,
@@ -89,9 +96,7 @@ impl Default for Desktop {
             next_id: 1,
         }
     }
-}
 
-impl Desktop {
     pub fn get(&self, id: WindowId) -> Option<&Managed> {
         self.windows.iter().find(|w| w.id == id)
     }
@@ -104,26 +109,31 @@ impl Desktop {
         self.windows.iter().find(|w| w.surface() == Some(surface))
     }
 
+    /// The workspace shown on the focused monitor.
+    pub fn current(&self) -> Option<&Workspace<WindowId>> {
+        self.desk.monitors.get(self.focused_monitor).map(|m| m.workspaces.current())
+    }
+
     pub fn focused(&self) -> Option<WindowId> {
         if self.scratchpad_visible && self.focus_scratch && self.scratchpad.focused.is_some() {
             self.scratchpad.focused
         } else {
-            self.workspaces.current().focused
+            self.current().and_then(|w| w.focused)
         }
     }
 
     pub fn in_scratchpad(&self, id: WindowId) -> bool {
         self.scratchpad.windows.contains(&id)
     }
+
+    /// Area of the monitor a window lives on.
+    pub fn monitor_area_of(&self, id: WindowId) -> Option<Rect> {
+        let monitor = self.desk.locate(&id).map(|(m, _)| m).unwrap_or(self.focused_monitor);
+        self.desk.monitors.get(monitor).map(|m| m.area)
+    }
 }
 
 impl State {
-    pub fn work_area(&self) -> Option<Rect> {
-        let output = self.output.as_ref()?;
-        let geo = self.space.output_geometry(output)?;
-        Some(Rect { x: geo.loc.x, y: geo.loc.y, width: geo.size.w, height: geo.size.h })
-    }
-
     /// Register a new toplevel. It joins a workspace at its first commit (see `place_pending`).
     pub fn add_window(&mut self, window: Window) {
         let toplevel = window.toplevel().expect("wayland window").clone();
@@ -157,9 +167,17 @@ impl State {
         self.refresh();
     }
 
+    /// Windows that arrived while no monitor existed get placed once one appears.
+    pub fn place_all_pending(&mut self) {
+        let pending: Vec<_> = self.desktop.windows.iter().filter(|m| !m.placed).map(|m| m.id).collect();
+        for id in pending {
+            self.place(id);
+        }
+    }
+
     fn place(&mut self, id: WindowId) {
         let Some(m) = self.desktop.get(id) else { return };
-        if m.placed {
+        if m.placed || self.desktop.desk.monitors.is_empty() {
             return;
         }
         let surface = m.surface().cloned();
@@ -190,25 +208,38 @@ impl State {
         );
         let game = self.is_game(app_id.as_deref(), parent);
         let d = &mut self.desktop;
-        let ws = &mut d.workspaces;
-        let active = parent.and_then(|p| ws.location(&p)).unwrap_or(ws.active);
+        // Dialogs join their parent's workspace, everything else the focused monitor's shown one.
+        let focused = d.focused_monitor.min(d.desk.monitors.len() - 1);
+        let (mut monitor, active) = parent
+            .and_then(|p| d.desk.locate(&p))
+            .unwrap_or((focused, d.desk.monitors[focused].workspaces.active));
         // Rules only apply while their workspace exists.
-        let mut number = placement.workspace.filter(|n| ws.contains(*n)).unwrap_or(active);
-        if game {
-            ws.ensure(GAMING, WorkspaceKind::Gaming);
-            number = GAMING;
-            ws.select(GAMING);
-        } else if number == GAMING {
-            // Only games start on the gaming workspace.
-            number = ws.home;
-            ws.select(number);
+        let mut number = placement
+            .workspace
+            .filter(|n| d.desk.owner(*n).is_some())
+            .unwrap_or(active);
+        if let Some(owner) = d.desk.owner(number) {
+            monitor = owner;
         }
-        if number == ws.active {
-            ws.add(id);
+        if game && let Some(gaming) = d.desk.ensure_gaming() {
+            monitor = gaming;
+            number = GAMING;
+            d.desk.monitors[monitor].workspaces.select(GAMING);
+        } else if number == GAMING {
+            // Only games start on the gaming workspace; show the monitor's own instead.
+            number = d.desk.monitors[monitor].workspaces.home;
+            d.desk.monitors[monitor].workspaces.select(number);
+        }
+        let workspaces = &mut d.desk.monitors[monitor].workspaces;
+        if number == workspaces.active {
+            workspaces.add(id);
         } else {
-            ws.add_to(number, id);
+            workspaces.add_to(number, id);
         }
         d.focus_scratch = false;
+        if number == d.desk.monitors[monitor].workspaces.active {
+            d.focused_monitor = monitor;
+        }
         if let Some(m) = d.get_mut(id) {
             m.placed = true;
             m.floating = placement.floating;
@@ -240,7 +271,7 @@ impl State {
         if let Some(managed) = self.desktop.get(id) {
             self.space.unmap_elem(&managed.window);
         }
-        self.desktop.workspaces.remove(&id);
+        self.desktop.desk.remove_window(&id);
         self.desktop.scratchpad.remove(&id);
         if self.desktop.scratchpad.windows.is_empty() {
             self.desktop.scratchpad_visible = false;
@@ -255,63 +286,39 @@ impl State {
         if self.desktop.drag.as_ref().is_some_and(|d| d.id == id) {
             self.desktop.drag = None;
         }
-        self.desktop.workspaces.prune();
+        self.desktop.desk.prune();
         self.refresh();
     }
 
     /// Recompute the layout and push it to the clients, then sync keyboard focus.
     pub fn refresh(&mut self) {
+        self.sync_monitor_areas();
         self.apply_layout();
         self.sync_focus();
         self.ipc_dirty = true;
     }
 
-    /// State for the bar (see `mywm-ipc`).
-    pub fn ipc_snapshot(&self) -> mywm_ipc::Snapshot {
-        let d = &self.desktop;
-        let mut snapshot = mywm_ipc::Snapshot {
-            scratchpad_visible: d.scratchpad_visible,
-            scratchpad_occupied: !d.scratchpad.windows.is_empty(),
-            ..Default::default()
-        };
-        if let Some(area) = self.work_area() {
-            let workspace = d.workspaces.current();
-            let tiled = workspace
-                .windows
-                .iter()
-                .filter_map(|id| d.get(*id))
-                .filter(|m| !m.floating)
-                .filter_map(|m| m.frame)
-                .map(|(f, b)| Rect { x: f.x + b, y: f.y + b, width: f.width - 2 * b, height: f.height - 2 * b });
-            let (overflow_left, overflow_right) = mywm_ipc::overflow_directions(area, tiled);
-            snapshot.outputs.push(mywm_ipc::OutputState {
-                id: crate::ipc::OUTPUT_ID,
-                x: area.x,
-                y: area.y,
-                width: area.width,
-                height: area.height,
-                active: d.workspaces.active,
-                overflow_left,
-                overflow_right,
-                workspaces: d.workspaces.entries.iter().map(|w| (w.number, !w.windows.is_empty())).collect(),
-            });
-        }
-        snapshot
-    }
-
     fn apply_layout(&mut self) {
-        let Some(area) = self.work_area() else { return };
+        let scratch_monitor = self.scratchpad_monitor();
         let d = &mut self.desktop;
+        if d.desk.monitors.is_empty() {
+            return;
+        }
         let infos: Vec<_> = d.windows.iter().filter(|m| m.placed).map(Managed::info).collect();
-        let mut placements: Vec<Placement<WindowId>> =
-            arrange(d.workspaces.current_mut(), &infos, area, &d.appearance);
-        if d.scratchpad_visible {
+        let mut placements: Vec<Placement<WindowId>> = Vec::new();
+        for monitor in &mut d.desk.monitors {
+            let area = monitor.area;
+            placements.extend(arrange(monitor.workspaces.current_mut(), &infos, area, &d.appearance));
+        }
+        if d.scratchpad_visible
+            && let Some(monitor) = d.desk.monitors.get(scratch_monitor)
+        {
             placements.extend(
                 d.scratchpad
                     .windows
                     .iter()
                     .filter_map(|id| infos.iter().find(|i| i.id == *id))
-                    .map(|info| place_floating(info, area, &d.appearance)),
+                    .map(|info| place_floating(info, monitor.area, &d.appearance)),
             );
         }
 
@@ -324,7 +331,7 @@ impl State {
         }
         let active = d.appearance.active_border.0;
         let inactive = d.appearance.inactive_border.0;
-        let focused = d.workspaces.current().focused;
+        let focused = d.focused();
         for p in placements {
             let Some(m) = d.windows.iter_mut().find(|w| w.id == p.id) else { continue };
             if let Some(rect) = p.floating_rect {
@@ -383,21 +390,32 @@ impl State {
         self.set_keyboard_focus(surface);
     }
 
-    /// Border rectangles for the active workspace, top-most first.
-    pub fn border_elements(&self) -> Vec<SolidColorRenderElement> {
+    /// Border rectangles that fall on `output`, top-most first, in output-local physical pixels.
+    pub fn border_elements(&self, output: &Output) -> Vec<SolidColorRenderElement> {
+        let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
+        let scale = output.current_scale().fractional_scale();
         let mut elements = Vec::new();
         for m in self.desktop.windows.iter().rev() {
             let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) else { continue };
+            let visible = frame.x < geo.loc.x + geo.size.w
+                && frame.x + frame.width > geo.loc.x
+                && frame.y < geo.loc.y + geo.size.h
+                && frame.y + frame.height > geo.loc.y;
+            if !visible {
+                continue;
+            }
             let origins = [
                 (frame.x, frame.y),
                 (frame.x, frame.y + frame.height - b),
                 (frame.x, frame.y + b),
                 (frame.x + frame.width - b, frame.y + b),
             ];
-            for (buffer, origin) in m.borders.iter().zip(origins) {
-                elements.push(SolidColorRenderElement::from_buffer(
-                    buffer, origin, 1.0, 1.0, Kind::Unspecified,
-                ));
+            for (buffer, (x, y)) in m.borders.iter().zip(origins) {
+                let local = (
+                    ((x - geo.loc.x) as f64 * scale).round() as i32,
+                    ((y - geo.loc.y) as f64 * scale).round() as i32,
+                );
+                elements.push(SolidColorRenderElement::from_buffer(buffer, local, scale, 1.0, Kind::Unspecified));
             }
         }
         elements
@@ -411,10 +429,121 @@ impl State {
         if d.scratchpad_visible && d.in_scratchpad(id) {
             d.scratchpad.focused = Some(id);
             d.focus_scratch = true;
-        } else if d.workspaces.focus(&id) {
+        } else if let Some((monitor, _)) = d.desk.locate(&id)
+            && d.desk.monitors[monitor].workspaces.focus(&id)
+        {
+            d.focused_monitor = monitor;
             d.focus_scratch = false;
         } else {
             return;
+        }
+        self.refresh();
+    }
+
+    pub fn toggle_floating(&mut self) {
+        let Some(id) = self.desktop.focused() else { return };
+        let area = self.desktop.monitor_area_of(id);
+        if let Some(m) = self.desktop.get_mut(id) {
+            if !m.floating
+                && let (Some((frame, _)), Some(area)) = (m.frame, area)
+            {
+                // Start floating where the window currently is (relative to its monitor).
+                m.floating_rect = Some(Rect { x: frame.x - area.x, y: frame.y - area.y, ..frame });
+            }
+            m.floating = !m.floating;
+            m.fullscreen = false;
+        }
+        self.refresh();
+    }
+
+    pub fn set_fullscreen(&mut self, id: WindowId, fullscreen: bool) {
+        if let Some(m) = self.desktop.get_mut(id) {
+            m.fullscreen = fullscreen;
+        }
+        if fullscreen && let Some((monitor, _)) = self.desktop.desk.locate(&id) {
+            self.desktop.desk.monitors[monitor].workspaces.focus(&id);
+        }
+        self.refresh();
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
+        if let Some(id) = self.desktop.focused() {
+            let now = self.desktop.get(id).is_some_and(|m| m.fullscreen);
+            self.set_fullscreen(id, !now);
+        }
+    }
+
+    /// Grow or shrink the focused column by a fraction of the viewport width.
+    pub fn resize_column(&mut self, permille: i32) {
+        let Some(id) = self.desktop.focused() else { return };
+        let Some(area) = self.desktop.monitor_area_of(id) else { return };
+        let viewport = self.desktop.appearance.viewport(area);
+        let Some(m) = self.desktop.get_mut(id) else { return };
+        if m.floating {
+            return;
+        }
+        let current = m.frame.map(|(f, _)| f.width).unwrap_or(viewport.width / 2);
+        m.tiled_width = Some((current + viewport.width * permille / 1000).clamp(100, viewport.width));
+        self.refresh();
+    }
+
+    pub fn begin_drag(&mut self, kind: DragKind) {
+        let under = self.space.element_under(self.pointer_location).map(|(w, _)| w.clone());
+        let Some(m) = self.desktop.windows.iter().find(|m| under.as_ref() == Some(&m.window)) else {
+            return;
+        };
+        let (id, floating) = (m.id, m.floating);
+        let Some((frame, _)) = m.frame else { return };
+        // Dragging moves floating windows; resizing also works on tiled columns.
+        if !floating && matches!(kind, DragKind::Move) {
+            return;
+        }
+        let area = self.desktop.monitor_area_of(id).unwrap_or(frame);
+        // Floating rects are relative to the monitor's work area.
+        let relative = Rect { x: frame.x - area.x, y: frame.y - area.y, ..frame };
+        let start_rect = m.floating_rect.unwrap_or(relative);
+        self.desktop.drag = Some(Drag {
+            id,
+            kind,
+            start: self.pointer_location,
+            start_rect,
+            start_width: frame.width,
+        });
+        self.focus_window(id);
+    }
+
+    pub fn update_drag(&mut self) {
+        let Some(drag) = &self.desktop.drag else { return };
+        let dx = (self.pointer_location.x - drag.start.x) as i32;
+        let dy = (self.pointer_location.y - drag.start.y) as i32;
+        let (id, kind, start_rect, start_width) = (drag.id, drag.kind, drag.start_rect, drag.start_width);
+        let Some(area) = self.desktop.monitor_area_of(id) else { return };
+        let viewport_width = self.desktop.appearance.viewport(area).width;
+        let Some(m) = self.desktop.get_mut(id) else { return };
+        if m.floating {
+            m.floating_rect = Some(start_rect.dragged(kind, dx, dy, area.width, area.height));
+        } else if let DragKind::Resize(Edges { right: true, .. }) = kind {
+            m.tiled_width = Some((start_width + dx).clamp(100, viewport_width));
+        }
+        self.refresh();
+    }
+
+    pub fn end_drag(&mut self) {
+        self.desktop.drag = None;
+    }
+
+    pub fn focus_step(&mut self, direction: isize) {
+        if let Some(monitor) = self.desktop.desk.monitors.get_mut(self.desktop.focused_monitor) {
+            monitor.workspaces.navigate(direction, false);
+        }
+        self.desktop.focus_scratch = false;
+        self.refresh();
+    }
+
+    pub fn move_column(&mut self, direction: isize) {
+        let floating: Vec<_> = self.desktop.windows.iter().filter(|w| w.floating).map(|w| w.id).collect();
+        if let Some(monitor) = self.desktop.desk.monitors.get_mut(self.desktop.focused_monitor) {
+            monitor.workspaces.navigate_matching(direction, true, |id| !floating.contains(id));
         }
         self.refresh();
     }
@@ -436,13 +565,16 @@ impl State {
             d.scratchpad.remove(&id);
             d.scratchpad_visible = !d.scratchpad.windows.is_empty();
             d.focus_scratch = d.scratchpad_visible;
-            d.workspaces.add(id);
+            if let Some(monitor) = d.desk.monitors.get_mut(d.focused_monitor) {
+                monitor.workspaces.add(id);
+            }
             if let Some(m) = d.get_mut(id) {
                 m.floating = m.scratchpad_floating.take().unwrap_or(true);
+                m.floating_rect = None;
             }
         } else {
-            d.workspaces.remove(&id);
-            d.workspaces.prune();
+            d.desk.remove_window(&id);
+            d.desk.prune();
             d.scratchpad.windows.push(id);
             d.scratchpad.focused = Some(id);
             d.scratchpad_visible = true;
@@ -454,153 +586,5 @@ impl State {
             }
         }
         self.refresh();
-    }
-
-    pub fn move_to_workspace_relative(&mut self, direction: isize) {
-        if let Some(number) = self.desktop.workspaces.relative(direction) {
-            self.move_to_workspace(number);
-        }
-    }
-
-    pub fn focus_step(&mut self, direction: isize) {
-        self.desktop.workspaces.navigate(direction, false);
-        self.refresh();
-    }
-
-    pub fn move_column(&mut self, direction: isize) {
-        let floating: Vec<_> = self.desktop.windows.iter().filter(|w| w.floating).map(|w| w.id).collect();
-        self.desktop
-            .workspaces
-            .navigate_matching(direction, true, |id| !floating.contains(id));
-        self.refresh();
-    }
-
-    pub fn select_workspace(&mut self, number: usize) {
-        self.desktop.workspaces.select(number);
-        self.desktop.workspaces.prune();
-        self.refresh();
-    }
-
-    pub fn cycle_workspace(&mut self, direction: isize) {
-        self.desktop.workspaces.cycle(direction);
-        self.desktop.workspaces.prune();
-        self.refresh();
-    }
-
-    pub fn new_workspace(&mut self) {
-        if let Some(number) = self.desktop.workspaces.free_number() {
-            self.desktop.workspaces.ensure(number, mywm_layout::Kind::Extra);
-            self.select_workspace(number);
-        }
-    }
-
-    pub fn move_to_workspace(&mut self, number: usize) {
-        let d = &mut self.desktop;
-        let ws = &mut d.workspaces;
-        let Some(id) = ws.current().focused.filter(|id| !d.scratchpad.windows.contains(id)) else {
-            return;
-        };
-        if number == ws.active || number == mywm_layout::GAMING || number > mywm_layout::MAX_NUMBER {
-            return;
-        }
-        ws.remove(&id);
-        ws.add_to(number, id);
-        ws.prune();
-        self.refresh();
-    }
-
-    pub fn move_to_new_workspace(&mut self) {
-        if let Some(number) = self.desktop.workspaces.free_number() {
-            self.move_to_workspace(number);
-        }
-    }
-
-    pub fn toggle_floating(&mut self) {
-        if let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get_mut(id)) {
-            if !m.floating {
-                // Start floating where the window currently is.
-                m.floating_rect = m.frame.map(|(f, _)| f).or(m.floating_rect);
-            }
-            m.floating = !m.floating;
-            m.fullscreen = false;
-        }
-        self.refresh();
-    }
-
-    pub fn set_fullscreen(&mut self, id: WindowId, fullscreen: bool) {
-        if let Some(m) = self.desktop.get_mut(id) {
-            m.fullscreen = fullscreen;
-        }
-        if fullscreen {
-            self.desktop.workspaces.focus(&id);
-        }
-        self.refresh();
-    }
-
-    pub fn toggle_fullscreen(&mut self) {
-        if let Some(id) = self.desktop.focused() {
-            let now = self.desktop.get(id).is_some_and(|m| m.fullscreen);
-            self.set_fullscreen(id, !now);
-        }
-    }
-
-    /// Grow or shrink the focused column by a fraction of the viewport width.
-    pub fn resize_column(&mut self, permille: i32) {
-        let Some(area) = self.work_area() else { return };
-        let viewport = self.desktop.appearance.viewport(area);
-        let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get_mut(id)) else { return };
-        if m.floating {
-            return;
-        }
-        let current = m.frame.map(|(f, _)| f.width).unwrap_or(viewport.width / 2);
-        m.tiled_width = Some((current + viewport.width * permille / 1000).clamp(100, viewport.width));
-        self.refresh();
-    }
-
-    pub fn begin_drag(&mut self, kind: DragKind) {
-        let under = self.space.element_under(self.pointer_location).map(|(w, _)| w.clone());
-        let Some(m) = self
-            .desktop
-            .windows
-            .iter()
-            .find(|m| under.as_ref() == Some(&m.window))
-        else {
-            return;
-        };
-        let (id, floating) = (m.id, m.floating);
-        let Some((frame, _)) = m.frame else { return };
-        // Dragging moves floating windows; resizing also works on tiled columns.
-        if !floating && matches!(kind, DragKind::Move) {
-            return;
-        }
-        let start_rect = m.floating_rect.unwrap_or(frame);
-        self.desktop.drag = Some(Drag {
-            id,
-            kind,
-            start: self.pointer_location,
-            start_rect,
-            start_width: frame.width,
-        });
-        self.focus_window(id);
-    }
-
-    pub fn update_drag(&mut self) {
-        let Some(area) = self.work_area() else { return };
-        let Some(drag) = &self.desktop.drag else { return };
-        let dx = (self.pointer_location.x - drag.start.x) as i32;
-        let dy = (self.pointer_location.y - drag.start.y) as i32;
-        let (id, kind, start_rect, start_width) = (drag.id, drag.kind, drag.start_rect, drag.start_width);
-        let viewport_width = self.desktop.appearance.viewport(area).width;
-        let Some(m) = self.desktop.get_mut(id) else { return };
-        if m.floating {
-            m.floating_rect = Some(start_rect.dragged(kind, dx, dy, area.width, area.height));
-        } else if let DragKind::Resize(Edges { right: true, .. }) = kind {
-            m.tiled_width = Some((start_width + dx).clamp(100, viewport_width));
-        }
-        self.refresh();
-    }
-
-    pub fn end_drag(&mut self) {
-        self.desktop.drag = None;
     }
 }

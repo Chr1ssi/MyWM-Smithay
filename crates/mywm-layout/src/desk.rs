@@ -240,6 +240,23 @@ impl<T: Clone + Eq> Desk<T> {
         })
     }
 
+    /// Keep a pointer position on some monitor: positions already on one are unchanged,
+    /// others snap to the nearest point of the nearest monitor.
+    pub fn clamp_to_monitors(&self, (x, y): (f64, f64)) -> (f64, f64) {
+        let mut best: Option<(f64, (f64, f64))> = None;
+        for monitor in &self.monitors {
+            let a = monitor.area;
+            // The last valid pixel is `right - 1`; stay just inside.
+            let cx = x.clamp(f64::from(a.x), f64::from(a.x + a.width) - 1.0);
+            let cy = y.clamp(f64::from(a.y), f64::from(a.y + a.height) - 1.0);
+            let distance = (cx - x).powi(2) + (cy - y).powi(2);
+            if best.is_none_or(|(d, _)| distance < d) {
+                best = Some((distance, (cx, cy)));
+            }
+        }
+        best.map_or((x, y), |(_, point)| point)
+    }
+
     /// The monitor nearest to `source` in `direction`, by distance between centers.
     pub fn adjacent(&self, source: usize, direction: Direction) -> Option<usize> {
         let center = |r: Rect| (r.x + r.width / 2, r.y + r.height / 2);
@@ -405,6 +422,19 @@ mod tests {
         assert_eq!(desk.adjacent(0, Direction::Left), None);
         assert_eq!(desk.monitor_at(2600, 10), Some(2));
         assert_eq!(desk.monitor_at(-1, 0), None);
+    }
+
+    #[test]
+    fn pointer_stays_on_the_monitors() {
+        let mut desk = desk(&[]);
+        desk.add_monitor(Some("A".into()), area(0, 0, 100, 100));
+        desk.add_monitor(Some("B".into()), area(100, 50, 100, 100));
+        assert_eq!(desk.clamp_to_monitors((50.5, 20.0)), (50.5, 20.0));
+        assert_eq!(desk.clamp_to_monitors((-30.0, 20.0)), (0.0, 20.0));
+        // Above B but right of A's top edge: sliding along A is not allowed past its corner.
+        assert_eq!(desk.clamp_to_monitors((150.0, 10.0)), (150.0, 50.0));
+        assert_eq!(desk.clamp_to_monitors((500.0, 500.0)), (199.0, 149.0));
+        assert_eq!(Desk::<u32>::new(vec![], None).clamp_to_monitors((3.0, 4.0)), (3.0, 4.0));
     }
 
     #[test]

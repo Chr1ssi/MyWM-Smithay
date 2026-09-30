@@ -15,9 +15,6 @@ use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction, generi
 
 use crate::State;
 
-/// The single output's id until the DRM backend brings real outputs.
-pub const OUTPUT_ID: u32 = 1;
-
 const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 4096;
 const MAX_PENDING_OUTPUT: usize = 65536;
@@ -189,19 +186,23 @@ impl State {
             Command::Logout => self.run_action(Action::Exit),
             Command::ThemeReload => self.run_action(Action::Reload),
             Command::Scratchpad => self.run_action(Action::ToggleScratchpad),
-            Command::NewWorkspace { output } if output == OUTPUT_ID => {
-                self.end_drag();
-                self.run_action(Action::NewWorkspace);
+            Command::NewWorkspace { output } => {
+                let Some(monitor) = self.monitor_for_output_id(output) else { return false };
+                self.new_workspace_on(monitor);
             }
-            Command::Workspace { output, number }
-                if output == OUTPUT_ID && self.desktop.workspaces.contains(number) =>
-            {
-                self.end_drag();
-                self.select_workspace(number);
+            Command::Workspace { output, number } => {
+                let Some(monitor) = self.monitor_for_output_id(output) else { return false };
+                if !self.desktop.desk.monitors[monitor].workspaces.contains(number) {
+                    return false;
+                }
+                self.select_workspace_on(monitor, number);
             }
-            _ => return false,
         }
         true
+    }
+
+    fn monitor_for_output_id(&self, id: u32) -> Option<usize> {
+        self.outputs.iter().position(|e| e.id == id)
     }
 
     /// Send the current state to every client whose copy is outdated.

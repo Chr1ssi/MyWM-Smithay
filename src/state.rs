@@ -1,9 +1,8 @@
 use std::{ffi::OsString, sync::Arc, time::Instant};
 
-use crate::desktop::Desktop;
+use crate::{desktop::Desktop, monitors::OutputEntry};
 use mywm_config::{Binding, Config, Modifiers};
 use smithay::{
-    output::Output,
     desktop::{PopupManager, Space, Window},
     input::{keyboard::XkbConfig, Seat, SeatState},
     reexports::{
@@ -44,7 +43,8 @@ pub struct State {
     pub pointer_location: Point<f64, Logical>,
 
     pub desktop: Desktop,
-    pub output: Option<Output>,
+    pub outputs: Vec<OutputEntry>,
+    pub next_output_id: u32,
 
     pub config: Config,
     pub ipc: Option<crate::ipc::Ipc>,
@@ -105,8 +105,11 @@ impl State {
             )
             .expect("display source");
 
-        let mut desktop = Desktop::default();
-        desktop.appearance = config.appearance.layout();
+        let desktop = Desktop::new(
+            config.workspace_outputs.clone(),
+            config.gaming_output.clone(),
+            config.appearance.layout(),
+        );
         let mut state = Self {
             start_time: Instant::now(),
             socket_name,
@@ -123,7 +126,8 @@ impl State {
             seat,
             pointer_location: (0.0, 0.0).into(),
             desktop,
-            output: None,
+            outputs: Vec::new(),
+            next_output_id: 1,
             bindings: Vec::new(),
             ipc: None,
             ipc_dirty: false,

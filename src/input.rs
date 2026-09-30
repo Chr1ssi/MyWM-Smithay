@@ -3,14 +3,14 @@ use mywm_layout::{DragKind, Edges};
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-        KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+        KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
     },
     input::{
         keyboard::{FilterResult, Keysym, ModifiersState},
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
     output::Output,
-    utils::SERIAL_COUNTER,
+    utils::{Logical, Point, SERIAL_COUNTER},
 };
 
 use crate::State;
@@ -32,6 +32,7 @@ impl State {
     }
 
     pub fn run_action(&mut self, action: Action) {
+        tracing::debug!("action {action:?}");
         match action {
             Action::Terminal => self.spawn_command(&self.config.terminal.clone(), false),
             Action::Launcher => self.spawn_command(&self.config.launcher.clone(), true),
@@ -65,12 +66,12 @@ impl State {
             Action::ResizeColumn(p) => self.resize_column(p),
             Action::ToggleScratchpad => self.toggle_scratchpad(),
             Action::MoveToScratchpad => self.move_to_scratchpad(),
-            // Multi-monitor actions arrive with the DRM backend.
-            Action::FocusOutput(_) | Action::MoveToOutput(_) => {}
+            Action::FocusOutput(d) => self.focus_output_direction(d),
+            Action::MoveToOutput(d) => self.move_to_output_direction(d),
         }
     }
 
-    pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>, output: &Output) {
+    pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>, output: Option<&Output>) {
         match event {
             InputEvent::Keyboard { event } => {
                 let serial = SERIAL_COUNTER.next_serial();
@@ -98,13 +99,15 @@ impl State {
                 }
             }
             InputEvent::PointerMotionAbsolute { event } => {
-                let Some(geo) = self.space.output_geometry(output) else { return };
+                let Some(geo) = output.and_then(|o| self.space.output_geometry(o)) else { return };
                 self.pointer_location = event.position_transformed(geo.size) + geo.loc.to_f64();
-                if self.desktop.drag.is_some() {
-                    self.update_drag();
-                } else {
-                    self.pointer_motion(event.time_msec());
-                }
+                self.pointer_moved(event.time_msec());
+            }
+            InputEvent::PointerMotion { event } => {
+                let target = self.pointer_location + event.delta();
+                let (x, y) = self.desktop.desk.clamp_to_monitors((target.x, target.y));
+                self.pointer_location = (x, y).into();
+                self.pointer_moved(event.time_msec());
             }
             InputEvent::PointerButton { event } => self.pointer_button(
                 event.button_code(),
@@ -167,7 +170,23 @@ impl State {
         pointer.frame(self);
     }
 
+    fn pointer_moved(&mut self, time: u32) {
+        if self.desktop.drag.is_some() {
+            self.update_drag();
+        } else {
+            self.pointer_motion(time);
+        }
+    }
+
+    /// Move the pointer to `location` as if the user did.
+    pub fn warp_pointer(&mut self, location: Point<f64, Logical>) {
+        self.pointer_location = location;
+        let time = self.start_time.elapsed().as_millis() as u32;
+        self.pointer_motion(time);
+    }
+
     fn pointer_motion(&mut self, time: u32) {
+        self.update_pointer_monitor();
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         let under_window = self.space.element_under(self.pointer_location).map(|(w, l)| (w.clone(), l));
