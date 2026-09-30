@@ -138,8 +138,7 @@ fn main() {
         let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, &qh, ());
         let surface = compositor.create_surface(&qh, ());
         app.configured = vec![false];
-        let _keep: (Option<ZwlrLayerSurfaceV1>, Option<(XdgSurface, XdgToplevel)>);
-        if mode == "layer" {
+        let _keep: (Option<ZwlrLayerSurfaceV1>, Option<(XdgSurface, XdgToplevel)>) = if mode == "layer" {
             let shell: ZwlrLayerShellV1 = globals.bind(&qh, 1..=4, ()).expect("layer shell");
             let layer = if layer_name == "overlay" { Layer::Overlay } else { Layer::Top };
             let layer_surface = shell.get_layer_surface(&surface, None, layer, "test".into(), &qh, ());
@@ -148,7 +147,7 @@ fn main() {
             while !app.configured[0] {
                 queue.blocking_dispatch(&mut app).unwrap();
             }
-            _keep = (Some(layer_surface), None);
+            (Some(layer_surface), None)
         } else {
             let xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
             let toplevel = xdg.get_toplevel(&qh, ());
@@ -158,8 +157,8 @@ fn main() {
             while !app.configured[0] {
                 queue.blocking_dispatch(&mut app).unwrap();
             }
-            _keep = (None, Some((xdg, toplevel)));
-        }
+            (None, Some((xdg, toplevel)))
+        };
         surface.attach(Some(&buffer), 0, 0);
         surface.commit();
         queue.roundtrip(&mut app).unwrap();
