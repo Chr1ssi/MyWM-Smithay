@@ -68,6 +68,7 @@ impl State {
     pub fn remove_output(&mut self, output: &Output) {
         let Some(index) = self.outputs.iter().position(|e| &e.output == output) else { return };
         self.end_drag();
+        self.fail_screencopies_of(output);
         // Floating rects belong to a monitor's work area; recenter windows that change monitor.
         let before: Vec<_> = self.desktop.windows.iter().map(|m| (m.id, self.desktop.desk.locate(&m.id))).collect();
         self.space.unmap_output(output);

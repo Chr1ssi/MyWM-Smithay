@@ -524,10 +524,12 @@ impl State {
         surface.tearing = tearing_wanted && surface.tearing_works;
         surface.compositor.set_async_flip(surface.tearing);
 
+        let mut had_damage = false;
         let queued = match surface.compositor.render_frame(renderer, &elements, background, FrameFlags::DEFAULT) {
             Ok(result) => {
                 let states = result.states.clone();
                 let is_empty = result.is_empty;
+                had_damage = !is_empty;
                 self.update_scanout_feedback(&output, &states, surface.feedback.as_ref());
                 if is_empty {
                     false
@@ -560,6 +562,7 @@ impl State {
                 false
             }
         };
+        self.fulfill_screencopy(renderer, &output, &elements, had_damage);
         self.send_frames(&output);
         self.note_locked_frame(&output);
 

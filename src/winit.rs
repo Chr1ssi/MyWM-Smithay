@@ -57,9 +57,10 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
             WinitEvent::Redraw => {
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
+                let elements;
                 {
                     let (renderer, mut framebuffer) = backend.bind().expect("bind");
-                    let elements = state.output_elements(renderer, &output);
+                    elements = state.output_elements(renderer, &output);
                     let clear = state.clear_color();
                     damage_tracker
                         .render_output(renderer, &mut framebuffer, 0, &elements, clear)
@@ -67,6 +68,8 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                 }
                 backend.submit(Some(&[damage])).expect("submit");
 
+                // Captures render offscreen, which must not happen while the window is being drawn.
+                state.fulfill_screencopy(backend.renderer(), &output, &elements, true);
                 let outputs: Vec<_> = state.outputs.iter().map(|e| e.output.clone()).collect();
                 for output in &outputs {
                     state.send_frames(output);

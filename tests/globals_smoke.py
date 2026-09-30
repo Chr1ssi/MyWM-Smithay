@@ -13,6 +13,9 @@ EXPECTED = {
     "wp_viewporter", "wp_fractional_scale_manager_v1", "wp_cursor_shape_manager_v1",
     "wp_content_type_manager_v1", "zwp_relative_pointer_manager_v1", "zwp_pointer_constraints_v1",
     "zxdg_decoration_manager_v1", "wp_tearing_control_manager_v1",
+    "zwlr_layer_shell_v1", "ext_session_lock_manager_v1", "ext_idle_notifier_v1",
+    "zwp_idle_inhibit_manager_v1", "zwlr_output_power_manager_v1", "zwlr_screencopy_manager_v1",
+    "xwayland_shell_v1",
 }
 # Only with the hardware backend: they need the GPU.
 HARDWARE_ONLY = {"zwp_linux_dmabuf_v1", "wp_presentation", "wp_linux_drm_syncobj_manager_v1"}

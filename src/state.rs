@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashSet, ffi::OsString, sync::Arc, time::Instant};
 
-use crate::{cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, session::SessionLock, udev::UdevData};
+use crate::{screencopy::PendingCopy, cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, session::SessionLock, udev::UdevData};
 use mywm_config::{Binding, Config, Modifiers};
 use smithay::{
     desktop::{PopupManager, Space, Window},
@@ -74,6 +74,8 @@ pub struct State {
     pub session: Option<LibSeatSession>,
     pub dmabuf_state: DmabufState,
     pub layer_shell_state: WlrLayerShellState,
+    /// Screen capture requests waiting for their output's next frame.
+    pub pending_copies: Vec<PendingCopy>,
     pub xwayland_shell_state: XWaylandShellState,
     pub xwm: Option<X11Wm>,
     /// Display number of Xwayland, once started.
@@ -185,6 +187,7 @@ impl State {
             session: None,
             dmabuf_state: DmabufState::new(),
             layer_shell_state: WlrLayerShellState::new::<State>(&dh),
+            pending_copies: Vec::new(),
             xwayland_shell_state: XWaylandShellState::new::<State>(&dh),
             xwm: None,
             xdisplay: None,
@@ -209,6 +212,7 @@ impl State {
                 Box::new(XdgDecorationState::new::<State>(&dh)),
                 Box::new(State::create_tearing_control_global(&dh)),
                 Box::new(IdleInhibitManagerState::new::<State>(&dh)),
+                Box::new(State::create_screencopy_global(&dh)),
                 Box::new(State::create_output_power_global(&dh)),
             ],
             pointer_focus_surface: None,

@@ -9,6 +9,7 @@ mod ipc;
 mod monitors;
 mod protocols;
 mod render;
+mod screencopy;
 mod session;
 mod udev;
 mod xwayland;
@@ -56,7 +57,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // SAFETY: single-threaded at this point; no other thread reads the environment.
-    unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
+    unsafe {
+        std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
+        if !nested {
+            // The desktop portals pick their backends by this name. `river` is what the
+            // existing MyWM setup already configures xdg-desktop-portal-wlr for.
+            if std::env::var_os("XDG_CURRENT_DESKTOP").is_none() {
+                std::env::set_var("XDG_CURRENT_DESKTOP", "river");
+            }
+            std::env::set_var("XDG_SESSION_TYPE", "wayland");
+        }
+    }
     tracing::info!("listening on WAYLAND_DISPLAY={:?}", state.socket_name);
 
     // Shut down cleanly (removing the bar socket) on SIGTERM/SIGINT.
