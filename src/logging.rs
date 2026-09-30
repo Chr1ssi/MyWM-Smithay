@@ -7,6 +7,10 @@ use std::{fs::File, io, path::PathBuf, sync::Mutex};
 
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
+/// Info level, except for X11 protocol errors about windows that vanished (Steam does this all
+/// the time and they are harmless).
+const DEFAULT_FILTER: &str = "info,smithay::xwayland::xwm=warn";
+
 fn log_path() -> Option<PathBuf> {
     match std::env::var_os("MYWM_LOG_FILE") {
         Some(value) if value == "off" => None,
@@ -33,7 +37,7 @@ fn open_log(path: &PathBuf) -> io::Result<File> {
 
 /// Set up logging; returns the log file's path when there is one.
 pub fn init() -> Option<PathBuf> {
-    let filter = || EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = || EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER));
     let path = log_path();
     let mut opened = None;
     let file = path.as_ref().and_then(|p| match open_log(p) {

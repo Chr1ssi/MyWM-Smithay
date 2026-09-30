@@ -224,6 +224,7 @@ impl Dispatch<WpTearingControlV1, TearingSurface, State> for State {
             && let Ok(surface) = data.0.upgrade()
         {
             let wanted = matches!(hint, WEnum::Value(PresentationHint::Async));
+            tracing::info!("a client {} tearing for one of its surfaces", if wanted { "allows" } else { "no longer allows" });
             with_states(&surface, |states| {
                 states
                     .data_map

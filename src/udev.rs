@@ -83,6 +83,17 @@ enum Redraw {
     WaitingForEstimatedVBlank { again: bool },
 }
 
+/// Whether VRR and tearing apply to an output right now, and the facts behind that.
+#[derive(Default)]
+struct PresentationPolicy {
+    vrr: bool,
+    tearing: bool,
+    /// A recognized game is fullscreen and focused on the output.
+    game: bool,
+    tearing_configured: bool,
+    tearing_requested: bool,
+}
+
 /// What clients are told about buffers: the default set, and one tuned for direct scanout.
 struct SurfaceFeedback {
     render: DmabufFeedback,
@@ -101,6 +112,8 @@ struct Surface {
     tearing: bool,
     /// The display is on; while off nothing is drawn.
     powered: bool,
+    /// Last (game, tearing configured, tearing requested) that was logged.
+    situation: (bool, bool, bool),
     /// Cleared when the driver rejected an immediate flip.
     tearing_works: bool,
     /// Adaptive sync was requested but cannot be enabled on this output.
@@ -439,6 +452,7 @@ impl State {
                 vrr: false,
                 tearing: false,
                 powered: true,
+                situation: (false, false, false),
                 tearing_works: true,
                 vrr_failed: false,
             },
@@ -515,13 +529,33 @@ impl State {
         let background = self.clear_color();
 
         // Adaptive sync and tearing only while a game owns the output.
-        let (vrr_wanted, tearing_wanted) = self.presentation_policy(&output);
+        let policy = self.presentation_policy(&output);
+        let (vrr_wanted, tearing_wanted) = (policy.vrr, policy.tearing);
+        // Say why VRR and tearing are (not) used whenever the situation changes: a game owning
+        // the output, whether the config allows tearing here and whether the game asks for it.
+        let situation = (policy.game, policy.tearing_configured, policy.tearing_requested);
+        if surface.situation != situation {
+            surface.situation = situation;
+            if policy.game || surface.tearing {
+                tracing::info!(
+                    "{}: fullscreen game: {}; tearing allowed by config: {}; requested by the game: {}",
+                    output.name(),
+                    policy.game,
+                    policy.tearing_configured,
+                    policy.tearing_requested
+                );
+            }
+        }
         if vrr_wanted != surface.vrr && !surface.vrr_failed {
             surface.vrr = set_vrr(&mut surface.compositor, surface.connector, vrr_wanted, &output.name());
             // Not supported (or refused): do not ask again every frame.
             surface.vrr_failed = vrr_wanted && !surface.vrr;
         }
-        surface.tearing = tearing_wanted && surface.tearing_works;
+        let tearing = tearing_wanted && surface.tearing_works;
+        if tearing != surface.tearing {
+            tracing::info!("{}: tearing {}", output.name(), if tearing { "on (immediate page flips)" } else { "off" });
+        }
+        surface.tearing = tearing;
         surface.compositor.set_async_flip(surface.tearing);
 
         let mut had_damage = false;
@@ -596,20 +630,22 @@ impl State {
     /// VRR needs `[vrr] enabled` with this output named, tearing needs the output in
     /// `async_outputs`; both only while a recognized game is fullscreen and focused there,
     /// and tearing additionally needs the game to allow it (`wp_tearing_control_v1`).
-    fn presentation_policy(&self, output: &Output) -> (bool, bool) {
+    fn presentation_policy(&self, output: &Output) -> PresentationPolicy {
         let name = output.name();
         let vrr_allowed = self.config.vrr.enabled && self.config.vrr.output == name;
-        let tearing_allowed = self.config.async_outputs.contains(&name);
-        if !vrr_allowed && !tearing_allowed {
-            return (false, false);
+        let tearing_configured = self.config.async_outputs.contains(&name);
+        let mut policy = PresentationPolicy { tearing_configured, ..Default::default() };
+        if !vrr_allowed && !tearing_configured {
+            return policy;
         }
-        let Some(monitor) = self.outputs.iter().position(|e| &e.output == output) else { return (false, false) };
-        let Some(game) = self.fullscreen_game_on(monitor) else { return (false, false) };
-        let wants_tearing = game
-            .window
-            .toplevel()
-            .is_some_and(|t| crate::protocols::surface_allows_tearing(t.wl_surface()));
-        (vrr_allowed, tearing_allowed && wants_tearing)
+        let Some(monitor) = self.outputs.iter().position(|e| &e.output == output) else { return policy };
+        let Some(game) = self.fullscreen_game_on(monitor) else { return policy };
+        policy.game = true;
+        // X11 games (Xwayland) have their surface only through the window, Wayland ones through the toplevel.
+        policy.tearing_requested = game.surface().is_some_and(|s| crate::protocols::surface_allows_tearing(&s));
+        policy.vrr = vrr_allowed;
+        policy.tearing = tearing_configured && policy.tearing_requested;
+        policy
     }
 
     /// Point the surface tree's primary scanout output at `output` and hand clients the

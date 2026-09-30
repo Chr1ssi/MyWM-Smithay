@@ -72,6 +72,12 @@ enabled = true
 output = "DP-3"
 ```
 
+Im Log steht bei jedem Wechsel, warum VRR/Tearing (nicht) aktiv sind, z. B.
+`DP-3: fullscreen game: true; tearing allowed by config: true; requested by the game: false`,
+außerdem `a client allows tearing for one of its surfaces` (das Spiel bittet um Tearing) und
+`DP-3: tearing on (immediate page flips)`. Fehlt die Zeile „allows tearing“, nutzt das Spiel oder der
+Treiber `wp_tearing_control_v1` nicht; dann tearen wir nicht, auch wenn die Config es erlaubt.
+
 Im Log erscheint beim Start des Spiels je nach Fall `DP-3: adaptive sync on` und, wenn der
 Treiber ein sofortiges Kippen ablehnt, `tearing flip rejected (...); falling back to vsync`.
 Beim GPU-Start steht `explicit sync (linux-drm-syncobj) available` oder der Grund, warum nicht.
