@@ -4,6 +4,7 @@ mod cursor;
 mod desktop;
 mod handlers;
 mod input;
+mod layers;
 mod ipc;
 mod monitors;
 mod protocols;

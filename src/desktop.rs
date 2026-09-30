@@ -128,10 +128,10 @@ impl Desktop {
         self.scratchpad.windows.contains(&id)
     }
 
-    /// Area of the monitor a window lives on.
+    /// Area windows may use on the monitor a window lives on (below bars and panels).
     pub fn monitor_area_of(&self, id: WindowId) -> Option<Rect> {
         let monitor = self.desk.locate(&id).map(|(m, _)| m).unwrap_or(self.focused_monitor);
-        self.desk.monitors.get(monitor).map(|m| m.area)
+        self.desk.monitors.get(monitor).map(|m| m.usable)
     }
 }
 
@@ -318,8 +318,8 @@ impl State {
         let infos: Vec<_> = d.windows.iter().filter(|m| m.placed).map(Managed::info).collect();
         let mut placements: Vec<Placement<WindowId>> = Vec::new();
         for monitor in &mut d.desk.monitors {
-            let area = monitor.area;
-            placements.extend(arrange(monitor.workspaces.current_mut(), &infos, area, &d.appearance));
+            let (usable, area) = (monitor.usable, monitor.area);
+            placements.extend(arrange(monitor.workspaces.current_mut(), &infos, usable, area, &d.appearance));
         }
         if d.scratchpad_visible
             && let Some(monitor) = d.desk.monitors.get(scratch_monitor)
@@ -329,7 +329,7 @@ impl State {
                     .windows
                     .iter()
                     .filter_map(|id| infos.iter().find(|i| i.id == *id))
-                    .map(|info| place_floating(info, monitor.area, &d.appearance)),
+                    .map(|info| place_floating(info, monitor.usable, &d.appearance)),
             );
         }
 
@@ -398,7 +398,9 @@ impl State {
     }
 
     fn sync_focus(&mut self) {
-        let focused = self.desktop.focused();
+        // A launcher or lock prompt holds the keyboard; windows look unfocused meanwhile.
+        let layer = self.keyboard_layer();
+        let focused = self.desktop.focused().filter(|_| layer.is_none());
         for m in &self.desktop.windows {
             if let Some(toplevel) = m.window.toplevel()
                 && m.window.set_activated(Some(m.id) == focused)
@@ -406,9 +408,9 @@ impl State {
                 toplevel.send_pending_configure();
             }
         }
-        let surface = focused
-            .and_then(|id| self.desktop.get(id))
-            .and_then(|m| m.surface().cloned());
+        let surface = layer.or_else(|| {
+            focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface().cloned())
+        });
         self.set_keyboard_focus(surface);
     }
 

@@ -2,6 +2,7 @@ use mywm_config::{Action, Modifiers};
 use mywm_layout::{DragKind, Edges};
 use smithay::{
     backend::session::Session,
+    wayland::shell::wlr_layer::Layer,
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
         KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
@@ -214,8 +215,10 @@ impl State {
                     return;
                 }
             }
+            let clicked = self.pointer_focus().map(|(surface, _)| surface);
+            self.note_click(clicked.as_ref());
             let under = self.space.element_under(self.pointer_location).map(|(w, _)| w.clone());
-            if let Some(window) = under {
+            if let Some(window) = under.filter(|_| self.layer_focus.is_none()) {
                 self.space.raise_element(&window, true);
                 if let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).map(|m| m.id) {
                     self.focus_window(id);
@@ -244,10 +247,15 @@ impl State {
 
     /// The surface under the pointer and the global position of its origin.
     fn pointer_focus(&self) -> Option<(WlSurface, Point<f64, Logical>)> {
-        let (window, loc) = self.space.element_under(self.pointer_location)?;
-        window
-            .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
-            .map(|(surface, origin)| (surface, (origin + loc).to_f64()))
+        // Panels above the windows first, then windows, then wallpapers and the like.
+        self.layer_surface_at(&[Layer::Overlay, Layer::Top])
+            .or_else(|| {
+                let (window, loc) = self.space.element_under(self.pointer_location)?;
+                window
+                    .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
+                    .map(|(surface, origin)| (surface, (origin + loc).to_f64()))
+            })
+            .or_else(|| self.layer_surface_at(&[Layer::Bottom, Layer::Background]))
     }
 
     fn pointer_motion(&mut self, time: u32) {
@@ -255,8 +263,9 @@ impl State {
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         let under = self.pointer_focus();
-        // Focus follows mouse, like MyWM on River.
-        if let Some((window, _)) = self.space.element_under(self.pointer_location)
+        // Focus follows mouse, like MyWM on River, unless a panel holds the keyboard.
+        if self.keyboard_layer().is_none()
+            && let Some((window, _)) = self.space.element_under(self.pointer_location)
             && let Some(id) = self.desktop.windows.iter().find(|m| &m.window == window).map(|m| m.id)
         {
             self.focus_window(id);

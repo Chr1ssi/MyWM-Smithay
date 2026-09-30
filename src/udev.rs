@@ -642,14 +642,6 @@ impl State {
         }
     }
 
-    /// Tell clients they may draw their next frame.
-    fn send_frames(&self, output: &Output) {
-        let elapsed = self.start_time.elapsed();
-        for window in self.space.elements_for_output(output) {
-            window.send_frame(output, elapsed, Some(Duration::ZERO), |_, _| Some(output.clone()));
-        }
-    }
-
     /// The seat was taken away (VT switch): stop using the devices.
     fn udev_pause(&mut self) {
         let Some(udev) = &mut self.udev else { return };

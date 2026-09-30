@@ -1,6 +1,7 @@
 //! Outputs as monitors: hotplug, pointer/monitor focus and the workspace commands that span monitors.
 use mywm_layout::{Direction, GAMING, Rect};
 use smithay::{
+    desktop::layer_map_for_output,
     output::Output,
     utils::{Logical, Point},
 };
@@ -24,6 +25,13 @@ impl State {
         for (entry, monitor) in self.outputs.iter().zip(&mut self.desktop.desk.monitors) {
             if let Some(geo) = self.space.output_geometry(&entry.output) {
                 monitor.area = Rect { x: geo.loc.x, y: geo.loc.y, width: geo.size.w, height: geo.size.h };
+                // Bars and panels reserve part of the output (exclusive zones).
+                let zone = layer_map_for_output(&entry.output).non_exclusive_zone();
+                monitor.usable = if zone.size.w > 0 && zone.size.h > 0 {
+                    Rect { x: geo.loc.x + zone.loc.x, y: geo.loc.y + zone.loc.y, width: zone.size.w, height: zone.size.h }
+                } else {
+                    monitor.area
+                };
             }
         }
     }
@@ -251,7 +259,7 @@ impl State {
             ..Default::default()
         };
         for (entry, monitor) in self.outputs.iter().zip(&d.desk.monitors) {
-            let area = monitor.area;
+            let area = monitor.usable;
             let tiled = monitor
                 .workspaces
                 .current()
@@ -264,10 +272,10 @@ impl State {
             let (overflow_left, overflow_right) = mywm_ipc::overflow_directions(area, tiled);
             snapshot.outputs.push(mywm_ipc::OutputState {
                 id: entry.id,
-                x: area.x,
-                y: area.y,
-                width: area.width,
-                height: area.height,
+                x: monitor.area.x,
+                y: monitor.area.y,
+                width: monitor.area.width,
+                height: monitor.area.height,
                 active: monitor.workspaces.active,
                 overflow_left,
                 overflow_right,

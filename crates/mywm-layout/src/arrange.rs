@@ -46,12 +46,14 @@ pub fn place_floating<Id: Clone>(
 }
 
 /// Compute placements for the windows of `workspace` on an output whose usable
-/// area is `work_area` (output-local). Updates the workspace's scroll offset.
+/// area is `work_area` and whose full area (covered by fullscreen windows) is
+/// `output_area`, both in global coordinates. Updates the workspace's scroll offset.
 /// Tiled windows come first, then floating, then fullscreen (paint order).
 pub fn arrange<Id: Clone + Eq>(
     workspace: &mut Workspace<Id>,
     windows: &[WindowInfo<Id>],
     work_area: Rect,
+    output_area: Rect,
     appearance: &Appearance,
 ) -> Vec<Placement<Id>> {
     let info = |id: &Id| windows.iter().find(|w| &w.id == id);
@@ -111,7 +113,7 @@ pub fn arrange<Id: Clone + Eq>(
         if shown {
             placements.push(Placement {
                 id: window.id.clone(),
-                content: work_area,
+                content: output_area,
                 border: 0,
                 fullscreen: true,
                 floating_rect: window.floating_rect,
@@ -143,7 +145,7 @@ mod tests {
     fn two_columns_split_and_third_scrolls_focus_into_view() {
         let mut ws = workspace(&[1, 2, 3], 3);
         let windows = [info(1), info(2), info(3)];
-        let p = arrange(&mut ws, &windows, AREA, &plain());
+        let p = arrange(&mut ws, &windows, AREA, AREA, &plain());
         assert_eq!(ws.scroll, 960);
         assert_eq!(p[2].content, Rect { x: 960, y: 0, width: 960, height: 1080 });
         assert_eq!(p[0].content.x, -960);
@@ -155,7 +157,7 @@ mod tests {
         let mut w = info(1);
         w.floating = true;
         w.floating_rect = Some(Rect { x: 5000, y: 5000, width: 400, height: 300 });
-        let p = arrange(&mut ws, &[w], AREA, &plain());
+        let p = arrange(&mut ws, &[w], AREA, AREA, &plain());
         assert_eq!(p[0].content, Rect { x: 1520, y: 780, width: 400, height: 300 });
         assert_eq!(p[0].floating_rect, Some(p[0].content));
     }
@@ -165,7 +167,7 @@ mod tests {
         let mut ws = workspace(&[1, 2], 2);
         let mut fs = info(2);
         fs.fullscreen = true;
-        let p = arrange(&mut ws, &[info(1), fs], AREA, &plain());
+        let p = arrange(&mut ws, &[info(1), fs], AREA, AREA, &plain());
         assert_eq!(p.last().unwrap().content, AREA);
         assert!(p.last().unwrap().fullscreen);
         assert_eq!(p.len(), 2);
@@ -178,14 +180,32 @@ mod tests {
         dialog.floating = true;
         dialog.parent = Some(1);
         let windows = [info(1), info(2), info(3), dialog];
-        arrange(&mut ws, &windows, AREA, &plain());
+        arrange(&mut ws, &windows, AREA, AREA, &plain());
         assert_eq!(ws.scroll, 0);
+    }
+
+    #[test]
+    fn panels_shrink_tiles_but_not_fullscreen() {
+        let usable = Rect { x: 0, y: 30, width: 1920, height: 1050 };
+        let mut ws = workspace(&[1, 2], 2);
+        let mut fs = info(2);
+        fs.fullscreen = true;
+        let p = arrange(&mut ws, &[info(1), fs], usable, AREA, &plain());
+        assert_eq!(p[0].content.y, 30);
+        assert_eq!(p[0].content.height, 1050);
+        assert_eq!(p.last().unwrap().content, AREA, "fullscreen covers the panel too");
+        let mut ws = workspace(&[1], 1);
+        let mut floating = info(1);
+        floating.floating = true;
+        floating.floating_rect = Some(Rect { x: 0, y: 0, width: 100, height: 100 });
+        let p = arrange(&mut ws, &[floating], usable, AREA, &plain());
+        assert_eq!(p[0].content.y, 30, "floating windows stay below the panel");
     }
 
     #[test]
     fn borders_shrink_content() {
         let mut ws = workspace(&[1], 1);
-        let p = arrange(&mut ws, &[info(1)], AREA, &Appearance::default());
+        let p = arrange(&mut ws, &[info(1)], AREA, AREA, &Appearance::default());
         assert_eq!(p[0].border, 2);
         assert_eq!(p[0].content, Rect { x: 10, y: 10, width: 1900, height: 1060 });
     }

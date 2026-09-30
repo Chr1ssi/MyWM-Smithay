@@ -20,6 +20,8 @@ pub struct Monitor<T> {
     pub name: Option<String>,
     /// Position and size in the global logical coordinate space.
     pub area: Rect,
+    /// The part of `area` windows may use: `area` minus what bars and panels reserve.
+    pub usable: Rect,
     pub workspaces: Workspaces<T>,
 }
 
@@ -115,7 +117,7 @@ impl<T: Clone + Eq> Desk<T> {
         if let Some(detached) = self.detached.take() {
             workspaces.absorb(detached);
         }
-        self.monitors.push(Monitor { name, area, workspaces });
+        self.monitors.push(Monitor { name, area, usable: area, workspaces });
         self.reconcile();
         self.monitors.len() - 1
     }

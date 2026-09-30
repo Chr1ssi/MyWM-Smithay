@@ -1,6 +1,4 @@
 //! Nested backend for development: renders into a window of the host compositor or X server.
-use std::time::Duration;
-
 use smithay::{
     backend::{
         renderer::{damage::OutputDamageTracker, element::solid::SolidColorRenderElement, gles::GlesRenderer},
@@ -79,13 +77,8 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                 }
                 backend.submit(Some(&[damage])).expect("submit");
 
-                let elapsed = state.start_time.elapsed();
                 for entry in &state.outputs {
-                    for window in state.space.elements_for_output(&entry.output) {
-                        window.send_frame(&entry.output, elapsed, Some(Duration::ZERO), |_, _| {
-                            Some(entry.output.clone())
-                        });
-                    }
+                    state.send_frames(&entry.output);
                 }
                 backend.window().request_redraw();
             }
