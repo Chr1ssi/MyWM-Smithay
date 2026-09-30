@@ -28,23 +28,23 @@ def newest(known):
 try:
     time.sleep(3)
     known = set()
-    comp.key("shift+Print")
+    comp.key("alt+shift+s")
     full = newest(known)
     known.add(full)
     assert size(full) == "1280x800", size(full)
     print("screen:", size(full))
     time.sleep(1.1)  # file names have a resolution of one second
 
-    comp.key("ctrl+Print")
+    comp.key("alt+ctrl+s")
     window = newest(known)
     known.add(window)
     assert size(window) == "1264x784", size(window)
     print("window:", size(window))
     time.sleep(1.1)
 
-    # Drag a region: press Print, then drag 300x200 inside the nested window.
+    # Drag a region: press the key, then drag 300x200 inside the nested window.
     win = subprocess.check_output(["xdotool", "search", "--onlyvisible", "--name", "Smithay"]).split()[0].decode()
-    comp.key("Print")
+    comp.key("alt+s")
     time.sleep(0.5)
     for args in (["mousemove", "--window", win, "200", "200"], ["mousedown", "1"], ["mousemove", "--window", win, "350", "300"],
                  ["mousemove", "--window", win, "500", "400"], ["mouseup", "1"]):

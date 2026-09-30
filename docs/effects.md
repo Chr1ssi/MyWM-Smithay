@@ -28,9 +28,9 @@ opacity = 0.92
 
 | Taste | Wirkung |
 |---|---|
-| `Print` | Bereich ziehen oder Fenster anklicken (Enter = ganzer Monitor, Esc/Rechtsklick = abbrechen) |
-| `Shift+Print` | Monitor unter dem Mauszeiger |
-| `Ctrl+Print` | fokussiertes Fenster (mit Rahmen) |
+| `Super+s` | Bereich ziehen oder Fenster anklicken (Enter = ganzer Monitor, Esc/Rechtsklick = abbrechen) |
+| `Super+Shift+s` | Monitor unter dem Mauszeiger |
+| `Super+Ctrl+s` | fokussiertes Fenster (mit Rahmen) |
 
 Das PNG landet in `screenshot_directory` (Standard `~/Bilder/Screenshots`, Name
 `Screenshot_JJJJ-MM-TT_HH-MM-SS.png`) und in der Zwischenablage (braucht `wl-copy`); mit
@@ -42,3 +42,6 @@ Das PNG landet in `screenshot_directory` (Standard `~/Bilder/Screenshots`, Name
 Fenstern. Klick auf eine Vorschau (oder Pfeiltasten + Enter) wechselt dorthin, Esc oder ein Klick
 daneben schließt. Die Tasten ändert man in `[bindings]` (`overview`, `screenshot`,
 `screenshot_screen`, `screenshot_window`).
+
+Standard-Tastenbelegungen rechnen mit einer 80-%-Tastatur (ohne Nummernblock und ohne
+Druck-Taste); alles lässt sich in `[bindings]` ändern.

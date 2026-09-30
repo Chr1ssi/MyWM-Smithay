@@ -48,7 +48,7 @@ Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, He
 öffnet dort den Picker).
 
 Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-Blur; siehe
-`docs/effects.md`), eingebaute Screenshots (`Print`) und eine Workspace-Übersicht (`Super+Tab`).
+`docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).
 
 Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Protokollen und der Effekt-Shader.
 

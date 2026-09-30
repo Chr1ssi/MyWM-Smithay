@@ -212,9 +212,9 @@ impl Default for Bindings {
         Self {
             reload: keys(&["Super+Shift+r"]),
             wallpaper: keys(&["Super+Shift+w"]),
-            screenshot: keys(&["Print"]),
-            screenshot_screen: keys(&["Shift+Print"]),
-            screenshot_window: keys(&["Ctrl+Print"]),
+            screenshot: keys(&["Super+s"]),
+            screenshot_screen: keys(&["Super+Shift+s"]),
+            screenshot_window: keys(&["Super+Ctrl+s"]),
             overview: keys(&["Super+Tab"]),
             lock: keys(&["Super+Escape"]),
             toggle_floating: keys(&["Super+v"]),

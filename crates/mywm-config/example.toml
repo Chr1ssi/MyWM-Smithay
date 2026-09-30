@@ -87,9 +87,9 @@
 #wallpaper = ["Super+Shift+w"]
 # Screenshot: Bereich ziehen oder Fenster anklicken (Enter = ganzer Monitor, Esc = abbrechen).
 # Speichert ein PNG in screenshot_directory und kopiert es in die Zwischenablage (wl-copy).
-#screenshot = ["Print"]
-#screenshot_screen = ["Shift+Print"]   # Monitor unter dem Mauszeiger
-#screenshot_window = ["Ctrl+Print"]    # fokussiertes Fenster
+#screenshot = ["Super+s"]
+#screenshot_screen = ["Super+Shift+s"]   # Monitor unter dem Mauszeiger
+#screenshot_window = ["Super+Ctrl+s"]    # fokussiertes Fenster
 # Übersicht: alle Workspaces des Monitors als Vorschau; Klick oder Pfeiltasten + Enter wählen, Esc schließt.
 #overview = ["Super+Tab"]
 #lock = ["Super+Escape"]
