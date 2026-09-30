@@ -25,10 +25,11 @@ Die Portale müssen nach dem Start des Compositors die Umgebung kennen
 
 ## Grenzen
 
-- **Nur Monitor-Aufnahme.** Einzelne Fenster aufnehmen (OBS „Fensteraufnahme“ über das Portal)
-  setzt `ext-image-copy-capture` mit Toplevel-Quellen voraus; das gibt es hier noch nicht.
-  Workaround: Monitor aufnehmen und in OBS zuschneiden, oder ein eigenes Spielfenster im
-  Vollbild auf einem Monitor laufen lassen.
+- **Fensteraufnahme** gibt es über `ext-foreign-toplevel-list` + `ext-image-copy-capture`
+  (Toplevel-Quellen, SHM und Dmabuf). `xdg-desktop-portal-wlr` spricht nur `wlr-screencopy`
+  und damit nur Monitore; für Fenster braucht es ein Portal oder Programm mit Unterstützung
+  dieser Protokolle. Bis dahin: Monitor aufnehmen und in OBS zuschneiden. Der Cursor wird nur
+  mit `paint_cursors` ins Bild gemalt, eigene Cursor-Sessions liefern nichts.
 - Skalierte oder gedrehte Monitore werden so aufgenommen, wie sie dargestellt werden (in
   physischen Pixeln, nach der Drehung).
 - Mit `copy_with_damage` (OBS, wf-recorder) wird nur bei tatsächlichen Änderungen ein neues Bild

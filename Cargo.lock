@@ -1254,6 +1254,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
+name = "mywm-capture-test"
+version = "0.1.0"
+dependencies = [
+ "wayland-client",
+ "wayland-protocols",
+]
+
+[[package]]
 name = "mywm-compositor"
 version = "0.1.0"
 dependencies = [

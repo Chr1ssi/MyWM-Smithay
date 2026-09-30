@@ -1,0 +1,10 @@
+[package]
+name = "mywm-capture-test"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Test client for ext-image-copy-capture (used by tests/image_capture_smoke.py)"
+
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }

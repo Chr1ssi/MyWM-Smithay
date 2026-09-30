@@ -130,50 +130,8 @@ impl State {
             .filter(|e| pending.overlay_cursor || !matches!(e, OutputElement::Cursor(_)))
             .collect();
 
-        if let Ok(dmabuf) = get_dmabuf(&pending.buffer) {
-            let mut dmabuf = dmabuf.clone();
-            let mut target = renderer.bind(&mut dmabuf).map_err(|e| format!("bind: {e}"))?;
-            let result = tracker
-                .render_output(renderer, &mut target, 0, &visible, clear)
-                .map_err(|e| format!("render: {e:?}"))?;
-            // The client reads the buffer as soon as it gets `ready`.
-            let _ = result.sync.wait();
-            return Ok(());
-        }
-
-        // Shared memory: render into a texture, read it back and copy the wanted part.
-        let buffer_size: Size<i32, BufferCoords> = (size.w, size.h).into();
-        let mut texture = Offscreen::<smithay::backend::renderer::gles::GlesTexture>::create_buffer(
-            renderer,
-            Fourcc::Argb8888,
-            buffer_size,
-        )
-        .map_err(|e| format!("offscreen buffer: {e}"))?;
-        let mut target = renderer.bind(&mut texture).map_err(|e| format!("bind: {e}"))?;
-        tracker
-            .render_output(renderer, &mut target, 0, &visible, clear)
-            .map_err(|e| format!("render: {e:?}"))?;
-        let region = Rectangle::<i32, BufferCoords>::new(
-            (pending.region.loc.x, pending.region.loc.y).into(),
-            (pending.region.size.w, pending.region.size.h).into(),
-        );
-        let mapping = renderer.copy_framebuffer(&target, region, Fourcc::Argb8888).map_err(|e| format!("read back: {e}"))?;
-        let pixels = renderer.map_texture(&mapping).map_err(|e| format!("map: {e}"))?;
-        let row = region.size.w as usize * 4;
-        with_buffer_contents_mut(&pending.buffer, |ptr, len, data: BufferData| {
-            let (offset, stride) = (data.offset as usize, data.stride as usize);
-            for y in 0..region.size.h as usize {
-                let start = offset + y * stride;
-                if start + row > len || (y + 1) * row > pixels.len() {
-                    return Err("the client's buffer is smaller than announced");
-                }
-                // SAFETY: bounds were checked above and the pool stays mapped during the callback.
-                unsafe { std::ptr::copy_nonoverlapping(pixels[y * row..].as_ptr(), ptr.add(start), row) };
-            }
-            Ok(())
-        })
-        .map_err(|e| format!("shm access: {e:?}"))?
-        .map_err(String::from)
+        let region = Rectangle::<i32, Physical>::new(pending.region.loc, pending.region.size);
+        render_to_buffer(renderer, &mut tracker, &visible, clear, &pending.buffer, size, region)
     }
 
     fn screencopy_request(&mut self, frame: &ZwlrScreencopyFrameV1, data: &FrameData, buffer: WlBuffer, wait_for_damage: bool) {
@@ -358,4 +316,61 @@ impl Dispatch<ZwlrScreencopyFrameV1, FrameData, State> for State {
     ) {
         state.pending_copies.retain(|p| &p.frame != frame);
     }
+}
+
+/// Render `elements` with `tracker` into a client buffer: straight into a dmabuf, or through
+/// one GPU read-back of `region` (pixels of the `size` rendered) into shared memory.
+pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
+    renderer: &mut GlesRenderer,
+    tracker: &mut OutputDamageTracker,
+    elements: &[E],
+    clear: [f32; 4],
+    buffer: &WlBuffer,
+    size: Size<i32, Physical>,
+    region: Rectangle<i32, Physical>,
+) -> Result<(), String> {
+    if let Ok(dmabuf) = get_dmabuf(buffer) {
+        let mut dmabuf = dmabuf.clone();
+        let mut target = renderer.bind(&mut dmabuf).map_err(|e| format!("bind: {e}"))?;
+        let result = tracker
+            .render_output(renderer, &mut target, 0, elements, clear)
+            .map_err(|e| format!("render: {e:?}"))?;
+        // The client reads the buffer as soon as it gets `ready`.
+        let _ = result.sync.wait();
+        return Ok(());
+    }
+
+    // Shared memory: render into a texture, read it back and copy the wanted part.
+    let buffer_size: Size<i32, BufferCoords> = (size.w, size.h).into();
+    let mut texture = Offscreen::<smithay::backend::renderer::gles::GlesTexture>::create_buffer(
+        renderer,
+        Fourcc::Argb8888,
+        buffer_size,
+    )
+    .map_err(|e| format!("offscreen buffer: {e}"))?;
+    let mut target = renderer.bind(&mut texture).map_err(|e| format!("bind: {e}"))?;
+    tracker
+        .render_output(renderer, &mut target, 0, elements, clear)
+        .map_err(|e| format!("render: {e:?}"))?;
+    let region = Rectangle::<i32, BufferCoords>::new(
+        (region.loc.x, region.loc.y).into(),
+        (region.size.w, region.size.h).into(),
+    );
+    let mapping = renderer.copy_framebuffer(&target, region, Fourcc::Argb8888).map_err(|e| format!("read back: {e}"))?;
+    let pixels = renderer.map_texture(&mapping).map_err(|e| format!("map: {e}"))?;
+    let row = region.size.w as usize * 4;
+    with_buffer_contents_mut(buffer, |ptr, len, data: BufferData| {
+        let (offset, stride) = (data.offset as usize, data.stride as usize);
+        for y in 0..region.size.h as usize {
+            let start = offset + y * stride;
+            if start + row > len || (y + 1) * row > pixels.len() {
+                return Err("the client's buffer is smaller than announced");
+            }
+            // SAFETY: bounds were checked above and the pool stays mapped during the callback.
+            unsafe { std::ptr::copy_nonoverlapping(pixels[y * row..].as_ptr(), ptr.add(start), row) };
+        }
+        Ok(())
+    })
+    .map_err(|e| format!("shm access: {e:?}"))?
+    .map_err(String::from)
 }

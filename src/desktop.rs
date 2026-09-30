@@ -36,6 +36,10 @@ pub struct Managed {
     pub floating_rect: Option<Rect>,
     pub parent: Option<WindowId>,
     pub app_id: Option<String>,
+    /// The window in `ext-foreign-toplevel-list`, which capture sources refer to.
+    pub foreign: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
+    /// Commits of the main surface, to tell capture sessions when the window changed.
+    pub commits: u64,
     /// Floating state to restore when leaving the scratchpad.
     pub scratchpad_floating: Option<bool>,
     /// Rules and workspace are applied at the first commit, once the app id is known.
@@ -185,11 +189,14 @@ impl State {
             floating_rect: None,
             parent: None,
             app_id: None,
+            foreign: None,
+            commits: 0,
             scratchpad_floating: None,
             placed: false,
             frame: None,
             borders: Default::default(),
         });
+        self.announce_foreign_toplevel(id);
         id
     }
 
@@ -349,6 +356,11 @@ impl State {
         self.desktop.scratchpad.remove(&id);
         if self.desktop.scratchpad.windows.is_empty() {
             self.desktop.scratchpad_visible = false;
+        }
+        if let Some(handle) = self.desktop.get(id).and_then(|m| m.foreign.clone()) {
+            self.image_capture_window_closed(&handle);
+            handle.send_closed();
+            self.foreign_toplevels.remove_toplevel(&handle);
         }
         self.desktop.windows.retain(|w| w.id != id);
         // Dialogs of a closed window lose their parent but stay where they are.

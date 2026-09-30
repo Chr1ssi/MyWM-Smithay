@@ -39,9 +39,15 @@ Renderzeit (`RUST_LOG=info,perf=debug`), Direct-Scanout-Log und optionale späte
 Frame-Planung (`[render] late_scheduling`, standardmäßig aus, bis sie auf Hardware
 verglichen wurde).
 
-Roadmap: Fensteraufnahme (`ext-image-copy-capture`), Wallpaper-Picker/Theme-Generierung und
-`wlr-output-management`. Noch nicht portiert: Wallpaper-Picker und Theme-Generierung
-(Binding `wallpaper` tut nichts).
+Außerdem fertig: Fensteraufnahme (`ext-foreign-toplevel-list`, `ext-image-copy-capture`;
+sie braucht ein Portal/Programm, das diese Protokolle spricht), `wlr-output-management`
+(kanshi, wlr-randr: Modus, Position, Skalierung, Drehung; Ausgänge abschalten geht nicht),
+Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, Helfer-Modi
+`--wallpaper`, `--wallpaper-list`, `--theme-from-wallpaper`, `--theme-from-state`, `--bar`,
+`--launcher` der Binary; `--wallpaper` muss in der Sitzung laufen, das Binding `wallpaper`
+öffnet dort den Picker).
+
+Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling und den neuen Protokollen.
 
 ## Entwickeln
 
@@ -61,6 +67,8 @@ PYTHONPATH=tests python3 tests/clipboard_smoke.py     # Kopieren/Einfügen (wl-c
 PYTHONPATH=tests python3 tests/layer_smoke.py         # Layer-Shell-Client mit Größe 0 (Quickshell-Marker)
 PYTHONPATH=tests python3 tests/x11_focus_smoke.py     # Tastatur in X11-Fenstern (xev)
 PYTHONPATH=tests python3 tests/scroll_clip_smoke.py   # herausgescrollte Fenster erscheinen nicht auf dem Nachbarmonitor
+PYTHONPATH=tests python3 tests/output_management_smoke.py  # wlr-randr: Position/Skalierung
+PYTHONPATH=tests python3 tests/image_capture_smoke.py # Fenster-/Monitoraufnahme (crates/mywm-capture-test)
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

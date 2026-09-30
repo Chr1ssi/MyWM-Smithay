@@ -70,6 +70,7 @@ impl CompositorHandler for State {
             }
         }
         self.popups.commit(surface);
+        self.count_commit(surface);
         self.queue_redraw_for(surface);
     }
 }
@@ -106,6 +107,14 @@ impl ShmHandler for State {
 impl XdgShellHandler for State {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.xdg_shell_state
+    }
+
+    fn title_changed(&mut self, surface: ToplevelSurface) {
+        self.update_foreign_toplevel(surface.wl_surface());
+    }
+
+    fn app_id_changed(&mut self, surface: ToplevelSurface) {
+        self.update_foreign_toplevel(surface.wl_surface());
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {

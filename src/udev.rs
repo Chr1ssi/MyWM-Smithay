@@ -322,6 +322,24 @@ impl UdevData {
         }
     }
 
+    /// Buffer formats a capture client may allocate on the rendering GPU.
+    pub fn capture_dmabuf_constraints(&self) -> Option<crate::image_capture::DmabufConstraints> {
+        let gpu = self.gpu.as_ref()?;
+        let device = gpu.render_node.dev_id();
+        let mut formats: Vec<(u32, Vec<u64>)> = Vec::new();
+        for format in gpu.renderer.egl_context().dmabuf_render_formats().iter() {
+            if !matches!(format.code, Fourcc::Argb8888 | Fourcc::Xrgb8888) {
+                continue;
+            }
+            let code = format.code as u32;
+            match formats.iter_mut().find(|(c, _)| *c == code) {
+                Some((_, modifiers)) => modifiers.push(u64::from(format.modifier)),
+                None => formats.push((code, vec![u64::from(format.modifier)])),
+            }
+        }
+        (!formats.is_empty()).then_some(crate::image_capture::DmabufConstraints { device, formats })
+    }
+
     pub fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> bool {
         self.gpu.as_mut().is_some_and(|gpu| gpu.renderer.import_dmabuf(dmabuf, None).is_ok())
     }
@@ -761,6 +779,7 @@ impl State {
             }
         }
         self.fulfill_screencopy(renderer, &output, &elements, had_damage);
+        self.fulfill_image_captures(renderer, &output, &elements, had_damage);
         // With late scheduling frame callbacks go out at the vblank instead (see `on_vblank`).
         if !late {
             self.send_frames(&output);

@@ -61,6 +61,8 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub pointer_location: Point<f64, Logical>,
+    pub foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState,
+    pub image_capture: crate::image_capture::ImageCaptureState,
     pub output_management: crate::output_management::OutputManagement,
     /// The output the cursor was last drawn on, so it is erased there when it moves away.
     pub cursor_output: Option<Output>,
@@ -208,6 +210,8 @@ impl State {
             data_device_state: DataDeviceState::new::<State>(&dh),
             seat,
             pointer_location: (0.0, 0.0).into(),
+            foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState::new::<State>(&dh),
+            image_capture: Default::default(),
             output_management: Default::default(),
             cursor_output: None,
             desktop,
@@ -256,6 +260,7 @@ impl State {
                 Box::new(State::create_screencopy_global(&dh)),
                 Box::new(State::create_output_power_global(&dh)),
                 Box::new(State::create_output_management_global(&dh)),
+                Box::new(State::create_image_capture_globals(&dh)),
             ],
             pointer_focus_surface: None,
             dmabuf_global: None,

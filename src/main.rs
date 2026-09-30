@@ -3,6 +3,7 @@
 mod cursor;
 mod desktop;
 mod handlers;
+mod image_capture;
 mod input;
 mod ipc;
 mod layers;

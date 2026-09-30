@@ -15,6 +15,8 @@ EXPECTED = {
     "zxdg_decoration_manager_v1", "wp_tearing_control_manager_v1",
     "zwlr_layer_shell_v1", "ext_session_lock_manager_v1", "ext_idle_notifier_v1",
     "zwp_idle_inhibit_manager_v1", "zwlr_output_power_manager_v1", "zwlr_screencopy_manager_v1", "zwlr_data_control_manager_v1",
+    "zwlr_output_manager_v1", "ext_foreign_toplevel_list_v1", "ext_image_copy_capture_manager_v1",
+    "ext_output_image_capture_source_manager_v1", "ext_foreign_toplevel_image_capture_source_manager_v1",
 }
 # Only with the hardware backend: they need the GPU.
 HARDWARE_ONLY = {"zwp_linux_dmabuf_v1", "wp_presentation", "wp_linux_drm_syncobj_manager_v1"}
