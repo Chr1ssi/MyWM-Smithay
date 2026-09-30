@@ -18,7 +18,7 @@ use smithay::{
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         },
         drm::{
-            DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, NodeType,
+            DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, NodeType, DrmEventMetadata as EventMetadata, DrmEventTime as DrmTime, VrrSupport,
             compositor::{DrmCompositor, FrameFlags},
             exporter::gbm::GbmFramebufferExporter,
         },
@@ -27,15 +27,28 @@ use smithay::{
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             ImportDma,
-            element::{render_elements, solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement},
+            element::{
+                default_primary_scanout_output_compare, render_elements, solid::SolidColorRenderElement,
+                surface::WaylandSurfaceRenderElement, utils::select_dmabuf_feedback,
+            },
             gles::GlesRenderer,
         },
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::{UdevBackend, UdevEvent, primary_gpu},
     },
-    desktop::space::{SpaceRenderElements, space_render_elements},
+    desktop::{
+        space::{SpaceRenderElements, space_render_elements},
+        utils::{
+            OutputPresentationFeedback, surface_presentation_feedback_flags_from_states,
+            surface_primary_scanout_output, update_surface_primary_scanout_output,
+        },
+    },
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::{
+        wayland_protocols::wp::{
+            linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags,
+            presentation_time::server::wp_presentation_feedback,
+        },
         calloop::{
             EventLoop, LoopHandle, RegistrationToken,
             timer::{TimeoutAction, Timer},
@@ -44,8 +57,12 @@ use smithay::{
         input::{DeviceCapability, Libinput},
         rustix::fs::OFlags,
     },
-    utils::{DeviceFd, Transform},
-    wayland::dmabuf::{DmabufFeedbackBuilder, ImportNotifier},
+    utils::{Clock, ClockSource, DeviceFd, Monotonic, Time, Transform},
+    wayland::{
+        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, ImportNotifier},
+        drm_syncobj::{DrmSyncobjState, supports_syncobj_eventfd},
+        presentation::{PresentationState, Refresh},
+    },
 };
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 
@@ -58,7 +75,12 @@ render_elements! {
     Space=SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
 }
 
-type GbmCompositor = DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
+type GbmCompositor = DrmCompositor<
+    GbmAllocator<DrmDeviceFd>,
+    GbmFramebufferExporter<DrmDeviceFd>,
+    Option<OutputPresentationFeedback>,
+    DrmDeviceFd,
+>;
 
 /// Where an output is in its redraw cycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,10 +94,26 @@ enum Redraw {
     WaitingForEstimatedVBlank { again: bool },
 }
 
+/// What clients are told about buffers: the default set, and one tuned for direct scanout.
+struct SurfaceFeedback {
+    render: DmabufFeedback,
+    scanout: DmabufFeedback,
+}
+
 struct Surface {
     output: Output,
     compositor: GbmCompositor,
+    connector: connector::Handle,
     redraw: Redraw,
+    feedback: Option<SurfaceFeedback>,
+    /// Adaptive sync is currently on.
+    vrr: bool,
+    /// Frames currently flip immediately (tearing).
+    tearing: bool,
+    /// Cleared when the driver rejected an immediate flip.
+    tearing_works: bool,
+    /// Adaptive sync was requested but cannot be enabled on this output.
+    vrr_failed: bool,
 }
 
 struct Gpu {
@@ -251,7 +289,7 @@ impl State {
             DrmDeviceFd::new(DeviceFd::from(fd))
         };
         let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
-        let gbm = GbmDevice::new(fd)?;
+        let gbm = GbmDevice::new(fd.clone())?;
         // SAFETY: the GBM device outlives the display and everything created from it (all live in `Gpu`).
         let display = unsafe { EGLDisplay::new(gbm.clone())? };
         let context = EGLContext::new_with_priority(&display, ContextPriority::High)?;
@@ -268,8 +306,17 @@ impl State {
                 .create_global_with_default_feedback::<State>(&self.display_handle, &feedback),
         );
 
+        // Explicit sync (needed by NVIDIA's Vulkan/Xwayland paths) and presentation timing.
+        if supports_syncobj_eventfd(&fd) {
+            self.syncobj_state = Some(DrmSyncobjState::new::<State>(&self.display_handle, fd));
+            tracing::info!("explicit sync (linux-drm-syncobj) available");
+        } else {
+            tracing::info!("explicit sync unavailable: the kernel lacks syncobj eventfd support");
+        }
+        self.presentation_state = Some(PresentationState::new::<State>(&self.display_handle, Monotonic::ID as u32));
+
         let token = handle
-            .insert_source(notifier, move |event, _, state| state.on_drm_event(dev_id, event))
+            .insert_source(notifier, move |event, metadata, state| state.on_drm_event(dev_id, event, metadata))
             .map_err(|e| e.error)?;
         tracing::info!("GPU {} ready (render node {:?})", path.display(), render_node);
         self.udev.as_mut().unwrap().gpu = Some(Gpu {
@@ -389,7 +436,21 @@ impl State {
                 return;
             }
         };
-        gpu.surfaces.insert(crtc, Surface { output: output.clone(), compositor, redraw: Redraw::Idle });
+        let feedback = surface_feedback(&gpu.renderer, &compositor, gpu.render_node);
+        gpu.surfaces.insert(
+            crtc,
+            Surface {
+                output: output.clone(),
+                compositor,
+                connector: info.handle(),
+                redraw: Redraw::Idle,
+                feedback,
+                vrr: false,
+                tearing: false,
+                tearing_works: true,
+                vrr_failed: false,
+            },
+        );
         self.add_output(output, position);
         if let Some(udev) = &mut self.udev {
             udev.queue_redraw(crtc);
@@ -403,18 +464,35 @@ impl State {
         }
     }
 
-    fn on_drm_event(&mut self, dev_id: u64, event: DrmEvent) {
+    fn on_drm_event(&mut self, dev_id: u64, event: DrmEvent, metadata: &mut Option<EventMetadata>) {
         match event {
-            DrmEvent::VBlank(crtc) => self.on_vblank(dev_id, crtc),
+            DrmEvent::VBlank(crtc) => self.on_vblank(dev_id, crtc, metadata.take()),
             DrmEvent::Error(error) => tracing::error!("DRM error: {error}"),
         }
     }
 
-    fn on_vblank(&mut self, dev_id: u64, crtc: crtc::Handle) {
+    fn on_vblank(&mut self, dev_id: u64, crtc: crtc::Handle, metadata: Option<EventMetadata>) {
         let Some(udev) = &mut self.udev else { return };
         let Some(surface) = udev.gpu.as_mut().filter(|g| g.dev_id == dev_id).and_then(|g| g.surfaces.get_mut(&crtc)) else { return };
-        if let Err(error) = surface.compositor.frame_submitted() {
-            tracing::warn!("frame_submitted: {error}");
+        match surface.compositor.frame_submitted() {
+            Ok(Some(Some(mut feedback))) => {
+                // Tell clients when their frame reached the screen.
+                let time: Time<Monotonic> = match metadata {
+                    Some(EventMetadata { time: DrmTime::Monotonic(time), .. }) => time.into(),
+                    _ => Clock::<Monotonic>::new().now(),
+                };
+                let sequence = metadata.map_or(0, |m| u64::from(m.sequence));
+                let refresh = surface.output.current_mode().map_or(Refresh::Unknown, |mode| {
+                    let interval = Duration::from_nanos(1_000_000_000_000 / mode.refresh.max(1) as u64);
+                    if surface.vrr { Refresh::variable(interval) } else { Refresh::fixed(interval) }
+                });
+                let flags = wp_presentation_feedback::Kind::Vsync
+                    | wp_presentation_feedback::Kind::HwClock
+                    | wp_presentation_feedback::Kind::HwCompletion;
+                feedback.presented::<_, Monotonic>(time, refresh, sequence, flags);
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!("frame_submitted: {error}"),
         }
         let again = matches!(surface.redraw, Redraw::WaitingForVBlank { again: true });
         surface.redraw = Redraw::Idle;
@@ -450,9 +528,47 @@ impl State {
         }
         let background = self.desktop.appearance.background.0;
 
+        // Adaptive sync and tearing only while a game owns the output.
+        let (vrr_wanted, tearing_wanted) = self.presentation_policy(&output);
+        if vrr_wanted != surface.vrr && !surface.vrr_failed {
+            surface.vrr = set_vrr(&mut surface.compositor, surface.connector, vrr_wanted, &output.name());
+            // Not supported (or refused): do not ask again every frame.
+            surface.vrr_failed = vrr_wanted && !surface.vrr;
+        }
+        surface.tearing = tearing_wanted && surface.tearing_works;
+        surface.compositor.set_async_flip(surface.tearing);
+
         let queued = match surface.compositor.render_frame(renderer, &elements, background, FrameFlags::DEFAULT) {
-            Ok(result) if !result.is_empty => surface.compositor.queue_frame(()).is_ok(),
-            Ok(_) => false,
+            Ok(result) => {
+                let states = result.states.clone();
+                let is_empty = result.is_empty;
+                self.update_scanout_feedback(&output, &states, surface.feedback.as_ref());
+                if is_empty {
+                    false
+                } else {
+                    let mut feedback = OutputPresentationFeedback::new(&output);
+                    for window in self.space.elements_for_output(&output) {
+                        window.take_presentation_feedback(&mut feedback, surface_primary_scanout_output, |surface, _| {
+                            surface_presentation_feedback_flags_from_states(surface, &states)
+                        });
+                    }
+                    match surface.compositor.queue_frame(Some(feedback)) {
+                        Ok(()) => true,
+                        Err(error) if surface.tearing => {
+                            // The driver refused an immediate flip; do not try again on this output.
+                            tracing::warn!("{}: tearing flip rejected ({error}); falling back to vsync", output.name());
+                            surface.tearing_works = false;
+                            surface.tearing = false;
+                            surface.compositor.set_async_flip(false);
+                            false
+                        }
+                        Err(error) => {
+                            tracing::warn!("{}: queue_frame: {error}", output.name());
+                            false
+                        }
+                    }
+                }
+            }
             Err(error) => {
                 tracing::warn!("{}: render failed: {error}", output.name());
                 false
@@ -482,6 +598,47 @@ impl State {
         surface.redraw = Redraw::Idle;
         if again {
             udev.queue_redraw(crtc);
+        }
+    }
+
+    /// Whether VRR and tearing should be active on `output` right now.
+    ///
+    /// VRR needs `[vrr] enabled` with this output named, tearing needs the output in
+    /// `async_outputs`; both only while a recognized game is fullscreen and focused there,
+    /// and tearing additionally needs the game to allow it (`wp_tearing_control_v1`).
+    fn presentation_policy(&self, output: &Output) -> (bool, bool) {
+        let name = output.name();
+        let vrr_allowed = self.config.vrr.enabled && self.config.vrr.output == name;
+        let tearing_allowed = self.config.async_outputs.contains(&name);
+        if !vrr_allowed && !tearing_allowed {
+            return (false, false);
+        }
+        let Some(monitor) = self.outputs.iter().position(|e| &e.output == output) else { return (false, false) };
+        let Some(game) = self.fullscreen_game_on(monitor) else { return (false, false) };
+        let wants_tearing = game
+            .window
+            .toplevel()
+            .is_some_and(|t| crate::protocols::surface_allows_tearing(t.wl_surface()));
+        (vrr_allowed, tearing_allowed && wants_tearing)
+    }
+
+    /// Point the surface tree's primary scanout output at `output` and hand clients the
+    /// buffer feedback that matches whether they are being scanned out directly.
+    fn update_scanout_feedback(
+        &self,
+        output: &Output,
+        states: &smithay::backend::renderer::element::RenderElementStates,
+        feedback: Option<&SurfaceFeedback>,
+    ) {
+        for window in self.space.elements_for_output(output) {
+            window.with_surfaces(|surface, data| {
+                update_surface_primary_scanout_output(surface, output, data, states, default_primary_scanout_output_compare);
+            });
+            if let Some(feedback) = feedback {
+                window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
+                    select_dmabuf_feedback(surface, states, &feedback.render, &feedback.scanout)
+                });
+            }
         }
     }
 
@@ -525,6 +682,56 @@ impl State {
         }
         self.queue_redraw_all();
     }
+}
+
+/// Turn adaptive sync on or off; returns whether it is on afterwards.
+fn set_vrr(compositor: &mut GbmCompositor, connector: connector::Handle, on: bool, name: &str) -> bool {
+    if on {
+        match compositor.vrr_supported(connector) {
+            Ok(VrrSupport::Supported | VrrSupport::RequiresModeset) => {}
+            Ok(VrrSupport::NotSupported) | Err(_) => {
+                tracing::info!("{name}: the display or driver does not support adaptive sync");
+                return false;
+            }
+        }
+    }
+    match compositor.use_vrr(on) {
+        Ok(()) => {
+            tracing::info!("{name}: adaptive sync {}", if on { "on" } else { "off" });
+            on
+        }
+        Err(error) => {
+            tracing::warn!("{name}: cannot switch adaptive sync: {error}");
+            !on
+        }
+    }
+}
+
+/// Buffer feedback for one output: what the renderer takes, plus a tranche that steers
+/// clients towards buffers the display planes can scan out directly.
+fn surface_feedback(renderer: &GlesRenderer, compositor: &GbmCompositor, render_node: DrmNode) -> Option<SurfaceFeedback> {
+    let render_formats = renderer.dmabuf_formats();
+    let scanout_formats: Vec<_> = compositor
+        .surface()
+        .plane_info()
+        .formats
+        .iter()
+        .filter(|format| render_formats.contains(format))
+        .copied()
+        .collect();
+    let scanout_device = compositor.surface().device_fd().dev_id().ok()?;
+    let builder = DmabufFeedbackBuilder::new(render_node.dev_id(), render_formats.iter().copied());
+    let render = builder
+        .clone()
+        .add_preference_tranche(render_node.dev_id(), None, render_formats.iter().copied())
+        .build()
+        .ok()?;
+    let scanout = builder
+        .add_preference_tranche(scanout_device, Some(TrancheFlags::Scanout), scanout_formats)
+        .add_preference_tranche(render_node.dev_id(), None, render_formats.iter().copied())
+        .build()
+        .ok()?;
+    Some(SurfaceFeedback { render, scanout })
 }
 
 fn gbm_clone(gbm: &GbmDevice<DrmDeviceFd>) -> GbmDevice<DrmDeviceFd> {

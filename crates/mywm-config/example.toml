@@ -12,7 +12,10 @@
 # aktuellen Monitor und verschwinden wieder, sobald sie leer sind und man sie verlässt.
 # Änderungen gelten nach Neustart.
 #workspace_outputs = ["DP-3", "HDMI-A-1", "DP-1"]
-# Outputs not listed here use tear-free VSync presentation.
+# Outputs not listed here use tear-free VSync presentation. Im Smithay-Compositor kippen
+# Frames auf gelisteten Monitoren sofort (Tearing), aber nur solange ein erkanntes Spiel
+# (game_app_id_prefixes) dort im Vollbild fokussiert ist und Tearing über
+# wp_tearing_control_v1 erlaubt.
 #async_outputs = ["DP-3"]
 # Fenster mit Elternfenster (z. B. Dateidialoge) standardmäßig frei schwebend.
 #float_dialogs = true
@@ -28,7 +31,8 @@
 #wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
 
 # Optional: adaptive sync remains off except while a recognized game is visibly
-# fullscreen on this output. command receives wlr-randr-compatible arguments.
+# fullscreen on this output. Der Smithay-Compositor schaltet VRR selbst (DRM); command
+# wird dort nicht mehr benutzt (nur das River-MyWM ruft damit wlr-randr auf).
 #[vrr]
 #enabled = false
 #output = "DP-3"

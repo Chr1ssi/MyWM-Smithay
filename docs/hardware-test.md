@@ -61,12 +61,40 @@ Monitor, steht dort der Grund (kein CRTC, Modus nicht angeboten, Surface-Fehler)
 6. Ein Vollbild-Spiel/Video: läuft flüssig, kein Tearing (Tearing/VRR sind noch nicht
    eingebaut, siehe M3).
 
-## Bekannte Lücken (kommen in M3/M4)
+## Spiele, Tearing und VRR (M3)
 
-- Direct Scanout wird bereits von `DrmCompositor` versucht, ist aber ungetestet;
-  Tearing-Control, VRR, Presentation-Time und explizite Synchronisation (`linux-drm-syncobj`,
-  wichtig für NVIDIA) fehlen noch.
-- XWayland (viele Spiele), Layer-Shell (Quickshell-Bar), Screencast und Sperrbildschirm fehlen.
+```toml
+game_app_id_prefixes = ["steam_app_", "gamescope"]   # erkennt Spiele (auch deren Dialoge)
+async_outputs = ["DP-3"]                              # Tearing erlaubt (nur mit Spiel im Vollbild)
+
+[vrr]
+enabled = true
+output = "DP-3"
+```
+
+Im Log erscheint beim Start des Spiels je nach Fall `DP-3: adaptive sync on` und, wenn der
+Treiber ein sofortiges Kippen ablehnt, `tearing flip rejected (...); falling back to vsync`.
+Beim GPU-Start steht `explicit sync (linux-drm-syncobj) available` oder der Grund, warum nicht.
+
+Prüfen:
+
+1. Spiel starten (Proton/Vulkan, `PROTON_ENABLE_WAYLAND=1` oder über XWayland – siehe unten):
+   Vollbild deckt den Monitor komplett, keine Rahmen. Direct Scanout erkennt man daran, dass
+   die GPU-Last im Vollbild kaum über den Wert ohne Compositor liegt; im Log mit
+   `RUST_LOG=smithay::backend::drm=debug` erscheinen Zeilen zur Plane-Zuweisung.
+2. VRR: Monitor-OSD bzw. `cat /sys/kernel/debug/dri/*/vrr_range` / Anzeige der Bildrate.
+3. Tearing: braucht ein Spiel, das `wp_tearing_control_v1` nutzt (z. B. ein Wayland-natives
+   Vulkan-Spiel mit `MESA_VK_WSI_PRESENT_MODE=immediate`; NVIDIA-Treiber setzen das je nach
+   Version selbst).
+4. Maus in Spielen: Mauszeiger sperrt sich (`pointer-constraints`) und liefert rohe Deltas
+   (`relative-pointer`); Spiele unter XWayland brauchen dafür M4.
+
+## Bekannte Lücken (kommen in M4/M5)
+
+- Tearing setzt einen Kernel mit atomaren Async-Flips (Linux ≥ 6.8) und Treiberunterstützung voraus;
+  die dafür nötige kleine Änderung an smithay steckt in `vendor/` (siehe `vendor/README.md`).
+- XWayland (viele Spiele) fehlt noch – bis dahin nur Wayland-native Spiele.
+- Layer-Shell (Quickshell-Bar), Screencast und Sperrbildschirm fehlen.
 - Nur die primäre GPU rendert; Ausgänge an anderen GPUs werden ignoriert.
 - Der Cursor kommt aus dem xcursor-Theme (`XCURSOR_THEME`, `XCURSOR_SIZE`), animierte Cursor
   stehen still.

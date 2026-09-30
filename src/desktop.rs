@@ -250,8 +250,15 @@ impl State {
         }
     }
 
+    /// The focused window of `monitor`'s shown workspace if it is a fullscreen game.
+    pub fn fullscreen_game_on(&self, monitor: usize) -> Option<&Managed> {
+        let focused = self.desktop.desk.monitors.get(monitor)?.workspaces.current().focused?;
+        let m = self.desktop.get(focused)?;
+        (m.fullscreen && m.placed && self.is_game(m.app_id.as_deref(), m.parent)).then_some(m)
+    }
+
     /// Games (and their dialogs) are recognized by app id prefix.
-    fn is_game(&self, app_id: Option<&str>, parent: Option<WindowId>) -> bool {
+    pub(crate) fn is_game(&self, app_id: Option<&str>, parent: Option<WindowId>) -> bool {
         let prefixes = &self.config.game_app_id_prefixes;
         let matches = |id: Option<&str>| id.is_some_and(|id| prefixes.iter().any(|p| id.starts_with(p)));
         if matches(app_id) {

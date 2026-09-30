@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 description = "Smithay-based Wayland compositor for MyWM"
 
+[patch.crates-io]
+# smithay 0.7.0 plus a small patch for tearing (asynchronous page flips); see vendor/README.md.
+smithay = { path = "vendor/smithay" }
+
 [workspace]
 members = [".", "crates/*"]
+exclude = ["vendor/smithay"]
 
 [dependencies]
 mywm-layout = { path = "crates/mywm-layout" }
