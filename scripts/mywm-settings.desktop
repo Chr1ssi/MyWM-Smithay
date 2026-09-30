@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=mywm Einstellungen
+Comment=Einstellungen und Tastenbelegung von mywm
+Exec=mywm-settings
+Icon=preferences-system
+Type=Application
+Categories=Settings;

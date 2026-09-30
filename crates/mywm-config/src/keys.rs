@@ -45,6 +45,22 @@ pub fn parse_key(key: &str) -> Result<(u32, Modifiers)> {
         "plus" => 0x2b,
         "comma" => 0x2c,
         "period" => 0x2e,
+        "semicolon" => 0x3b,
+        "slash" => 0x2f,
+        "backslash" => 0x5c,
+        "bracketleft" => 0x5b,
+        "bracketright" => 0x5d,
+        "apostrophe" => 0x27,
+        "backspace" => 0xff08,
+        "delete" => 0xffff,
+        "insert" => 0xff63,
+        "home" => 0xff50,
+        "end" => 0xff57,
+        "pageup" => 0xff55,
+        "pagedown" => 0xff56,
+        function if function.strip_prefix('f').and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (1..=12).contains(&n)) => {
+            0xffbd + function[1..].parse::<u32>().unwrap()
+        }
         value if value.len() == 1 && value.as_bytes()[0].is_ascii_alphanumeric() => {
             value.as_bytes()[0] as u32
         }
@@ -56,6 +72,15 @@ pub fn parse_key(key: &str) -> Result<(u32, Modifiers)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn function_and_navigation_keys() {
+        assert_eq!(parse_key("Super+F1").unwrap().0, 0xffbe);
+        assert_eq!(parse_key("F12").unwrap().0, 0xffc9);
+        assert!(parse_key("F13").is_err());
+        assert_eq!(parse_key("Super+PageUp").unwrap().0, 0xff55);
+        assert_eq!(parse_key("Shift+Delete").unwrap().0, 0xffff);
+    }
 
     #[test]
     fn key_aliases_and_modifiers() {

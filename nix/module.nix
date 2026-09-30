@@ -49,6 +49,13 @@ in
       description = "The mywm package to use.";
     };
 
+    settingsPackage = lib.mkOption {
+      type = lib.types.package;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.mywm-settings;
+      defaultText = lib.literalExpression "inputs.mywm.packages.\${pkgs.stdenv.hostPlatform.system}.mywm-settings";
+      description = "The settings editor (`mywm-settings`).";
+    };
+
     greeterDirectory = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -61,7 +68,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ cfg.package ];
+    environment.systemPackages = [ cfg.package cfg.settingsPackage ];
     services.displayManager.sessionPackages = [ sessionPackage ];
     security.pam.services.swaylock = { };
 

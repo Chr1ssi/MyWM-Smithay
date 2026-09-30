@@ -15,6 +15,7 @@
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
       packageFor = pkgs: pkgs.callPackage ./nix/package.nix { shellSrc = mywm-shell; };
+      settingsFor = pkgs: pkgs.callPackage ./nix/settings.nix { };
     in
     {
       packages = forAllSystems (system:
@@ -22,9 +23,13 @@
         in {
           default = package;
           mywm = package;
+          mywm-settings = settingsFor nixpkgs.legacyPackages.${system};
         });
 
-      overlays.default = final: _prev: { mywm = packageFor final; };
+      overlays.default = final: _prev: {
+        mywm = packageFor final;
+        mywm-settings = settingsFor final;
+      };
 
       nixosModules.default = import ./nix/module.nix { inherit self; };
       nixosModules.mywm = self.nixosModules.default;

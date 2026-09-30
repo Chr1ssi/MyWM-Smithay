@@ -58,6 +58,9 @@ Scrollrichtung, Tastenwiederholung), `keyboard-shortcuts-inhibit` (mit `Super+Sh
 zurück), `xdg-activation` (Fenster mit Aufmerksamkeitswunsch bekommen einen roten Rahmen) und `wlr-gamma-control`
 (Nachtlicht mit gammastep/wlsunset, nur Hardware).
 
+Einstellungen und Tastenbelegung per Fenster: `mywm-settings` (`docs/settings.md`), schreibt direkt in die Config-Datei
+(auch hinter einem Dotfiles-Symlink) und lässt den Compositor neu laden.
+
 Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Protokollen, der Effekt-Shader und des Nachtlichts.
 
 ## Entwickeln
@@ -85,6 +88,7 @@ PYTHONPATH=tests python3 tests/effects_smoke.py       # runde Ecken, Transparenz
 PYTHONPATH=tests python3 tests/screenshot_smoke.py    # eingebaute Screenshots
 PYTHONPATH=tests python3 tests/overview_smoke.py      # Workspace-Übersicht
 PYTHONPATH=tests python3 tests/attention_smoke.py     # Shortcut-Inhibit und Urgent-Rahmen (crates/mywm-test-client)
+PYTHONPATH=tests python3 tests/settings_smoke.py      # Einstellungs-GUI: Taste aufnehmen, speichern, Duplikate
 PYTHONPATH=tests python3 tests/portal_smoke.py        # mywm-portal: D-Bus, Auswahl im Compositor, PipeWire (braucht pipewire, wireplumber, dbus-daemon, gst)
 ```
 

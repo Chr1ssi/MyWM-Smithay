@@ -211,6 +211,59 @@ pub struct Bindings {
     move_to_workspace_modifiers: String,
 }
 
+impl Bindings {
+    /// Every action with its keys, in the order of the config reference (for editors).
+    pub fn entries(&self) -> Vec<(&'static str, &Vec<String>)> {
+        vec![
+            ("reload", &self.reload),
+            ("wallpaper", &self.wallpaper),
+            ("screenshot", &self.screenshot),
+            ("screenshot_screen", &self.screenshot_screen),
+            ("screenshot_window", &self.screenshot_window),
+            ("overview", &self.overview),
+            ("lock", &self.lock),
+            ("terminal", &self.terminal),
+            ("launcher", &self.launcher),
+            ("close", &self.close),
+            ("exit", &self.exit),
+            ("focus_left", &self.focus_left),
+            ("focus_right", &self.focus_right),
+            ("move_left", &self.move_left),
+            ("move_right", &self.move_right),
+            ("workspace_previous", &self.workspace_previous),
+            ("workspace_next", &self.workspace_next),
+            ("move_to_workspace_previous", &self.move_to_workspace_previous),
+            ("move_to_workspace_next", &self.move_to_workspace_next),
+            ("new_workspace", &self.new_workspace),
+            ("move_to_new_workspace", &self.move_to_new_workspace),
+            ("toggle_floating", &self.toggle_floating),
+            ("toggle_fullscreen", &self.toggle_fullscreen),
+            ("column_shrink", &self.column_shrink),
+            ("column_grow", &self.column_grow),
+            ("toggle_scratchpad", &self.toggle_scratchpad),
+            ("move_to_scratchpad", &self.move_to_scratchpad),
+            ("release_shortcuts", &self.release_shortcuts),
+            ("focus_output_left", &self.focus_output_left),
+            ("focus_output_right", &self.focus_output_right),
+            ("focus_output_up", &self.focus_output_up),
+            ("focus_output_down", &self.focus_output_down),
+            ("move_to_output_left", &self.move_to_output_left),
+            ("move_to_output_right", &self.move_to_output_right),
+            ("move_to_output_up", &self.move_to_output_up),
+            ("move_to_output_down", &self.move_to_output_down),
+        ]
+    }
+
+    /// The modifier settings (`pointer_modifiers`, ...) with their values.
+    pub fn modifier_entries(&self) -> [(&'static str, &String); 3] {
+        [
+            ("pointer_modifiers", &self.pointer_modifiers),
+            ("workspace_modifiers", &self.workspace_modifiers),
+            ("move_to_workspace_modifiers", &self.move_to_workspace_modifiers),
+        ]
+    }
+}
+
 impl Default for Bindings {
     fn default() -> Self {
         let keys = |values: &[&str]| values.iter().map(|v| (*v).into()).collect();
@@ -481,6 +534,15 @@ mod tests {
         ] {
             assert!(Config::parse(invalid).is_err(), "accepted {invalid}");
         }
+    }
+
+    #[test]
+    fn every_binding_is_listed_for_editors() {
+        let bindings = Bindings::default();
+        let listed: usize = bindings.entries().iter().map(|(_, keys)| keys.len()).sum();
+        // Workspace digits and program bindings come on top of the listed keys.
+        let all = Config::default().keybindings().unwrap().len();
+        assert_eq!(all, listed + 18, "a key list of Bindings is missing from entries()");
     }
 
     #[test]
