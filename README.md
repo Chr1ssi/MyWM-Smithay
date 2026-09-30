@@ -5,15 +5,20 @@ leicht, latenzarm (Gaming) und mit sauberem Screen-Capture (Streaming).
 
 ## Status
 
-**M0** (Skelett), **M1** (Layout-Kern), die **Konfiguration**, **M2** (Multi-Monitor,
-DRM/libinput) und **M3** (Gaming-Pfad: Direct Scanout mit Dmabuf-Feedback, VRR, Tearing,
+**M0–M4** sind fertig: Skelett, Layout-Kern, Konfiguration, Multi-Monitor mit
+DRM/libinput, Gaming-Pfad (Direct Scanout mit Dmabuf-Feedback, VRR, Tearing,
 Presentation-Time, explizite Sync, Relative Pointer/Pointer Constraints, Viewporter,
-Fractional Scale) sind fertig – M2/M3 als Code, der noch nicht auf echter Hardware lief
-(siehe `docs/hardware-test.md`). Nested Betrieb über winit, xdg-shell, Fokus folgt der Maus, horizontales
-Scrolling-Layout mit Gaps und Fokusrahmen, Workspaces (1–9, dynamisch), Floating
-mit Mausverschieben/-skalieren, Vollbild, Dialoge folgen ihrem Elternfenster,
-globaler Scratchpad, Bar-Socket (`$MYWM_SOCKET`), Fensterregeln, Gaming-Workspace (über
-`game_app_id_prefixes`), Live-Reload mit `Super+Shift+r`.
+Fractional Scale) und Desktop-Integration: Layer-Shell (Quickshell-Bar, Launcher),
+Sitzungssperre (`ext-session-lock`/swaylock), Idle (`ext-idle-notify`/swayidle,
+`wlr-output-power-management`/wlopm), Xwayland für Legacy-Apps (Steam) und
+Bildschirmaufnahme (`wlr-screencopy` → OBS, Browser, grim). M2–M4 wurden nested
+getestet (Layer-Shell, Sperre, Idle, Monitor-Power, Xwayland, Capture, Multi-Monitor
+mit virtuellen Ausgängen); der Hardware-Teil (DRM, libinput, VRR, Tearing, Scanout)
+lief noch nicht auf echter Hardware, siehe `docs/hardware-test.md`.
+
+Langfristig läuft alles nativ unter Wayland: Xwayland ist nur für Apps da, die es noch
+brauchen (Steam selbst, ältere Spiele) und lässt sich mit `xwayland = false` abschalten.
+Spiele laufen nativ (SDL: `SDL_VIDEODRIVER=wayland`, Proton: `PROTON_ENABLE_WAYLAND=1`).
 
 Aufbau:
 
@@ -29,9 +34,10 @@ Aufbau:
 - `src/` – Compositor; `udev.rs` ist das Hardware-Backend (DRM/GBM/libinput/libseat),
   `winit.rs` der nested Entwicklungsmodus (`desktop.rs` bildet das Modell auf Smithays `Space` ab)
 
-Roadmap: M4 XWayland / Layer-Shell / Screencast, M5 Profiling. Noch nicht portiert:
-Sperrbildschirm/Idle, Wallpaper-Picker und Theme-Generierung,
-Die Bindings `lock` und `wallpaper` werden geparst, tun aber noch nichts.
+Roadmap: M5 Profiling und Feinschliff (späte Frame-Planung, Frame-Pacing), danach
+Fensteraufnahme (`ext-image-copy-capture`), Wallpaper-Picker/Theme-Generierung und
+`wlr-output-management`. Noch nicht portiert: Wallpaper-Picker und Theme-Generierung
+(Binding `wallpaper` tut nichts).
 
 ## Entwickeln
 
@@ -44,6 +50,9 @@ cargo test --workspace    # Layout, Config, Protokoll
 PYTHONPATH=tests python3 tests/ipc_smoke.py           # Bar-Socket (braucht X + weston-simple-shm)
 PYTHONPATH=tests python3 tests/multimonitor_smoke.py  # Multi-Monitor mit virtuellen Ausgängen
 PYTHONPATH=tests python3 tests/globals_smoke.py       # angebotene Wayland-Protokolle
+PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Power (swaylock/swayidle/wlopm)
+PYTHONPATH=tests python3 tests/xwayland_smoke.py      # X11-Clients (xterm, xeyes)
+PYTHONPATH=tests python3 tests/screencopy_smoke.py    # Aufnahme mit grim
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

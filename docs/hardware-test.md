@@ -89,12 +89,22 @@ Prüfen:
 4. Maus in Spielen: Mauszeiger sperrt sich (`pointer-constraints`) und liefert rohe Deltas
    (`relative-pointer`); Spiele unter XWayland brauchen dafür M4.
 
-## Bekannte Lücken (kommen in M4/M5)
+## Desktop-Integration (M4)
+
+- **Bar/Launcher**: Quickshell (`mywm-shell`) über `wlr-layer-shell`; die Bar spricht über
+  `$MYWM_SOCKET` mit dem Compositor. Ohne gesetztes `MYWM_SOCKET` in der Sitzung bleibt sie leer.
+- **Sperre/Idle**: `Super+Escape` startet swaylock; auf Hardware startet der Compositor
+  außerdem `swayidle` (Sperre nach `[idle] lock_after_seconds`, danach Monitore aus über
+  `wlopm`). Dafür müssen `swaylock`, `swayidle` und `wlopm` installiert sein.
+- **Steam/X11**: `steam` läuft über Xwayland (`DISPLAY` setzt der Compositor für gestartete
+  Programme selbst). Nativ: Proton mit `PROTON_ENABLE_WAYLAND=1`, SDL mit `SDL_VIDEODRIVER=wayland`.
+- **Streaming**: siehe `docs/streaming.md`.
+
+## Bekannte Lücken (kommen in M5)
 
 - Tearing setzt einen Kernel mit atomaren Async-Flips (Linux ≥ 6.8) und Treiberunterstützung voraus;
   die dafür nötige kleine Änderung an smithay steckt in `vendor/` (siehe `vendor/README.md`).
-- XWayland (viele Spiele) fehlt noch – bis dahin nur Wayland-native Spiele.
-- Layer-Shell (Quickshell-Bar), Screencast und Sperrbildschirm fehlen.
+- Fensteraufnahme über das Portal (nur Monitore) und der Wallpaper-Picker fehlen noch.
 - Nur die primäre GPU rendert; Ausgänge an anderen GPUs werden ignoriert.
 - Der Cursor kommt aus dem xcursor-Theme (`XCURSOR_THEME`, `XCURSOR_SIZE`), animierte Cursor
   stehen still.
