@@ -1,0 +1,19 @@
+[package]
+name = "mywm-compositor"
+version = "0.1.0"
+edition = "2024"
+description = "Smithay-based Wayland compositor for MyWM"
+
+[dependencies]
+smithay = { version = "0.7", default-features = false, features = [
+    "backend_winit",
+    "backend_egl",
+    "desktop",
+    "wayland_frontend",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
