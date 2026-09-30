@@ -80,11 +80,14 @@ pub struct RenderConfig {
     pub late_scheduling: bool,
     /// Safety margin before the vblank, on top of the measured render time.
     pub margin_ms: f64,
+    /// Tear on `async_outputs` for every fullscreen game, whether or not it sets
+    /// `wp_tearing_control` (games under Xwayland/Proton never do).
+    pub force_tearing: bool,
 }
 
 impl Default for RenderConfig {
     fn default() -> Self {
-        Self { late_scheduling: false, margin_ms: 2.0 }
+        Self { late_scheduling: false, margin_ms: 2.0, force_tearing: false }
     }
 }
 

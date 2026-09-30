@@ -121,6 +121,8 @@ struct Surface {
     tearing_works: bool,
     /// Adaptive sync was requested but cannot be enabled on this output.
     vrr_failed: bool,
+    /// Every mode the display offers, for mode switches requested at runtime.
+    modes: Vec<smithay::reexports::drm::control::Mode>,
     /// Monotonic time of the last vblank, the anchor for late scheduling.
     last_vblank: Option<Duration>,
     /// Recent CPU time spent rendering and queueing a frame.
@@ -343,6 +345,26 @@ impl Surface {
 }
 
 impl State {
+    /// Switch an output to another of the modes its display offers (`wlr-output-management`).
+    pub fn set_output_mode(&mut self, output: &Output, mode: Mode) -> bool {
+        let Some(surface) = self.udev.as_mut().and_then(|u| u.gpu.as_mut()).and_then(|g| g.surfaces.values_mut().find(|s| s.output == *output)) else {
+            return false;
+        };
+        let Some(drm_mode) = surface.modes.iter().find(|m| Mode::from(**m) == mode).copied() else { return false };
+        match surface.compositor.use_mode(drm_mode) {
+            Ok(()) => {
+                tracing::info!("{}: mode {}x{}@{:.2}", output.name(), mode.size.w, mode.size.h, f64::from(mode.refresh) / 1000.0);
+                surface.compositor.reset_buffers();
+                surface.last_vblank = None;
+                true
+            }
+            Err(error) => {
+                tracing::warn!("{}: cannot switch the mode: {error}", output.name());
+                false
+            }
+        }
+    }
+
     pub fn queue_redraw_output(&mut self, output: &Output) {
         if let Some(udev) = &mut self.udev {
             udev.queue_redraw_output(output);
@@ -500,6 +522,9 @@ impl State {
         );
         output.create_global::<State>(&self.display_handle);
         output.change_current_state(Some(wl_mode), Some(output_transform), Some(Scale::Fractional(scale)), position);
+        for mode in info.modes() {
+            output.add_mode(Mode::from(*mode));
+        }
         output.set_preferred(wl_mode);
 
         let Some(gpu) = self.udev.as_mut().and_then(|u| u.gpu.as_mut()) else { return };
@@ -546,6 +571,7 @@ impl State {
                 situation: (false, false, false),
                 tearing_works: true,
                 vrr_failed: false,
+                modes: info.modes().to_vec(),
                 last_vblank: None,
                 times: RenderTimes::default(),
                 stats: FrameStats::new(),
@@ -788,7 +814,8 @@ impl State {
         let Some(game) = self.fullscreen_game_on(monitor) else { return policy };
         policy.game = true;
         // X11 games (Xwayland) have their surface only through the window, Wayland ones through the toplevel.
-        policy.tearing_requested = game.surface().is_some_and(|s| crate::protocols::surface_allows_tearing(&s));
+        policy.tearing_requested = self.config.render.force_tearing
+            || game.surface().is_some_and(|s| crate::protocols::surface_allows_tearing(&s));
         policy.vrr = vrr_allowed;
         policy.tearing = tearing_configured && policy.tearing_requested;
         policy

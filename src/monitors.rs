@@ -71,6 +71,7 @@ impl State {
         self.place_all_pending();
         self.end_drag();
         self.refresh();
+        self.output_management_changed();
         monitor
     }
 
@@ -96,6 +97,7 @@ impl State {
         self.desktop.focused_monitor = mywm_layout::scrolling::index_after_remove(focused, index).unwrap_or(0);
         self.desktop.desk.prune();
         self.refresh();
+        self.output_management_changed();
         // Keep the pointer somewhere visible.
         let p = self.desktop.desk.clamp_to_monitors((self.pointer_location.x, self.pointer_location.y));
         if (p.0, p.1) != (self.pointer_location.x, self.pointer_location.y) {

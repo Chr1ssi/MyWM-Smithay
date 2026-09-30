@@ -8,6 +8,7 @@ mod ipc;
 mod layers;
 mod logging;
 mod monitors;
+mod output_management;
 mod pacing;
 mod protocols;
 mod render;
