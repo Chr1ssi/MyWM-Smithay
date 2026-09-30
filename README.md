@@ -50,12 +50,16 @@ Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, He
 Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-Blur; siehe
 `docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).
 
+Screen-Sharing ohne `xdg-desktop-portal-wlr`: `mywm-portal` fragt im Compositor nach Fenster oder Monitor
+und streamt über PipeWire (`docs/streaming.md`).
+
 Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Protokollen und der Effekt-Shader.
 
 ## Entwickeln
 
 Build-Abhängigkeiten (Debian/Ubuntu): `libwayland-dev libxkbcommon-dev libinput-dev
-libseat-dev libgbm-dev libdrm-dev libudev-dev libegl-dev libgles-dev`.
+libseat-dev libgbm-dev libdrm-dev libudev-dev libegl-dev libgles-dev`; für `mywm-portal` zusätzlich
+`libpipewire-0.3-dev libspa-0.2-dev clang`.
 
 ```sh
 cargo run -- "kitty"      # nested (in X/Wayland); optionales Kommando nach dem Start
@@ -75,6 +79,7 @@ PYTHONPATH=tests python3 tests/image_capture_smoke.py # Fenster-/Monitoraufnahme
 PYTHONPATH=tests python3 tests/effects_smoke.py       # runde Ecken, Transparenz, Schatten, Fade, Blur (braucht swaybg)
 PYTHONPATH=tests python3 tests/screenshot_smoke.py    # eingebaute Screenshots
 PYTHONPATH=tests python3 tests/overview_smoke.py      # Workspace-Übersicht
+PYTHONPATH=tests python3 tests/portal_smoke.py        # mywm-portal: D-Bus, Auswahl im Compositor, PipeWire (braucht pipewire, wireplumber, dbus-daemon, gst)
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

@@ -10,8 +10,56 @@
 //! columns extend beyond the visible area.
 use mywm_layout::Rect;
 
+/// What a screen-sharing chooser may pick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceKinds {
+    Monitor,
+    Window,
+    Both,
+}
+
+impl SourceKinds {
+    pub fn monitors(self) -> bool {
+        self != Self::Window
+    }
+
+    pub fn windows(self) -> bool {
+        self != Self::Monitor
+    }
+}
+
+/// The answer to `choose-source`, sent later as `v1 chosen ...`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Chosen {
+    Monitor(String),
+    Window(String),
+    Nothing,
+}
+
+impl Chosen {
+    pub fn encode(&self) -> String {
+        match self {
+            Chosen::Monitor(name) => format!("v1 chosen monitor {name}\n"),
+            Chosen::Window(id) => format!("v1 chosen window {id}\n"),
+            Chosen::Nothing => "v1 chosen none\n".into(),
+        }
+    }
+
+    pub fn parse(line: &str) -> Option<Self> {
+        let args: Vec<_> = line.split_whitespace().collect();
+        match args.as_slice() {
+            ["v1", "chosen", "monitor", name] => Some(Chosen::Monitor((*name).into())),
+            ["v1", "chosen", "window", id] => Some(Chosen::Window((*id).into())),
+            ["v1", "chosen", "none"] => Some(Chosen::Nothing),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
+    /// Ask the user what to share; answered by `v1 ok` and later `v1 chosen ...`.
+    ChooseSource(SourceKinds),
     Lock,
     Logout,
     ThemeReload,
@@ -25,6 +73,12 @@ pub fn parse_command(line: &str) -> Option<Command> {
     let args: Vec<_> = line.split_whitespace().collect();
     match args.as_slice() {
         ["v1", "lock"] => Some(Command::Lock),
+        ["v1", "choose-source", kinds] => Some(Command::ChooseSource(match *kinds {
+            "monitor" => SourceKinds::Monitor,
+            "window" => SourceKinds::Window,
+            "both" => SourceKinds::Both,
+            _ => return None,
+        })),
         ["v1", "logout"] => Some(Command::Logout),
         ["v1", "theme-reload"] => Some(Command::ThemeReload),
         ["v1", "scratchpad"] => Some(Command::Scratchpad),
@@ -169,6 +223,11 @@ mod tests {
         assert_eq!(parse_command("v1 lock\n"), Some(Command::Lock));
         assert_eq!(parse_command("v1 logout"), Some(Command::Logout));
         assert_eq!(parse_command("v1 theme-reload"), Some(Command::ThemeReload));
+        assert_eq!(parse_command("v1 choose-source both"), Some(Command::ChooseSource(SourceKinds::Both)));
+        assert_eq!(parse_command("v1 choose-source tab"), None);
+        for chosen in [Chosen::Monitor("DP-3".into()), Chosen::Window("abc123".into()), Chosen::Nothing] {
+            assert_eq!(Chosen::parse(&chosen.encode()), Some(chosen));
+        }
         assert_eq!(parse_command("v1 scratchpad"), Some(Command::Scratchpad));
         assert_eq!(parse_command("v1 new-workspace 7"), Some(Command::NewWorkspace { output: 7 }));
         assert_eq!(

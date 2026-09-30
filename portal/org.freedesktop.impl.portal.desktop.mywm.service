@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.mywm
+Exec=/usr/bin/env mywm-portal

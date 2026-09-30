@@ -10,7 +10,7 @@ use std::{
 };
 
 use mywm_config::Action;
-use mywm_ipc::{Command, INVALID, OK, parse_command};
+use mywm_ipc::{Chosen, Command, INVALID, OK, parse_command};
 use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction, generic::Generic};
 
 use crate::State;
@@ -168,7 +168,7 @@ impl State {
             let valid = std::str::from_utf8(&line)
                 .ok()
                 .and_then(parse_command)
-                .is_some_and(|command| self.run_ipc_command(command));
+                .is_some_and(|command| self.run_ipc_command(command, id));
             client.output.extend_from_slice(if valid { OK } else { INVALID }.as_bytes());
         }
         alive &= !client.broken && client.write_pending();
@@ -180,11 +180,12 @@ impl State {
     }
 
     /// Whether the command was valid; valid ones have been carried out.
-    fn run_ipc_command(&mut self, command: Command) -> bool {
+    fn run_ipc_command(&mut self, command: Command, client: u64) -> bool {
         if self.session_lock.is_active() && command != Command::Lock {
             return false;
         }
         match command {
+            Command::ChooseSource(kinds) => return self.start_share_chooser(client, kinds),
             Command::Lock => self.run_action(Action::Lock),
             Command::Logout => self.run_action(Action::Exit),
             Command::ThemeReload => self.run_action(Action::Reload),
@@ -202,6 +203,15 @@ impl State {
             }
         }
         true
+    }
+
+    /// Tell a client the outcome of its `choose-source` (if it is still connected).
+    pub fn ipc_send_chosen(&mut self, client: u64, chosen: &Chosen) {
+        let Some(ipc) = &mut self.ipc else { return };
+        if let Some(c) = ipc.clients.iter_mut().find(|c| c.id == client) {
+            c.output.extend_from_slice(chosen.encode().as_bytes());
+            c.broken = !c.write_pending();
+        }
     }
 
     fn monitor_for_output_id(&self, id: u32) -> Option<usize> {

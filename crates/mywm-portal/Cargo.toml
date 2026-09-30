@@ -1,0 +1,16 @@
+[package]
+name = "mywm-portal"
+version = "0.1.0"
+edition = "2024"
+description = "Screen-cast portal backend for the MyWM compositor (xdg-desktop-portal impl, PipeWire, ext-image-copy-capture)"
+
+[dependencies]
+mywm-ipc = { path = "../mywm-ipc" }
+zbus = "5"
+blocking = "1"
+pipewire = { version = "0.9", features = ["v0_3_44"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

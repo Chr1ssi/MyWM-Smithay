@@ -11,21 +11,44 @@ GPU-Puffer (dmabuf) werden direkt beschrieben, ohne Umweg über die CPU; Shared-
 brauchen einmal Auslesen der GPU. Auf der Hardware verwendet der Portal-Dienst automatisch den
 dmabuf-Weg, wenn OBS/der Browser ihn versteht.
 
-## Einrichtung (wie beim River-MyWM)
+## Eigenes Portal: `mywm-portal` (empfohlen)
+
+`mywm-portal` ersetzt `xdg-desktop-portal-wlr`. Es ist das ScreenCast-Backend von
+`xdg-desktop-portal` und fragt **im Compositor** nach der Quelle: Beim Teilen (Vesktop, Discord,
+Browser, OBS) erscheint eine Auswahl auf dem Bildschirm. Ein Klick auf ein **Fenster** teilt dieses
+Fenster, ein Klick auf den Desktop (oder Enter) teilt den **Monitor** unter dem Mauszeiger, Esc
+bricht ab. Anders als beim wlr-Portal funktionieren damit auch einzelne Fenster, und es läuft
+ohne `slurp`/Chooser-Programm. Die Fenstergröße wird live nachgeführt, der Cursor kann mitgemalt werden.
+
+Einrichtung:
+
+1. `cargo build --release -p mywm-portal` und die Binary `mywm-portal` in den `PATH` legen.
+2. Aus `portal/` installieren: `mywm.portal` nach `…/share/xdg-desktop-portal/portals/`,
+   `org.freedesktop.impl.portal.desktop.mywm.service` nach `…/share/dbus-1/services/`, und die
+   Portal-Auswahl `mywm-portals.conf` nach `~/.config/xdg-desktop-portal/` (bzw.
+   `river-portals.conf`, denn der Compositor setzt `XDG_CURRENT_DESKTOP=river`, solange nichts anderes gesetzt ist).
+   Unter NixOS gehört `mywm.portal` in ein Paket, das unter `xdg.portal.extraPortals` steht.
+3. Das Portal braucht in seiner Umgebung `WAYLAND_DISPLAY` und `MYWM_SOCKET` (derselbe Socket wie
+   für die Bar, sonst `$XDG_RUNTIME_DIR/mywm.sock`). Die Sitzung sollte sie dem D-Bus bekanntmachen:
+   `dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP MYWM_SOCKET`.
+4. `xdg-desktop-portal-wlr` nicht mehr starten. Nötig bleiben `xdg-desktop-portal`, `pipewire`, `wireplumber`.
+
+Technik: Das Portal hängt als Wayland-Client am Compositor (`ext-image-copy-capture`) und schreibt
+die Bilder direkt in PipeWire-Puffer (gemeinsamer Speicher, keine zusätzliche Kopie im Portal). Dmabuf
+(GPU-Puffer ohne Umweg über die CPU) gibt es für diesen Weg noch nicht; bei 1440p144 ist der
+Auslese-Weg der wichtigste Punkt zum Messen.
+
+## Alternative: `xdg-desktop-portal-wlr`
 
 Die Portal-Konfiguration aus dem MyWM-Repo (`config/river-portals.conf`,
 `config/river-screencast.conf`) gilt unverändert weiter: der Compositor setzt auf Hardware
 `XDG_CURRENT_DESKTOP=river`, falls es nicht gesetzt ist, damit `xdg-desktop-portal-wlr`
-(`wlr.portal` führt `river` unter `UseIn`) sich angesprochen fühlt. Eigene Werte in der
-Sitzungsumgebung haben Vorrang.
-
+(`wlr.portal` führt `river` unter `UseIn`) sich angesprochen fühlt. Dieses Portal kann nur Monitore.
 Nötige Pakete: `xdg-desktop-portal`, `xdg-desktop-portal-wlr`, `pipewire`, `wireplumber`.
-Die Portale müssen nach dem Start des Compositors die Umgebung kennen
-(`WAYLAND_DISPLAY`, `XDG_CURRENT_DESKTOP`), wie es `scripts/session-environment` schon tut.
 
 ## Grenzen
 
-- **Fensteraufnahme** gibt es über `ext-foreign-toplevel-list` + `ext-image-copy-capture`
+- **Fensteraufnahme** gibt es mit `mywm-portal` (siehe oben) und über `ext-foreign-toplevel-list` + `ext-image-copy-capture`
   (Toplevel-Quellen, SHM und Dmabuf). `xdg-desktop-portal-wlr` spricht nur `wlr-screencopy`
   und damit nur Monitore; für Fenster braucht es ein Portal oder Programm mit Unterstützung
   dieser Protokolle. Bis dahin: Monitor aufnehmen und in OBS zuschneiden. Der Cursor wird nur
