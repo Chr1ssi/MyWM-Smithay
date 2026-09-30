@@ -224,14 +224,17 @@ impl Dispatch<WpTearingControlV1, TearingSurface, State> for State {
             && let Ok(surface) = data.0.upgrade()
         {
             let wanted = matches!(hint, WEnum::Value(PresentationHint::Async));
-            tracing::info!("a client {} tearing for one of its surfaces", if wanted { "allows" } else { "no longer allows" });
-            with_states(&surface, |states| {
+            // Some clients (Xwayland) repeat the hint on every frame: report changes only.
+            let before = with_states(&surface, |states| {
                 states
                     .data_map
                     .get_or_insert_threadsafe(SurfaceTearing::default)
                     .wanted
-                    .store(wanted, Ordering::Relaxed);
+                    .swap(wanted, Ordering::Relaxed)
             });
+            if before != wanted {
+                tracing::info!("a client {} tearing for one of its surfaces", if wanted { "allows" } else { "no longer allows" });
+            }
         }
     }
 

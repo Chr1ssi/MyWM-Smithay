@@ -60,14 +60,13 @@ impl State {
         }
         if let Some(overview) = self.overview_elements(renderer, output) {
             elements.extend(overview);
-            elements.extend(self.scene_elements(renderer, output, false, Vec::new()));
+            elements.extend(self.scene_elements(renderer, output, false, Vec::new(), Vec::new()));
             return elements;
         }
         let borders = self.border_elements(renderer, output);
-        elements.extend(borders);
         let mut shadows = self.blur_elements(renderer, output);
         shadows.extend(self.shadow_elements(renderer, output));
-        elements.extend(self.scene_elements(renderer, output, true, shadows));
+        elements.extend(self.scene_elements(renderer, output, true, shadows, borders));
         elements
     }
 
@@ -76,13 +75,16 @@ impl State {
     /// Windows are drawn only on the output their workspace is on and are cut off at its edge.
     /// Tiles scrolled out of view lie beyond the edge in the shared coordinate space, where the
     /// neighbouring monitor would otherwise show them.
-    /// `behind`: elements between the windows and the layers below them (shadows).
+    /// Stacking, front to back: `Overlay` layer, popups and menus of unmanaged windows, fullscreen
+    /// windows, `Top` layer (the bar), the windows' borders, the other windows, `behind` (shadows,
+    /// blur), `Bottom` and `Background` layers.
     fn scene_elements(
         &self,
         renderer: &mut GlesRenderer,
         output: &Output,
         with_windows: bool,
         behind: Vec<OutputElement>,
+        borders: Vec<OutputElement>,
     ) -> Vec<OutputElement> {
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
@@ -107,7 +109,8 @@ impl State {
                 .collect()
         };
 
-        let mut elements = layer_elements(renderer, &[Layer::Overlay, Layer::Top]);
+        let mut elements = layer_elements(renderer, &[Layer::Overlay]);
+        let (mut unmanaged, mut fullscreen, mut regular) = (Vec::new(), Vec::new(), Vec::new());
         for window in self.space.elements().rev().filter(|_| with_windows) {
             if !self.space.element_bbox(window).is_some_and(|bbox| bbox.overlaps(geo)) {
                 continue;
@@ -131,6 +134,11 @@ impl State {
                 Scale::from(scale),
                 alpha,
             );
+            let bucket: &mut Vec<OutputElement> = match managed {
+                None => &mut unmanaged,
+                Some(m) if m.shown_fullscreen => &mut fullscreen,
+                Some(_) => &mut regular,
+            };
             if owner.is_some() {
                 let rounded = managed.is_some_and(|m| !m.fullscreen) && self.config.effects.corner_radius > 0;
                 let main = window.wl_surface().map(|s| Id::from_wayland_resource(&*s));
@@ -150,7 +158,7 @@ impl State {
                                 (f64::from(geometry.size.h) * scale * factor.1) as f32,
                             ];
                             let radius = (f64::from(self.config.effects.corner_radius) * scale * factor.0) as f32;
-                            elements.push(OutputElement::from(crate::effects::Rounded::new(
+                            bucket.push(OutputElement::from(crate::effects::Rounded::new(
                                 cropped,
                                 shader.tex.clone(),
                                 (buf.w as f32, buf.h as f32),
@@ -158,13 +166,18 @@ impl State {
                                 radius,
                             )));
                         }
-                        None => elements.push(OutputElement::from(cropped)),
+                        None => bucket.push(OutputElement::from(cropped)),
                     }
                 }
             } else {
-                elements.extend(surfaces.into_iter().map(OutputElement::from));
+                bucket.extend(surfaces.into_iter().map(OutputElement::from));
             }
         }
+        elements.extend(unmanaged);
+        elements.extend(fullscreen);
+        elements.extend(layer_elements(renderer, &[Layer::Top]));
+        elements.extend(borders);
+        elements.extend(regular);
         elements.extend(behind);
         elements.extend(layer_elements(renderer, &[Layer::Bottom, Layer::Background]));
         elements

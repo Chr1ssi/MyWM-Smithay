@@ -11,6 +11,10 @@ use wayland_client::{
         wl_shm_pool::WlShmPool, wl_surface::WlSurface,
     },
 };
+use wayland_protocols_wlr::layer_shell::v1::client::{
+    zwlr_layer_shell_v1::{Layer, ZwlrLayerShellV1},
+    zwlr_layer_surface_v1::{self, ZwlrLayerSurfaceV1},
+};
 use wayland_protocols::{
     wp::keyboard_shortcuts_inhibit::zv1::client::{
         zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1,
@@ -79,6 +83,16 @@ impl Dispatch<XdgActivationTokenV1, ()> for App {
     }
 }
 
+impl Dispatch<ZwlrLayerSurfaceV1, ()> for App {
+    fn event(state: &mut Self, surface: &ZwlrLayerSurfaceV1, event: zwlr_layer_surface_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let zwlr_layer_surface_v1::Event::Configure { serial, .. } = event {
+            surface.ack_configure(serial);
+            state.configured.iter_mut().for_each(|c| *c = true);
+        }
+    }
+}
+
+delegate_noop!(App: ignore ZwlrLayerShellV1);
 delegate_noop!(App: ignore WlCompositor);
 delegate_noop!(App: ignore WlShm);
 delegate_noop!(App: ignore WlShmPool);
@@ -105,6 +119,58 @@ fn main() {
     let compositor: WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
     let shm: WlShm = globals.bind(&qh, 1..=1, ()).unwrap();
     let wm_base: XdgWmBase = globals.bind(&qh, 1..=1, ()).unwrap();
+
+    if mode == "layer" || mode == "fullscreen" {
+        // `layer <top|overlay> <w> <h> <RRGGBB> <seconds>` or `fullscreen <RRGGBB> <seconds>`: one solid surface.
+        let args: Vec<String> = std::env::args().collect();
+        let (layer_name, w, h, color, seconds) = if mode == "layer" {
+            (args[2].clone(), args[3].parse::<i32>().unwrap(), args[4].parse::<i32>().unwrap(), args[5].clone(), args[6].parse::<u64>().unwrap())
+        } else {
+            (String::new(), 1280, 800, args[2].clone(), args[3].parse::<u64>().unwrap())
+        };
+        let rgb = u32::from_str_radix(&color, 16).unwrap();
+        let file = std::fs::File::options().read(true).write(true).create(true).truncate(true).open(std::env::temp_dir().join(format!("mywm-tc-{}", std::process::id()))).unwrap();
+        file.set_len((w * h * 4) as u64).unwrap();
+        let pixel = (0xff00_0000u32 | rgb).to_le_bytes();
+        let pixels: Vec<u8> = (0..w * h).flat_map(|_| pixel).collect();
+        std::os::unix::fs::FileExt::write_all_at(&file, &pixels, 0).unwrap();
+        let pool = shm.create_pool(file.as_fd(), w * h * 4, &qh, ());
+        let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, &qh, ());
+        let surface = compositor.create_surface(&qh, ());
+        app.configured = vec![false];
+        let _keep: (Option<ZwlrLayerSurfaceV1>, Option<(XdgSurface, XdgToplevel)>);
+        if mode == "layer" {
+            let shell: ZwlrLayerShellV1 = globals.bind(&qh, 1..=4, ()).expect("layer shell");
+            let layer = if layer_name == "overlay" { Layer::Overlay } else { Layer::Top };
+            let layer_surface = shell.get_layer_surface(&surface, None, layer, "test".into(), &qh, ());
+            layer_surface.set_size(w as u32, h as u32);
+            surface.commit();
+            while !app.configured[0] {
+                queue.blocking_dispatch(&mut app).unwrap();
+            }
+            _keep = (Some(layer_surface), None);
+        } else {
+            let xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
+            let toplevel = xdg.get_toplevel(&qh, ());
+            toplevel.set_app_id("mywm.test.fullscreen".into());
+            toplevel.set_fullscreen(None);
+            surface.commit();
+            while !app.configured[0] {
+                queue.blocking_dispatch(&mut app).unwrap();
+            }
+            _keep = (None, Some((xdg, toplevel)));
+        }
+        surface.attach(Some(&buffer), 0, 0);
+        surface.commit();
+        queue.roundtrip(&mut app).unwrap();
+        println!("shown");
+        let end = Instant::now() + Duration::from_secs(seconds);
+        while Instant::now() < end {
+            let _ = queue.roundtrip(&mut app);
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        return;
+    }
 
     let count = if mode == "urgent" { 2 } else { 1 };
     app.configured = vec![false; count];

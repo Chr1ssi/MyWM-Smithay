@@ -45,6 +45,8 @@ pub struct Managed {
     pub foreign: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
     /// Commits of the main surface, to tell capture sessions when the window changed.
     pub commits: u64,
+    /// The layout currently shows the window fullscreen (above the `Top` layer, below `Overlay`).
+    pub shown_fullscreen: bool,
     /// Asked for attention without having the focus (`xdg-activation`).
     pub urgent: bool,
     /// Border color for the current focus state.
@@ -238,6 +240,7 @@ impl State {
             foreign: None,
             commits: 0,
             urgent: false,
+            shown_fullscreen: false,
             border_color: [0.0; 4],
             ring: None,
             slide: None,
@@ -508,6 +511,7 @@ impl State {
             // Mapping in paint order keeps floating windows above tiled ones.
             self.space
                 .map_element(m.window.clone(), (p.content.x, p.content.y), false);
+            m.shown_fullscreen = p.fullscreen;
             let old_place = m.frame.map(|(f, _)| (f.x, f.y));
             let monitor = monitors.iter().find(|(id, _)| *id == m.id).and_then(|(_, monitor)| *monitor);
             m.frame = Some((

@@ -309,14 +309,21 @@ impl State {
         if self.session_lock.is_active() {
             return self.lock_surface_at_pointer();
         }
-        // Panels above the windows first, then windows, then wallpapers and the like.
-        self.layer_surface_at(&[Layer::Overlay, Layer::Top])
-            .or_else(|| {
-                let (window, loc) = self.window_at(self.pointer_location)?;
-                window
-                    .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
-                    .map(|(surface, origin)| (surface, (origin + loc).to_f64()))
-            })
+        // Same order as drawn: overlays, popups and menus and fullscreen windows, panels, the
+        // other windows, then wallpapers and the like.
+        let window_hit = self.window_at(self.pointer_location);
+        let surface_of = |(window, loc): &(smithay::desktop::Window, Point<i32, Logical>)| {
+            window
+                .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
+                .map(|(surface, origin)| (surface, (origin + *loc).to_f64()))
+        };
+        let in_front = window_hit.as_ref().filter(|(window, _)| {
+            self.desktop.windows.iter().find(|m| &m.window == window).is_none_or(|m| m.shown_fullscreen)
+        });
+        self.layer_surface_at(&[Layer::Overlay])
+            .or_else(|| in_front.and_then(surface_of))
+            .or_else(|| self.layer_surface_at(&[Layer::Top]))
+            .or_else(|| window_hit.as_ref().and_then(surface_of))
             .or_else(|| self.layer_surface_at(&[Layer::Bottom, Layer::Background]))
     }
 
