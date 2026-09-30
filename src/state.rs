@@ -1,10 +1,11 @@
 use std::{ffi::OsString, sync::Arc, time::Instant};
 
-use crate::{desktop::Desktop, monitors::OutputEntry};
+use crate::{cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, udev::UdevData};
 use mywm_config::{Binding, Config, Modifiers};
 use smithay::{
     desktop::{PopupManager, Space, Window},
-    input::{keyboard::XkbConfig, Seat, SeatState},
+    backend::session::libseat::LibSeatSession,
+    input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatState},
     reexports::{
         calloop::{generic::Generic, EventLoop, Interest, LoopSignal, Mode, PostAction},
         wayland_server::{
@@ -15,6 +16,7 @@ use smithay::{
     utils::{Logical, Point},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
+        dmabuf::{DmabufGlobal, DmabufState},
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         shell::xdg::XdgShellState,
@@ -47,6 +49,13 @@ pub struct State {
     pub next_output_id: u32,
 
     pub config: Config,
+    pub cursor_status: CursorImageStatus,
+    pub cursor_assets: CursorAssets,
+    /// Present with the hardware backend.
+    pub udev: Option<UdevData>,
+    pub session: Option<LibSeatSession>,
+    pub dmabuf_state: DmabufState,
+    pub dmabuf_global: Option<DmabufGlobal>,
     pub ipc: Option<crate::ipc::Ipc>,
     /// The desktop changed since the last broadcast to bar clients.
     pub ipc_dirty: bool,
@@ -129,6 +138,12 @@ impl State {
             outputs: Vec::new(),
             next_output_id: 1,
             bindings: Vec::new(),
+            cursor_status: CursorImageStatus::default_named(),
+            cursor_assets: CursorAssets::new(),
+            udev: None,
+            session: None,
+            dmabuf_state: DmabufState::new(),
+            dmabuf_global: None,
             ipc: None,
             ipc_dirty: false,
             pointer_modifiers: Modifiers::default(),

@@ -296,6 +296,7 @@ impl State {
         self.apply_layout();
         self.sync_focus();
         self.ipc_dirty = true;
+        self.queue_redraw_all();
     }
 
     fn apply_layout(&mut self) {

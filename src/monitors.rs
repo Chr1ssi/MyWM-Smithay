@@ -41,6 +41,7 @@ impl State {
             (right, 0).into()
         });
         self.space.map_output(&output, position);
+        output.change_current_state(None, None, None, Some(position));
         let geo = self.space.output_geometry(&output).unwrap_or_default();
         let area = Rect { x: geo.loc.x, y: geo.loc.y, width: geo.size.w, height: geo.size.h };
         let id = self.next_output_id;

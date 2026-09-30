@@ -1,12 +1,13 @@
 use mywm_config::{Action, Modifiers};
 use mywm_layout::{DragKind, Edges};
 use smithay::{
+    backend::session::Session,
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
         KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
     },
     input::{
-        keyboard::{FilterResult, Keysym, ModifiersState},
+        keyboard::{FilterResult, Keysym, ModifiersState, keysyms},
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
     output::Output,
@@ -17,6 +18,12 @@ use crate::State;
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+
+/// What a key press the compositor claims turns into.
+enum Intercepted {
+    Action(Action),
+    Vt(i32),
+}
 
 fn modifiers(state: &ModifiersState) -> Modifiers {
     Modifiers { logo: state.logo, shift: state.shift, ctrl: state.ctrl, alt: state.alt }
@@ -77,7 +84,7 @@ impl State {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
                 let keyboard = self.seat.get_keyboard().unwrap();
-                let action = keyboard.input::<Action, _>(
+                let action = keyboard.input::<Intercepted, _>(
                     self,
                     event.key_code(),
                     event.state(),
@@ -87,15 +94,28 @@ impl State {
                         if event.state() != KeyState::Pressed {
                             return FilterResult::Forward;
                         }
+                        // Ctrl+Alt+F<n> arrives as a dedicated keysym after xkb's processing.
+                        let raw = handle.modified_sym().raw();
+                        if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&raw) {
+                            return FilterResult::Intercept(Intercepted::Vt((raw - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
+                        }
                         // Unmodified symbol, so Shift+1 is still "1".
                         match handle.raw_syms().first().and_then(|sym| state.binding_for(mods, *sym)) {
-                            Some(action) => FilterResult::Intercept(action),
+                            Some(action) => FilterResult::Intercept(Intercepted::Action(action)),
                             None => FilterResult::Forward,
                         }
                     },
                 );
-                if let Some(action) = action {
-                    self.run_action(action);
+                match action {
+                    Some(Intercepted::Action(action)) => self.run_action(action),
+                    Some(Intercepted::Vt(vt)) => {
+                        if let Some(session) = &mut self.session
+                            && let Err(error) = session.change_vt(vt)
+                        {
+                            tracing::warn!("cannot switch to VT {vt}: {error}");
+                        }
+                    }
+                    None => {}
                 }
             }
             InputEvent::PointerMotionAbsolute { event } => {
@@ -171,6 +191,7 @@ impl State {
     }
 
     fn pointer_moved(&mut self, time: u32) {
+        self.queue_redraw_all();
         if self.desktop.drag.is_some() {
             self.update_drag();
         } else {

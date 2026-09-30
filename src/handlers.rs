@@ -1,8 +1,8 @@
 use std::os::unix::io::OwnedFd;
 
 use smithay::{
-    backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_data_device, delegate_output, delegate_seat, delegate_shm,
+    backend::{allocator::dmabuf::Dmabuf, renderer::utils::on_commit_buffer_handler},
+    delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat, delegate_shm,
     delegate_xdg_shell,
     desktop::{PopupKind, Window},
     input::{pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
@@ -14,6 +14,7 @@ use smithay::{
     wayland::{
         buffer::BufferHandler,
         compositor::{get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState},
+        dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
         output::OutputHandler,
         selection::{
             data_device::{
@@ -56,6 +57,7 @@ impl CompositorHandler for State {
             }
         }
         self.popups.commit(surface);
+        self.queue_redraw_all();
     }
 }
 
@@ -128,7 +130,10 @@ impl SeatHandler for State {
     }
 
     fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
-    fn cursor_image(&mut self, _seat: &Seat<Self>, _image: CursorImageStatus) {}
+    fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+        self.cursor_status = image;
+        self.queue_redraw_all();
+    }
 }
 
 impl SelectionHandler for State {
@@ -145,6 +150,16 @@ impl ServerDndGrabHandler for State {
 }
 impl OutputHandler for State {}
 
+impl DmabufHandler for State {
+    fn dmabuf_state(&mut self) -> &mut DmabufState {
+        &mut self.dmabuf_state
+    }
+
+    fn dmabuf_imported(&mut self, _global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
+        self.udev_dmabuf_imported(&dmabuf, notifier);
+    }
+}
+
 impl State {
     pub fn set_keyboard_focus(&mut self, surface: Option<WlSurface>) {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
@@ -160,3 +175,4 @@ delegate_xdg_shell!(State);
 delegate_seat!(State);
 delegate_data_device!(State);
 delegate_output!(State);
+delegate_dmabuf!(State);

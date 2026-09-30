@@ -14,13 +14,23 @@ mywm-ipc = { path = "crates/mywm-ipc" }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_egl",
+    "backend_drm",
+    "backend_gbm",
+    "backend_udev",
+    "backend_libinput",
+    "backend_session_libseat",
     "desktop",
     "wayland_frontend",
 ] }
 calloop = { version = "0.14", features = ["signals"] }
+smithay-drm-extras = { version = "0.1", default-features = false }
+xcursor = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[dev-dependencies]
+drm-ffi = "0.9"
