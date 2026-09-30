@@ -14,13 +14,15 @@ use smithay::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point},
+    utils::{Logical, Point, Rectangle},
+    xwayland::{X11Surface, xwm::WmWindowType},
     wayland::{
         compositor::with_states, fractional_scale::with_fractional_scale, shell::xdg::XdgToplevelSurfaceData,
     },
 };
 
 use crate::State;
+use smithay::wayland::seat::WaylandFocus;
 
 pub type WindowId = u64;
 
@@ -44,8 +46,22 @@ pub struct Managed {
 }
 
 impl Managed {
-    pub fn surface(&self) -> Option<&WlSurface> {
-        self.window.toplevel().map(|t| t.wl_surface())
+    /// The window's main surface (an X11 window has none until Xwayland associates one).
+    pub fn surface(&self) -> Option<WlSurface> {
+        self.window.wl_surface().map(|s| s.into_owned())
+    }
+
+    pub fn has_surface(&self, surface: &WlSurface) -> bool {
+        self.window.wl_surface().is_some_and(|s| &*s == surface)
+    }
+
+    /// Ask the client to close the window.
+    pub fn close(&self) {
+        if let Some(toplevel) = self.window.toplevel() {
+            toplevel.send_close();
+        } else if let Some(x11) = self.window.x11_surface() {
+            let _ = x11.close();
+        }
     }
 
     fn info(&self) -> WindowInfo<WindowId> {
@@ -99,6 +115,10 @@ impl Desktop {
         }
     }
 
+    pub fn by_x11(&self, window_id: u32) -> Option<&Managed> {
+        self.windows.iter().find(|w| w.window.x11_surface().is_some_and(|x| x.window_id() == window_id))
+    }
+
     pub fn get(&self, id: WindowId) -> Option<&Managed> {
         self.windows.iter().find(|w| w.id == id)
     }
@@ -108,7 +128,7 @@ impl Desktop {
     }
 
     pub fn by_surface(&self, surface: &WlSurface) -> Option<&Managed> {
-        self.windows.iter().find(|w| w.surface() == Some(surface))
+        self.windows.iter().find(|w| w.has_surface(surface))
     }
 
     /// The workspace shown on the focused monitor.
@@ -139,6 +159,19 @@ impl State {
     /// Register a new toplevel. It joins a workspace at its first commit (see `place_pending`).
     pub fn add_window(&mut self, window: Window) {
         let toplevel = window.toplevel().expect("wayland window").clone();
+        self.push_window(window);
+        // The client waits for a configure before it may attach a buffer.
+        toplevel.send_configure();
+    }
+
+    /// Register a mapped X11 window. Its class is known already, so it is placed right away.
+    pub fn add_x11_window(&mut self, x11: X11Surface) {
+        let id = self.push_window(Window::new_x11_window(x11));
+        self.place(id);
+        self.refresh();
+    }
+
+    fn push_window(&mut self, window: Window) -> WindowId {
         let d = &mut self.desktop;
         let id = d.next_id;
         d.next_id += 1;
@@ -156,8 +189,7 @@ impl State {
             frame: None,
             borders: Default::default(),
         });
-        // The client waits for a configure before it may attach a buffer.
-        toplevel.send_configure();
+        id
     }
 
     /// Apply window rules and pick the workspace once the app id is known.
@@ -182,30 +214,53 @@ impl State {
         if m.placed || self.desktop.desk.monitors.is_empty() {
             return;
         }
-        let surface = m.surface().cloned();
-        let app_id = surface.as_ref().and_then(|surface| {
-            with_states(surface, |states| {
-                states
-                    .data_map
-                    .get::<XdgToplevelSurfaceData>()
-                    .and_then(|data| data.lock().unwrap().app_id.clone())
-            })
-        });
-        let parent = m
-            .window
-            .toplevel()
-            .and_then(|t| t.parent())
-            .and_then(|surface| self.desktop.by_surface(&surface).map(|p| p.id));
+        let (app_id, parent, x11_float) = match m.window.x11_surface() {
+            Some(x11) => {
+                // Steam and friends: dialogs and popups float above their owner, fixed-size windows too.
+                let parent = x11.is_transient_for().and_then(|w| self.desktop.by_x11(w).map(|p| p.id));
+                let class = x11.class();
+                let floats = x11.is_popup()
+                    || x11.is_transient_for().is_some()
+                    || matches!(
+                        x11.window_type(),
+                        Some(
+                            WmWindowType::Dialog
+                                | WmWindowType::Utility
+                                | WmWindowType::Splash
+                                | WmWindowType::Toolbar
+                                | WmWindowType::Notification
+                        )
+                    )
+                    || x11.min_size().is_some_and(|min| x11.max_size() == Some(min));
+                ((!class.is_empty()).then_some(class), parent, floats)
+            }
+            None => {
+                let app_id = m.surface().and_then(|surface| {
+                    with_states(&surface, |states| {
+                        states
+                            .data_map
+                            .get::<XdgToplevelSurfaceData>()
+                            .and_then(|data| data.lock().unwrap().app_id.clone())
+                    })
+                });
+                let parent = m
+                    .window
+                    .toplevel()
+                    .and_then(|t| t.parent())
+                    .and_then(|surface| self.desktop.by_surface(&surface).map(|p| p.id));
+                (app_id, parent, false)
+            }
+        };
         // A child may be announced before its parent; place the parent first.
         if let Some(parent) = parent {
             self.place(parent);
         }
-        tracing::info!("new window: app_id={app_id:?} dialog={}", parent.is_some());
+        tracing::info!("new window: app_id={app_id:?} dialog={}", parent.is_some() || x11_float);
 
         let placement = mywm_config::resolve(
             &self.config.rules,
             app_id.as_deref(),
-            parent.is_some(),
+            parent.is_some() || x11_float,
             self.config.float_dialogs,
         );
         let game = self.is_game(app_id.as_deref(), parent);
@@ -244,7 +299,7 @@ impl State {
         }
         if let Some(m) = d.get_mut(id) {
             m.placed = true;
-            m.floating = placement.floating;
+            m.floating = placement.floating || x11_float;
             m.parent = parent;
             m.app_id = app_id;
         }
@@ -277,6 +332,15 @@ impl State {
 
     pub fn remove_window(&mut self, surface: &WlSurface) {
         let Some(id) = self.desktop.by_surface(surface).map(|w| w.id) else { return };
+        self.remove_managed(id);
+    }
+
+    pub fn remove_x11_window(&mut self, window_id: u32) {
+        let Some(id) = self.desktop.by_x11(window_id).map(|w| w.id) else { return };
+        self.remove_managed(id);
+    }
+
+    fn remove_managed(&mut self, id: WindowId) {
         if let Some(managed) = self.desktop.get(id) {
             self.space.unmap_elem(&managed.window);
         }
@@ -358,6 +422,18 @@ impl State {
                     }
                 });
                 toplevel.send_pending_configure();
+            } else if let Some(x11) = m.window.x11_surface() {
+                // X11 windows know their position on the (global) screen.
+                let target = Rectangle::new(
+                    (p.content.x, p.content.y).into(),
+                    (p.content.width, p.content.height).into(),
+                );
+                if x11.geometry() != target {
+                    let _ = x11.configure(target);
+                }
+                if x11.is_fullscreen() != p.fullscreen {
+                    let _ = x11.set_fullscreen(p.fullscreen);
+                }
             }
             // Mapping in paint order keeps floating windows above tiled ones.
             self.space
@@ -407,15 +483,12 @@ impl State {
         let layer = self.keyboard_layer();
         let focused = self.desktop.focused().filter(|_| layer.is_none());
         for m in &self.desktop.windows {
-            if let Some(toplevel) = m.window.toplevel()
-                && m.window.set_activated(Some(m.id) == focused)
-            {
+            let changed = m.window.set_activated(Some(m.id) == focused);
+            if changed && let Some(toplevel) = m.window.toplevel() {
                 toplevel.send_pending_configure();
             }
         }
-        let surface = layer.or_else(|| {
-            focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface().cloned())
-        });
+        let surface = layer.or_else(|| focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface()));
         self.set_keyboard_focus(surface);
     }
 

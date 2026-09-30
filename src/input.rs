@@ -69,10 +69,8 @@ impl State {
             Action::Lock => self.start_locker(),
             Action::Wallpaper => tracing::warn!("the wallpaper picker is not implemented in the Smithay compositor yet"),
             Action::Close => {
-                if let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get(id))
-                    && let Some(top) = m.window.toplevel()
-                {
-                    top.send_close();
+                if let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get(id)) {
+                    m.close();
                 }
             }
             Action::Exit => self.loop_signal.stop(),

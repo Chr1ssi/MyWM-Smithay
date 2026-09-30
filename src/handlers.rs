@@ -20,7 +20,6 @@ use smithay::{
             data_device::{
                 ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
             },
-            SelectionHandler,
         },
         shell::xdg::{
             PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
@@ -30,6 +29,7 @@ use smithay::{
 };
 
 use crate::state::{ClientState, State};
+use smithay::{wayland::seat::WaylandFocus, xwayland::XWaylandClientData};
 
 impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -37,7 +37,11 @@ impl CompositorHandler for State {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        &client.get_data::<ClientState>().unwrap().compositor_state
+        // Xwayland connects as a client of its own kind.
+        if let Some(data) = client.get_data::<XWaylandClientData>() {
+            return &data.compositor_state;
+        }
+        &client.get_data::<ClientState>().expect("every client has compositor state").compositor_state
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
@@ -58,7 +62,7 @@ impl CompositorHandler for State {
             if let Some(window) = self
                 .space
                 .elements()
-                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &root))
+                .find(|w| w.wl_surface().is_some_and(|s| *s == root))
             {
                 window.on_commit();
             }
@@ -143,9 +147,6 @@ impl SeatHandler for State {
     }
 }
 
-impl SelectionHandler for State {
-    type SelectionUserData = ();
-}
 impl DataDeviceHandler for State {
     fn data_device_state(&self) -> &DataDeviceState {
         &self.data_device_state

@@ -78,6 +78,8 @@ pub struct Config {
     pub game_app_id_prefixes: Vec<String>,
     pub vrr: VrrConfig,
     pub rules: Vec<Rule>,
+    /// Addition over the River-based MyWM: run Xwayland for legacy X11 apps (Steam, older games).
+    pub xwayland: bool,
     /// Addition over the River-based MyWM (which used kanshi): native output setup.
     pub outputs: Vec<OutputConfig>,
 }
@@ -120,6 +122,7 @@ impl Default for Config {
             game_app_id_prefixes: Vec::new(),
             vrr: VrrConfig::default(),
             rules: Vec::new(),
+            xwayland: true,
             outputs: Vec::new(),
         }
     }

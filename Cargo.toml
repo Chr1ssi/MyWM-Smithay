@@ -24,6 +24,7 @@ smithay = { version = "0.7", default-features = false, features = [
     "backend_udev",
     "backend_libinput",
     "backend_session_libseat",
+    "xwayland",
     "desktop",
     "wayland_frontend",
 ] }

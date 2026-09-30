@@ -11,6 +11,7 @@ mod protocols;
 mod render;
 mod session;
 mod udev;
+mod xwayland;
 mod state;
 mod winit;
 
@@ -64,6 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .handle()
         .insert_source(signals, |_, _, state| state.loop_signal.stop())
         .map_err(|e| e.error)?;
+
+    xwayland::start(&mut state);
 
     if let Err(error) = ipc::init(&event_loop.handle(), &mut state) {
         tracing::error!("cannot start the bar socket: {error}");

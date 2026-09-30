@@ -17,11 +17,12 @@ def wait(cond, timeout=8):
 
 
 class Compositor:
-    def __init__(self, config="", extra_env=None, windows=0, extra_args=""):
+    def __init__(self, config="", extra_env=None, windows=0, extra_args="", top=""):
         self.dir = tempfile.mkdtemp()
         self.sock = f"{self.dir}/ctl.sock"
         with open(f"{self.dir}/config.toml", "w") as f:
-            f.write('[keyboard]\nlayout = "us"\n' + config)
+            # `top` holds top-level keys, which must precede the first table.
+            f.write(top + '[keyboard]\nlayout = "us"\n' + config)
         env = dict(os.environ, MYWM_SOCKET=self.sock, MYWM_CONFIG=f"{self.dir}/config.toml", RUST_LOG="info")
         env.update(extra_env or {})
         env.pop("WAYLAND_DISPLAY", None)

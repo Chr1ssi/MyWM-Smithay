@@ -17,6 +17,7 @@ use smithay::{
         },
     },
     utils::{Logical, Point},
+    xwayland::X11Wm,
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         content_type::ContentTypeState,
@@ -36,6 +37,7 @@ use smithay::{
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         shell::{wlr_layer::WlrLayerShellState, xdg::XdgShellState},
+        xwayland_shell::XWaylandShellState,
         shm::ShmState,
         socket::ListeningSocketSource,
     },
@@ -72,6 +74,12 @@ pub struct State {
     pub session: Option<LibSeatSession>,
     pub dmabuf_state: DmabufState,
     pub layer_shell_state: WlrLayerShellState,
+    pub xwayland_shell_state: XWaylandShellState,
+    pub xwm: Option<X11Wm>,
+    /// Display number of Xwayland, once started.
+    pub xdisplay: Option<u32>,
+    /// Menus, tooltips and other X11 windows that position themselves.
+    pub override_redirect: Vec<Window>,
     pub lock_manager_state: SessionLockManagerState,
     pub session_lock: SessionLock,
     pub idle_notifier_state: IdleNotifierState<State>,
@@ -177,6 +185,10 @@ impl State {
             session: None,
             dmabuf_state: DmabufState::new(),
             layer_shell_state: WlrLayerShellState::new::<State>(&dh),
+            xwayland_shell_state: XWaylandShellState::new::<State>(&dh),
+            xwm: None,
+            xdisplay: None,
+            override_redirect: Vec::new(),
             lock_manager_state: SessionLockManagerState::new::<State, _>(&dh, |_| true),
             session_lock: SessionLock::default(),
             idle_notifier_state: IdleNotifierState::new(&dh, loop_handle.clone()),
@@ -269,6 +281,9 @@ impl State {
         let mut cmd = std::process::Command::new(program);
         cmd.args(args);
         cmd.env("WAYLAND_DISPLAY", &self.socket_name);
+        if let Some(display) = self.x11_display_env() {
+            cmd.env("DISPLAY", display);
+        }
         if with_theme {
             cmd.envs(self.config.theme_env());
             cmd.env("MYWM_TERMINAL_COUNT", self.config.terminal.len().to_string());
