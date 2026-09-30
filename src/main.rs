@@ -3,10 +3,14 @@
 mod desktop;
 mod handlers;
 mod input;
+mod ipc;
 mod state;
 mod winit;
 
-use smithay::reexports::calloop::EventLoop;
+use calloop::{
+    EventLoop,
+    signals::{Signal, Signals},
+};
 use tracing_subscriber::EnvFilter;
 
 pub use state::State;
@@ -29,6 +33,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
     tracing::info!("listening on WAYLAND_DISPLAY={:?}", state.socket_name);
 
+    // Shut down cleanly (removing the bar socket) on SIGTERM/SIGINT.
+    let signals = Signals::new(&[Signal::SIGTERM, Signal::SIGINT])?;
+    event_loop
+        .handle()
+        .insert_source(signals, |_, _, state| state.loop_signal.stop())
+        .map_err(|e| e.error)?;
+
+    if let Err(error) = ipc::init(&event_loop.handle(), &mut state) {
+        tracing::error!("cannot start the bar socket: {error}");
+    }
+
     if let Some(cmd) = std::env::args().nth(1) {
         state.spawn_command(&["sh".into(), "-c".into(), cmd], false);
     }
@@ -36,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.run(None, &mut state, |state| {
         state.space.refresh();
         state.popups.cleanup();
+        state.ipc_flush();
         let _ = state.display_handle.flush_clients();
     })?;
     Ok(())

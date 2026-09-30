@@ -263,6 +263,40 @@ impl State {
     pub fn refresh(&mut self) {
         self.apply_layout();
         self.sync_focus();
+        self.ipc_dirty = true;
+    }
+
+    /// State for the bar (see `mywm-ipc`).
+    pub fn ipc_snapshot(&self) -> mywm_ipc::Snapshot {
+        let d = &self.desktop;
+        let mut snapshot = mywm_ipc::Snapshot {
+            scratchpad_visible: d.scratchpad_visible,
+            scratchpad_occupied: !d.scratchpad.windows.is_empty(),
+            ..Default::default()
+        };
+        if let Some(area) = self.work_area() {
+            let workspace = d.workspaces.current();
+            let tiled = workspace
+                .windows
+                .iter()
+                .filter_map(|id| d.get(*id))
+                .filter(|m| !m.floating)
+                .filter_map(|m| m.frame)
+                .map(|(f, b)| Rect { x: f.x + b, y: f.y + b, width: f.width - 2 * b, height: f.height - 2 * b });
+            let (overflow_left, overflow_right) = mywm_ipc::overflow_directions(area, tiled);
+            snapshot.outputs.push(mywm_ipc::OutputState {
+                id: crate::ipc::OUTPUT_ID,
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: area.height,
+                active: d.workspaces.active,
+                overflow_left,
+                overflow_right,
+                workspaces: d.workspaces.entries.iter().map(|w| (w.number, !w.windows.is_empty())).collect(),
+            });
+        }
+        snapshot
     }
 
     fn apply_layout(&mut self) {
@@ -310,7 +344,7 @@ impl State {
             // Mapping in paint order keeps floating windows above tiled ones.
             self.space
                 .map_element(m.window.clone(), (p.content.x, p.content.y), false);
-            m.frame = (p.border > 0).then_some((
+            m.frame = Some((
                 Rect {
                     x: p.content.x - p.border,
                     y: p.content.y - p.border,
@@ -320,7 +354,7 @@ impl State {
                 p.border,
             ));
             let color = if focused == Some(m.id) { active } else { inactive };
-            if let Some((frame, b)) = m.frame {
+            if let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) {
                 let strips = [
                     (frame.width, b),
                     (frame.width, b),
@@ -353,7 +387,7 @@ impl State {
     pub fn border_elements(&self) -> Vec<SolidColorRenderElement> {
         let mut elements = Vec::new();
         for m in self.desktop.windows.iter().rev() {
-            let Some((frame, b)) = m.frame else { continue };
+            let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) else { continue };
             let origins = [
                 (frame.x, frame.y),
                 (frame.x, frame.y + frame.height - b),

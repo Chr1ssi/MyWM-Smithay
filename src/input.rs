@@ -31,7 +31,7 @@ impl State {
             .map(|b| b.action)
     }
 
-    fn run_action(&mut self, action: Action) {
+    pub fn run_action(&mut self, action: Action) {
         match action {
             Action::Terminal => self.spawn_command(&self.config.terminal.clone(), false),
             Action::Launcher => self.spawn_command(&self.config.launcher.clone(), true),

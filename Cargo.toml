@@ -10,12 +10,14 @@ members = [".", "crates/*"]
 [dependencies]
 mywm-layout = { path = "crates/mywm-layout" }
 mywm-config = { path = "crates/mywm-config" }
+mywm-ipc = { path = "crates/mywm-ipc" }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_egl",
     "desktop",
     "wayland_frontend",
 ] }
+calloop = { version = "0.14", features = ["signals"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

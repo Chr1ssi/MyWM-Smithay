@@ -1,0 +1,8 @@
+[package]
+name = "mywm-ipc"
+version = "0.1.0"
+edition = "2024"
+description = "Line protocol between the MyWM compositor and its bar (mywm-shell)"
+
+[dependencies]
+mywm-layout = { path = "../mywm-layout" }

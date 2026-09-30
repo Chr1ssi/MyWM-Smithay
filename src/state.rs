@@ -47,6 +47,9 @@ pub struct State {
     pub output: Option<Output>,
 
     pub config: Config,
+    pub ipc: Option<crate::ipc::Ipc>,
+    /// The desktop changed since the last broadcast to bar clients.
+    pub ipc_dirty: bool,
     /// Key bindings after the nested-modifier remapping.
     pub bindings: Vec<Binding>,
     pub pointer_modifiers: Modifiers,
@@ -122,6 +125,8 @@ impl State {
             desktop,
             output: None,
             bindings: Vec::new(),
+            ipc: None,
+            ipc_dirty: false,
             pointer_modifiers: Modifiers::default(),
             remap_super,
             config,
