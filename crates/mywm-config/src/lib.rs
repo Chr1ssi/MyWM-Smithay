@@ -32,6 +32,8 @@ pub enum Action {
     Screenshot,
     ScreenshotScreen,
     ScreenshotWindow,
+    /// Show all workspaces of the monitor under the pointer as thumbnails.
+    Overview,
     Lock,
     Terminal,
     Launcher,
@@ -168,6 +170,7 @@ pub struct Bindings {
     screenshot: Vec<String>,
     screenshot_screen: Vec<String>,
     screenshot_window: Vec<String>,
+    overview: Vec<String>,
     lock: Vec<String>,
     terminal: Vec<String>,
     launcher: Vec<String>,
@@ -212,6 +215,7 @@ impl Default for Bindings {
             screenshot: keys(&["Print"]),
             screenshot_screen: keys(&["Shift+Print"]),
             screenshot_window: keys(&["Ctrl+Print"]),
+            overview: keys(&["Super+Tab"]),
             lock: keys(&["Super+Escape"]),
             toggle_floating: keys(&["Super+v"]),
             toggle_fullscreen: keys(&["Super+f"]),
@@ -367,6 +371,7 @@ impl Config {
             (&b.screenshot, Action::Screenshot),
             (&b.screenshot_screen, Action::ScreenshotScreen),
             (&b.screenshot_window, Action::ScreenshotWindow),
+            (&b.overview, Action::Overview),
             (&b.lock, Action::Lock),
             (&b.terminal, Action::Terminal),
             (&b.launcher, Action::Launcher),
@@ -473,8 +478,8 @@ mod tests {
     #[test]
     fn defaults_and_partial_configuration() {
         let defaults = Config::parse("").unwrap();
-        // The River-based MyWM has 50 default bindings; three are additions here.
-        assert_eq!(defaults.keybindings().unwrap().len(), 53);
+        // The River-based MyWM has 50 default bindings; seven are additions here.
+        assert_eq!(defaults.keybindings().unwrap().len(), 57);
         assert!(defaults.program_bindings.is_empty());
         let config = Config::parse("terminal = ['kitty', '--single-instance']").unwrap();
         assert_eq!(config.terminal[1], "--single-instance");
@@ -543,7 +548,7 @@ mod tests {
             "[program_bindings.browser]\nkeys = ['Super+b', 'Super+Shift+b']\ncommand = ['firefox', '--private-window']",
         )
         .unwrap();
-        assert_eq!(config.keybindings().unwrap().len(), 55);
+        assert_eq!(config.keybindings().unwrap().len(), 59);
         let binding = config.program_bindings.get("browser").unwrap();
         assert_eq!(binding.command, ["firefox", "--private-window"]);
     }

@@ -62,6 +62,7 @@ pub struct State {
     pub seat: Seat<State>,
     pub pointer_location: Point<f64, Logical>,
     pub selecting: Option<crate::screenshot::Selecting>,
+    pub overview: Option<crate::overview::Overview>,
     pub pending_shots: Vec<crate::screenshot::PendingShot>,
     /// Shaders for rounded corners, compiled when first needed.
     pub effect_shaders: Option<crate::effects::Shaders>,
@@ -216,6 +217,7 @@ impl State {
             seat,
             pointer_location: (0.0, 0.0).into(),
             selecting: None,
+            overview: None,
             pending_shots: Vec::new(),
             effect_shaders: None,
             effect_shaders_failed: false,

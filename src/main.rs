@@ -11,6 +11,7 @@ mod layers;
 mod logging;
 mod monitors;
 mod output_management;
+mod overview;
 mod pacing;
 mod protocols;
 mod render;

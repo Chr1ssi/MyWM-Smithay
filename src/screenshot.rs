@@ -40,9 +40,13 @@ pub struct PendingShot {
 
 /// What a key does while selecting.
 #[derive(Clone, Copy)]
-pub enum SelectKey {
+pub enum ModalKey {
     Cancel,
     Confirm,
+    Left,
+    Right,
+    Up,
+    Down,
     Ignore,
 }
 
@@ -71,14 +75,14 @@ impl State {
         self.queue_redraw_all();
     }
 
-    pub fn selection_key(&mut self, key: SelectKey) {
+    pub fn selection_key(&mut self, key: ModalKey) {
         match key {
-            SelectKey::Cancel => self.cancel_selection(),
-            SelectKey::Confirm => {
+            ModalKey::Cancel => self.cancel_selection(),
+            ModalKey::Confirm => {
                 self.selecting = None;
                 self.shoot_output_under_pointer();
             }
-            SelectKey::Ignore => {}
+            ModalKey::Ignore | ModalKey::Left | ModalKey::Right | ModalKey::Up | ModalKey::Down => {}
         }
     }
 

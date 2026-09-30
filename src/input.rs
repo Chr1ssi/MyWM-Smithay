@@ -36,7 +36,7 @@ enum Constraint {
 enum Intercepted {
     Action(Action),
     Vt(i32),
-    Select(crate::screenshot::SelectKey),
+    Modal(crate::screenshot::ModalKey),
 }
 
 fn modifiers(state: &ModifiersState) -> Modifiers {
@@ -69,6 +69,7 @@ impl State {
             Action::Reload => self.reload_config(),
             Action::Lock => self.start_locker(),
             Action::Wallpaper => self.open_wallpaper_picker(),
+            Action::Overview => self.toggle_overview(),
             Action::Screenshot => self.start_selection(),
             Action::ScreenshotScreen => self.screenshot_screen(),
             Action::ScreenshotWindow => self.screenshot_window(),
@@ -119,12 +120,16 @@ impl State {
                             return FilterResult::Intercept(Intercepted::Vt((raw - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
                         }
                         // While picking a screenshot region the keyboard belongs to the picker.
-                        if state.selecting.is_some() {
-                            use crate::screenshot::SelectKey;
-                            return FilterResult::Intercept(Intercepted::Select(match raw {
-                                keysyms::KEY_Escape => SelectKey::Cancel,
-                                keysyms::KEY_Return | keysyms::KEY_KP_Enter => SelectKey::Confirm,
-                                _ => SelectKey::Ignore,
+                        if state.selecting.is_some() || state.overview.is_some() {
+                            use crate::screenshot::ModalKey;
+                            return FilterResult::Intercept(Intercepted::Modal(match raw {
+                                keysyms::KEY_Escape => ModalKey::Cancel,
+                                keysyms::KEY_Return | keysyms::KEY_KP_Enter => ModalKey::Confirm,
+                                keysyms::KEY_Left => ModalKey::Left,
+                                keysyms::KEY_Right => ModalKey::Right,
+                                keysyms::KEY_Up => ModalKey::Up,
+                                keysyms::KEY_Down => ModalKey::Down,
+                                _ => ModalKey::Ignore,
                             }));
                         }
                         // A locked session hands every other key to the locker.
@@ -140,7 +145,13 @@ impl State {
                 );
                 match action {
                     Some(Intercepted::Action(action)) => self.run_action(action),
-                    Some(Intercepted::Select(key)) => self.selection_key(key),
+                    Some(Intercepted::Modal(key)) => {
+                        if self.overview.is_some() {
+                            self.overview_key(key);
+                        } else {
+                            self.selection_key(key);
+                        }
+                    }
                     Some(Intercepted::Vt(vt)) => {
                         if let Some(session) = &mut self.session
                             && let Err(error) = session.change_vt(vt)
@@ -216,6 +227,9 @@ impl State {
     }
 
     fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
+        if self.overview.is_some() {
+            return self.overview_button(button, state);
+        }
         if self.selecting.is_some() {
             return self.selection_button(button, state);
         }
@@ -265,6 +279,10 @@ impl State {
             self.queue_redraw_output(output);
         }
         self.cursor_output = current;
+        if self.overview.is_some() {
+            self.overview_moved();
+            return self.queue_redraw_all();
+        }
         if self.selecting.is_some() {
             return self.selection_moved();
         }

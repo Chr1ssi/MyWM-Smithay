@@ -56,9 +56,14 @@ impl State {
             }
             return elements;
         }
+        if let Some(overview) = self.overview_elements(renderer, output) {
+            elements.extend(overview);
+            elements.extend(self.scene_elements(renderer, output, false));
+            return elements;
+        }
         let borders = self.border_elements(renderer, output);
         elements.extend(borders);
-        elements.extend(self.scene_elements(renderer, output));
+        elements.extend(self.scene_elements(renderer, output, true));
         elements
     }
 
@@ -67,7 +72,7 @@ impl State {
     /// Windows are drawn only on the output their workspace is on and are cut off at its edge.
     /// Tiles scrolled out of view lie beyond the edge in the shared coordinate space, where the
     /// neighbouring monitor would otherwise show them.
-    fn scene_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
+    fn scene_elements(&self, renderer: &mut GlesRenderer, output: &Output, with_windows: bool) -> Vec<OutputElement> {
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
@@ -92,7 +97,7 @@ impl State {
         };
 
         let mut elements = layer_elements(renderer, &[Layer::Overlay, Layer::Top]);
-        for window in self.space.elements().rev() {
+        for window in self.space.elements().rev().filter(|_| with_windows) {
             if !self.space.element_bbox(window).is_some_and(|bbox| bbox.overlaps(geo)) {
                 continue;
             }

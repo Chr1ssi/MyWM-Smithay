@@ -87,6 +87,8 @@
 #screenshot = ["Print"]
 #screenshot_screen = ["Shift+Print"]   # Monitor unter dem Mauszeiger
 #screenshot_window = ["Ctrl+Print"]    # fokussiertes Fenster
+# Übersicht: alle Workspaces des Monitors als Vorschau; Klick oder Pfeiltasten + Enter wählen, Esc schließt.
+#overview = ["Super+Tab"]
 #lock = ["Super+Escape"]
 #terminal = ["Super+Return"]
 #launcher = ["Super+Space"]

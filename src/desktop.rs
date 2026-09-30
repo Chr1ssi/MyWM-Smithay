@@ -78,7 +78,7 @@ impl Managed {
         }
     }
 
-    fn info(&self) -> WindowInfo<WindowId> {
+    pub(crate) fn info(&self) -> WindowInfo<WindowId> {
         WindowInfo {
             id: self.id,
             floating: self.floating,
