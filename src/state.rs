@@ -61,6 +61,8 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub pointer_location: Point<f64, Logical>,
+    /// The output the cursor was last drawn on, so it is erased there when it moves away.
+    pub cursor_output: Option<Output>,
 
     pub desktop: Desktop,
     pub outputs: Vec<OutputEntry>,
@@ -205,6 +207,7 @@ impl State {
             data_device_state: DataDeviceState::new::<State>(&dh),
             seat,
             pointer_location: (0.0, 0.0).into(),
+            cursor_output: None,
             desktop,
             outputs: Vec::new(),
             next_output_id: 1,
@@ -310,6 +313,9 @@ impl State {
             std::mem::take(&mut self.config);
         self.config = Config { workspace_outputs, gaming_output, async_outputs, idle, vrr, ..new };
         self.desktop.appearance = self.config.appearance.layout();
+        if let Some(udev) = &mut self.udev {
+            udev.late_margin = crate::udev::late_margin(&self.config.render);
+        }
         self.install_bindings();
         self.refresh();
         tracing::info!("configuration reloaded");

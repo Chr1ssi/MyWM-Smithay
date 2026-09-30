@@ -70,7 +70,26 @@ impl CompositorHandler for State {
             }
         }
         self.popups.commit(surface);
-        self.queue_redraw_all();
+        self.queue_redraw_for(surface);
+    }
+}
+
+impl State {
+    /// A surface changed: redraw the outputs it shows on (all of them if it is not a plain window).
+    fn queue_redraw_for(&mut self, surface: &WlSurface) {
+        let mut root = surface.clone();
+        while let Some(parent) = get_parent(&root) {
+            root = parent;
+        }
+        let window = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == root)).cloned();
+        match window {
+            Some(window) => {
+                for output in self.space.outputs_for_element(&window) {
+                    self.queue_redraw_output(&output);
+                }
+            }
+            None => self.queue_redraw_all(),
+        }
     }
 }
 

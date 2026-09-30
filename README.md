@@ -34,8 +34,12 @@ Aufbau:
 - `src/` – Compositor; `udev.rs` ist das Hardware-Backend (DRM/GBM/libinput/libseat),
   `winit.rs` der nested Entwicklungsmodus (`desktop.rs` bildet das Modell auf Smithays `Space` ab)
 
-Roadmap: M5 Profiling und Feinschliff (späte Frame-Planung, Frame-Pacing), danach
-Fensteraufnahme (`ext-image-copy-capture`), Wallpaper-Picker/Theme-Generierung und
+**M5** (Frame-Pacing) ist umgesetzt: Redraws pro Ausgang statt für alle, Messung der
+Renderzeit (`RUST_LOG=info,perf=debug`), Direct-Scanout-Log und optionale späte
+Frame-Planung (`[render] late_scheduling`, standardmäßig aus, bis sie auf Hardware
+verglichen wurde).
+
+Roadmap: Fensteraufnahme (`ext-image-copy-capture`), Wallpaper-Picker/Theme-Generierung und
 `wlr-output-management`. Noch nicht portiert: Wallpaper-Picker und Theme-Generierung
 (Binding `wallpaper` tut nichts).
 

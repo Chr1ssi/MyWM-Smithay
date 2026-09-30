@@ -206,7 +206,7 @@ impl State {
             buffer,
             wait_for_damage,
         });
-        self.queue_redraw_all();
+        self.queue_redraw_output(&data.output);
     }
 
     /// An output went away: capture requests waiting on it cannot be answered.

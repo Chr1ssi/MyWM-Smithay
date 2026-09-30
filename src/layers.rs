@@ -58,7 +58,7 @@ impl WlrLayerShellHandler for State {
         if self.layer_focus.as_ref() == Some(surface.wl_surface()) {
             self.layer_focus = None;
         }
-        self.layers_changed();
+        self.layers_changed(None);
         self.refresh();
     }
 }
@@ -88,17 +88,20 @@ impl State {
                 layer.layer_surface().send_configure();
             }
         }
-        self.layers_changed();
+        self.layers_changed(Some(&output));
         true
     }
 
     /// The panels' reserved zones may have changed: re-tile if the usable area moved.
-    pub fn layers_changed(&mut self) {
+    /// `output`: the only one whose picture changes if the layout does not.
+    pub fn layers_changed(&mut self, output: Option<&Output>) {
         let before: Vec<Rect> = self.desktop.desk.monitors.iter().map(|m| m.usable).collect();
         self.sync_monitor_areas();
         let after: Vec<Rect> = self.desktop.desk.monitors.iter().map(|m| m.usable).collect();
         if before != after {
             self.refresh();
+        } else if let Some(output) = output {
+            self.queue_redraw_output(output);
         } else {
             self.queue_redraw_all();
         }

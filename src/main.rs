@@ -8,6 +8,7 @@ mod ipc;
 mod layers;
 mod logging;
 mod monitors;
+mod pacing;
 mod protocols;
 mod render;
 mod screencopy;

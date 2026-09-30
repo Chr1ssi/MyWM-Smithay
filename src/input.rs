@@ -239,7 +239,15 @@ impl State {
     }
 
     fn pointer_moved(&mut self, time: u32) {
-        self.queue_redraw_all();
+        // Only the outputs the cursor leaves and enters change.
+        let current = self.space.output_under(self.pointer_location).next().cloned();
+        if let Some(previous) = self.cursor_output.take().filter(|p| Some(p) != current.as_ref()) {
+            self.queue_redraw_output(&previous);
+        }
+        if let Some(output) = &current {
+            self.queue_redraw_output(output);
+        }
+        self.cursor_output = current;
         if self.desktop.drag.is_some() {
             self.update_drag();
         } else {

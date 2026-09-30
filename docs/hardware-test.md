@@ -106,7 +106,28 @@ Prüfen:
   Programme selbst). Nativ: Proton mit `PROTON_ENABLE_WAYLAND=1`, SDL mit `SDL_VIDEODRIVER=wayland`.
 - **Streaming**: siehe `docs/streaming.md`.
 
-## Bekannte Lücken (kommen in M5)
+## Frame-Pacing und Latenz (M5)
+
+Logs: mit `RUST_LOG=info,perf=debug` erscheint alle 5 s pro Ausgang eine Zeile
+`… frames in …s, cpu render avg … ms, worst … ms, N slower than the refresh interval`
+(CPU-Zeit für Rendern und Einreihen des Frames, nicht GPU-Zeit). Läuft ein Spiel
+fullscreen, meldet der Compositor bei Wechsel `direct scanout (no compositing)` bzw.
+`composited` (Info-Level).
+
+Späte Frame-Planung (Standard: aus) zum A/B-Vergleich in der `config.toml`:
+
+```toml
+[render]
+late_scheduling = true
+margin_ms = 2.0   # Reserve vor dem Vblank zusätzlich zur gemessenen Renderzeit
+```
+
+Der Frame wird dann erst kurz vor dem Vblank gerendert (so zeigt er den neuesten Client-Inhalt)
+und die Frame-Callbacks gehen am Vblank raus. Aktiv nur bei festem Refresh (nicht bei VRR/Tearing).
+Hilfreich: zuerst die `perf`-Zeilen ansehen; ist `worst` nahe am Refresh-Intervall, `margin_ms`
+erhöhen oder die Option auslassen. Bitte Eindruck (Latenz/Ruckler) und die `perf`-Zeilen zurückmelden.
+
+## Bekannte Lücken
 
 - Tearing setzt einen Kernel mit atomaren Async-Flips (Linux ≥ 6.8) und Treiberunterstützung voraus;
   die dafür nötige kleine Änderung an smithay steckt in `vendor/` (siehe `vendor/README.md`).

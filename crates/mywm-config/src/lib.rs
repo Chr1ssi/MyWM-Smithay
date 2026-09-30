@@ -16,7 +16,7 @@ use mywm_layout::MAX_NUMBER;
 pub use rules::{Placement, Rule, resolve};
 use serde::Deserialize;
 pub use sections::{
-    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, VrrConfig,
+    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig,
 };
 
 /// Leaves at least one number of 1 to 9 free for dynamic workspaces.
@@ -77,6 +77,7 @@ pub struct Config {
     pub float_dialogs: bool,
     pub game_app_id_prefixes: Vec<String>,
     pub vrr: VrrConfig,
+    pub render: RenderConfig,
     pub rules: Vec<Rule>,
     /// Addition over the River-based MyWM: run Xwayland for legacy X11 apps (Steam, older games).
     pub xwayland: bool,
@@ -121,6 +122,7 @@ impl Default for Config {
             gaming_output: None,
             game_app_id_prefixes: Vec::new(),
             vrr: VrrConfig::default(),
+            render: RenderConfig::default(),
             rules: Vec::new(),
             xwayland: true,
             outputs: Vec::new(),
@@ -243,6 +245,7 @@ impl Config {
             return Err("game_app_id_prefixes must not contain empty values".into());
         }
         config.vrr.validate()?;
+        config.render.validate()?;
         if !non_empty(&config.terminal) {
             return Err("terminal must contain a program, e.g. [\"kitty\"]".into());
         }
@@ -451,6 +454,9 @@ mod tests {
             "[program_bindings.browser]\nkeys = ['Super+b']\ncommand = []",
             "[program_bindings.browser]\nkeys = ['Super+q']\ncommand = ['firefox']",
             "game_app_id_prefixes = ['']",
+            "[render]\nmargin_ms = 40",
+            "[render]\nmargin_ms = -1",
+            "[render]\nlate = true",
             "[vrr]\nenabled = true",
             "[vrr]\nenabled = true\noutput = ''",
             "[vrr]\nenabled = true\noutput = 'DP-3'\ncommand = []",

@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     error::Error,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use mywm_config::{OutputConfig, OutputMode, OutputTransform};
@@ -62,7 +62,10 @@ use smithay::{
 };
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 
-use crate::State;
+use crate::{
+    State,
+    pacing::{RenderTimes, late_delay},
+};
 
 type GbmCompositor = DrmCompositor<
     GbmAllocator<DrmDeviceFd>,
@@ -118,6 +121,27 @@ struct Surface {
     tearing_works: bool,
     /// Adaptive sync was requested but cannot be enabled on this output.
     vrr_failed: bool,
+    /// Monotonic time of the last vblank, the anchor for late scheduling.
+    last_vblank: Option<Duration>,
+    /// Recent CPU time spent rendering and queueing a frame.
+    times: RenderTimes,
+    stats: FrameStats,
+    /// The last frame went to the screen without a compositing pass.
+    scanout: bool,
+}
+
+/// Counters logged now and then (target `perf`, level debug).
+struct FrameStats {
+    since: Instant,
+    frames: u32,
+    missed: u32,
+    worst: Duration,
+}
+
+impl FrameStats {
+    fn new() -> Self {
+        Self { since: Instant::now(), frames: 0, missed: 0, worst: Duration::ZERO }
+    }
 }
 
 struct Gpu {
@@ -138,6 +162,8 @@ pub struct UdevData {
     primary: Option<PathBuf>,
     gpu: Option<Gpu>,
     handle: LoopHandle<'static, State>,
+    /// `[render] late_scheduling`: the safety margin before the vblank, if enabled.
+    pub late_margin: Option<Duration>,
 }
 
 pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Result<(), Box<dyn Error>> {
@@ -151,7 +177,7 @@ pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Re
     tracing::info!("seat {seat}, primary GPU {primary:?}");
 
     state.session = Some(session.clone());
-    state.udev = Some(UdevData { session, libinput: libinput.clone(), primary, gpu: None, handle: handle.clone() });
+    state.udev = Some(UdevData { session, libinput: libinput.clone(), primary, gpu: None, handle: handle.clone(), late_margin: late_margin(&state.config.render) });
 
     handle
         .insert_source(notifier, |event, _, state| match event {
@@ -186,6 +212,28 @@ pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Re
         return Err("no usable GPU found".into());
     }
     Ok(())
+}
+
+pub fn late_margin(config: &mywm_config::RenderConfig) -> Option<Duration> {
+    config.late_scheduling.then(|| Duration::from_secs_f64(config.margin_ms / 1000.0))
+}
+
+/// Every presented element went to a plane as is: the compositor drew nothing itself.
+fn direct_scanout(states: &smithay::backend::renderer::element::RenderElementStates) -> bool {
+    use smithay::backend::renderer::element::RenderElementPresentationState::{Rendering, ZeroCopy};
+    let mut zero_copy = false;
+    for state in states.states.values() {
+        match state.presentation_state {
+            Rendering { .. } => return false,
+            ZeroCopy => zero_copy = true,
+            _ => {}
+        }
+    }
+    zero_copy
+}
+
+fn now() -> Duration {
+    Clock::<Monotonic>::new().now().into()
 }
 
 /// The mode to use for a connector: the requested one if the display has it, else its preferred one.
@@ -236,13 +284,33 @@ impl UdevData {
         surface.redraw = match surface.redraw {
             Redraw::Idle => {
                 let dev_id = gpu.dev_id;
-                self.handle.insert_idle(move |state| state.udev_redraw(dev_id, crtc));
+                match self.late_margin.and_then(|margin| surface.late_delay(margin)) {
+                    // Wait until the frame just fits before the vblank; commits meanwhile
+                    // land in the same frame (the state stays Queued).
+                    Some(delay) => {
+                        let _ = self.handle.insert_source(Timer::from_duration(delay), move |_, _, state| {
+                            state.udev_redraw(dev_id, crtc);
+                            TimeoutAction::Drop
+                        });
+                    }
+                    None => {
+                        self.handle.insert_idle(move |state| state.udev_redraw(dev_id, crtc));
+                    }
+                }
                 Redraw::Queued
             }
             Redraw::WaitingForVBlank { .. } => Redraw::WaitingForVBlank { again: true },
             Redraw::WaitingForEstimatedVBlank { .. } => Redraw::WaitingForEstimatedVBlank { again: true },
             Redraw::Queued => Redraw::Queued,
         };
+    }
+
+    /// Redraw the output only (a change that cannot show on the others).
+    pub fn queue_redraw_output(&mut self, output: &Output) {
+        let crtc = self.gpu.iter().flat_map(|g| &g.surfaces).find(|(_, s)| s.output == *output).map(|(crtc, _)| *crtc);
+        if let Some(crtc) = crtc {
+            self.queue_redraw(crtc);
+        }
     }
 
     pub fn queue_redraw_all(&mut self) {
@@ -257,7 +325,30 @@ impl UdevData {
     }
 }
 
+impl Surface {
+    fn interval(&self) -> Duration {
+        let refresh = self.output.current_mode().map_or(60_000, |m| m.refresh.max(1000)) as u64;
+        Duration::from_nanos(1_000_000_000_000 / refresh)
+    }
+
+    /// How long to hold back the next redraw for late scheduling; `None` to render right away
+    /// (no vblank seen yet, or VRR/tearing where frames are not tied to a fixed refresh).
+    fn late_delay(&self, margin: Duration) -> Option<Duration> {
+        if self.vrr || self.tearing {
+            return None;
+        }
+        let last = self.last_vblank?;
+        Some(late_delay(now(), last, self.interval(), self.times.worst(), margin))
+    }
+}
+
 impl State {
+    pub fn queue_redraw_output(&mut self, output: &Output) {
+        if let Some(udev) = &mut self.udev {
+            udev.queue_redraw_output(output);
+        }
+    }
+
     pub fn queue_redraw_all(&mut self) {
         if let Some(udev) = &mut self.udev {
             udev.queue_redraw_all();
@@ -455,6 +546,10 @@ impl State {
                 situation: (false, false, false),
                 tearing_works: true,
                 vrr_failed: false,
+                last_vblank: None,
+                times: RenderTimes::default(),
+                stats: FrameStats::new(),
+                scanout: false,
             },
         );
         self.add_output(output, position);
@@ -480,13 +575,14 @@ impl State {
     fn on_vblank(&mut self, dev_id: u64, crtc: crtc::Handle, metadata: Option<EventMetadata>) {
         let Some(udev) = &mut self.udev else { return };
         let Some(surface) = udev.gpu.as_mut().filter(|g| g.dev_id == dev_id).and_then(|g| g.surfaces.get_mut(&crtc)) else { return };
+        let time: Time<Monotonic> = match metadata {
+            Some(EventMetadata { time: DrmTime::Monotonic(time), .. }) => time.into(),
+            _ => Clock::<Monotonic>::new().now(),
+        };
+        surface.last_vblank = Some(time.into());
         match surface.compositor.frame_submitted() {
             Ok(Some(Some(mut feedback))) => {
                 // Tell clients when their frame reached the screen.
-                let time: Time<Monotonic> = match metadata {
-                    Some(EventMetadata { time: DrmTime::Monotonic(time), .. }) => time.into(),
-                    _ => Clock::<Monotonic>::new().now(),
-                };
                 let sequence = metadata.map_or(0, |m| u64::from(m.sequence));
                 let refresh = surface.output.current_mode().map_or(Refresh::Unknown, |mode| {
                     let interval = Duration::from_nanos(1_000_000_000_000 / mode.refresh.max(1) as u64);
@@ -502,8 +598,15 @@ impl State {
         }
         let again = matches!(surface.redraw, Redraw::WaitingForVBlank { again: true });
         surface.redraw = Redraw::Idle;
+        let output = surface.output.clone();
+        let late = udev.late_margin.is_some();
         if again {
             udev.queue_redraw(crtc);
+        }
+        // With late scheduling clients start their next frame at the vblank, so it is ready
+        // when the delayed redraw runs.
+        if late {
+            self.send_frames(&output);
         }
     }
 
@@ -512,12 +615,12 @@ impl State {
         // Take the backend out so rendering can borrow the rest of the state freely.
         let Some(mut udev) = self.udev.take() else { return };
         if let Some(gpu) = udev.gpu.as_mut().filter(|g| g.dev_id == dev_id) {
-            self.redraw_surface(gpu, &udev.handle, crtc);
+            self.redraw_surface(gpu, &udev.handle, udev.late_margin.is_some(), crtc);
         }
         self.udev = Some(udev);
     }
 
-    fn redraw_surface(&mut self, gpu: &mut Gpu, handle: &LoopHandle<'static, State>, crtc: crtc::Handle) {
+    fn redraw_surface(&mut self, gpu: &mut Gpu, handle: &LoopHandle<'static, State>, late: bool, crtc: crtc::Handle) {
         let Gpu { renderer, surfaces, dev_id, .. } = gpu;
         let Some(surface) = surfaces.get_mut(&crtc) else { return };
         if surface.redraw != Redraw::Queued {
@@ -558,6 +661,7 @@ impl State {
         surface.tearing = tearing;
         surface.compositor.set_async_flip(surface.tearing);
 
+        let started = Instant::now();
         let mut had_damage = false;
         let queued = match surface.compositor.render_frame(renderer, &elements, background, FrameFlags::DEFAULT) {
             Ok(result) => {
@@ -565,6 +669,18 @@ impl State {
                 let is_empty = result.is_empty;
                 had_damage = !is_empty;
                 self.update_scanout_feedback(&output, &states, surface.feedback.as_ref());
+                if !is_empty {
+                    let scanout = direct_scanout(&states);
+                    if scanout != surface.scanout {
+                        surface.scanout = scanout;
+                        let what = if scanout { "direct scanout (no compositing)" } else { "composited" };
+                        if policy.game {
+                            tracing::info!("{}: {what}", output.name());
+                        } else {
+                            tracing::debug!(target: "perf", "{}: {what}", output.name());
+                        }
+                    }
+                }
                 if is_empty {
                     false
                 } else {
@@ -596,8 +712,33 @@ impl State {
                 false
             }
         };
+        let took = started.elapsed();
+        if queued {
+            surface.times.record(took);
+            surface.stats.frames += 1;
+            surface.stats.worst = surface.stats.worst.max(took);
+            if took > surface.interval() {
+                surface.stats.missed += 1;
+            }
+            if surface.stats.since.elapsed() >= Duration::from_secs(5) {
+                let stats = std::mem::replace(&mut surface.stats, FrameStats::new());
+                tracing::debug!(
+                    target: "perf",
+                    "{}: {} frames in {:.1}s, cpu render avg {:.2} ms, worst {:.2} ms, {} slower than the refresh interval",
+                    output.name(),
+                    stats.frames,
+                    stats.since.elapsed().as_secs_f64(),
+                    surface.times.average().as_secs_f64() * 1000.0,
+                    stats.worst.as_secs_f64() * 1000.0,
+                    stats.missed
+                );
+            }
+        }
         self.fulfill_screencopy(renderer, &output, &elements, had_damage);
-        self.send_frames(&output);
+        // With late scheduling frame callbacks go out at the vblank instead (see `on_vblank`).
+        if !late {
+            self.send_frames(&output);
+        }
         self.note_locked_frame(&output);
 
         if queued {
@@ -620,8 +761,13 @@ impl State {
         let Some(surface) = udev.gpu.as_mut().filter(|g| g.dev_id == dev_id).and_then(|g| g.surfaces.get_mut(&crtc)) else { return };
         let again = matches!(surface.redraw, Redraw::WaitingForEstimatedVBlank { again: true });
         surface.redraw = Redraw::Idle;
+        let output = surface.output.clone();
+        let late = udev.late_margin.is_some();
         if again {
             udev.queue_redraw(crtc);
+        }
+        if late {
+            self.send_frames(&output);
         }
     }
 
