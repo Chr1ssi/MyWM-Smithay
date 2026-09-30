@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Makes the compositor's environment known to D-Bus activated services (portals, dialogs)
+# and starts the portals. Run by `mywm-session` inside the session.
+set -euo pipefail
+
+: "${WAYLAND_DISPLAY:?must run inside the compositor session}"
+export XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-mywm}
+export XDG_SESSION_DESKTOP=mywm
+export XDG_SESSION_TYPE=wayland
+# Explicitly clear a previous session's X display if Xwayland is disabled.
+export DISPLAY=${DISPLAY:-}
+# MYWM_SOCKET lets the screen-cast portal (mywm-portal) reach the compositor's chooser.
+dbus-update-activation-environment --systemd \
+    WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE MYWM_SOCKET
+# NixOS (and other systemd-managed setups) provide a compositor-specific target
+# that pulls in graphical-session.target, which refuses direct manual starts.
+if systemctl --user cat mywm-session.target >/dev/null 2>&1; then
+    systemctl --user start mywm-session.target
+fi
+# mywm-portal is started by D-Bus activation; the file chooser etc. come from the GTK portal.
+portals=(xdg-desktop-portal-gtk.service xdg-desktop-portal.service)
+systemctl --user reset-failed "${portals[@]}" 2>/dev/null || true
+systemctl --user --no-block restart "${portals[@]}"

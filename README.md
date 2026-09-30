@@ -53,7 +53,12 @@ Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-
 Screen-Sharing ohne `xdg-desktop-portal-wlr`: `mywm-portal` fragt im Compositor nach Fenster oder Monitor
 und streamt über PipeWire (`docs/streaming.md`).
 
-Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Protokollen und der Effekt-Shader.
+Installation, Session und NixOS-Modul (ungetestet): `docs/install.md`. Zusätzlich: `[input]` (Beschleunigung,
+Scrollrichtung, Tastenwiederholung), `keyboard-shortcuts-inhibit` (mit `Super+Shift+Escape` holt man die Kürzel
+zurück), `xdg-activation` (Fenster mit Aufmerksamkeitswunsch bekommen einen roten Rahmen) und `wlr-gamma-control`
+(Nachtlicht mit gammastep/wlsunset, nur Hardware).
+
+Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Protokollen, der Effekt-Shader und des Nachtlichts.
 
 ## Entwickeln
 
@@ -79,6 +84,7 @@ PYTHONPATH=tests python3 tests/image_capture_smoke.py # Fenster-/Monitoraufnahme
 PYTHONPATH=tests python3 tests/effects_smoke.py       # runde Ecken, Transparenz, Schatten, Fade, Blur (braucht swaybg)
 PYTHONPATH=tests python3 tests/screenshot_smoke.py    # eingebaute Screenshots
 PYTHONPATH=tests python3 tests/overview_smoke.py      # Workspace-Übersicht
+PYTHONPATH=tests python3 tests/attention_smoke.py     # Shortcut-Inhibit und Urgent-Rahmen (crates/mywm-test-client)
 PYTHONPATH=tests python3 tests/portal_smoke.py        # mywm-portal: D-Bus, Auswahl im Compositor, PipeWire (braucht pipewire, wireplumber, dbus-daemon, gst)
 ```
 

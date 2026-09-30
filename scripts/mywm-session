@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Session entry point (started by the display manager): runs the compositor as the session
+# leader and, inside it, the shell (wallpaper, bar), a polkit agent and the portal environment.
+#
+# Environment (all optional): MYWM_BINARY, MYWM_SHELL_DIR, MYWM_POLKIT_AGENT,
+# MYWM_SESSION_ENVIRONMENT, MYWM_CONFIG, MYWM_GREETER_DIR.
+set -euo pipefail
+
+binary=${MYWM_BINARY:-mywm-compositor}
+session_environment=${MYWM_SESSION_ENVIRONMENT:-session-environment}
+export XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-mywm}
+export XDG_SESSION_DESKTOP=mywm
+export XDG_SESSION_TYPE=wayland
+
+# A private directory isolates the control socket from other sessions and stale sockets.
+ipc_dir=$(mktemp -d "${XDG_RUNTIME_DIR:?}/mywm-session.XXXXXX")
+export MYWM_SOCKET="$ipc_dir/control.sock"
+cleanup() {
+    rm -f -- "$MYWM_SOCKET" "$ipc_dir/startup.sh"
+    rmdir -- "$ipc_dir" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Colors from the last wallpaper, before anything is drawn.
+wallpaper_state="${XDG_STATE_HOME:-$HOME/.local/state}/mywm/wallpaper.json"
+"$binary" --theme-from-state "$wallpaper_state" || echo 'Warning: no theme from the wallpaper' >&2
+
+# Runs inside the compositor (WAYLAND_DISPLAY is set by then) and ends with it.
+startup="$ipc_dir/startup.sh"
+cat > "$startup" <<STARTUP
+#!/usr/bin/env bash
+children=()
+"$session_environment" || echo 'Warning: portal environment incomplete' >&2
+"$binary" --wallpaper & children+=(\$!)
+"$binary" --bar & children+=(\$!)
+if [ -n "\${MYWM_POLKIT_AGENT:-}" ]; then "\$MYWM_POLKIT_AGENT" & children+=(\$!); fi
+parent=\$PPID
+while kill -0 "\$parent" 2>/dev/null; do sleep 1; done
+kill "\${children[@]}" 2>/dev/null || true
+STARTUP
+
+# Not exec: the trap above removes the socket when the compositor ends.
+"$binary" "bash '$startup'"
