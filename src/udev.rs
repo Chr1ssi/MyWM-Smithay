@@ -315,6 +315,13 @@ impl UdevData {
         }
     }
 
+    /// Redraw everything from scratch (effects settings changed).
+    pub fn reset_all_buffers(&mut self) {
+        for surface in self.gpu.iter_mut().flat_map(|g| g.surfaces.values_mut()) {
+            surface.compositor.reset_buffers();
+        }
+    }
+
     pub fn queue_redraw_all(&mut self) {
         let crtcs: Vec<_> = self.gpu.iter().flat_map(|g| g.surfaces.keys().copied()).collect();
         for crtc in crtcs {

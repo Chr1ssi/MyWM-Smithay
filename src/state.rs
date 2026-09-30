@@ -61,6 +61,9 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub pointer_location: Point<f64, Logical>,
+    /// Shaders for rounded corners, compiled when first needed.
+    pub effect_shaders: Option<crate::effects::Shaders>,
+    pub effect_shaders_failed: bool,
     pub foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState,
     pub image_capture: crate::image_capture::ImageCaptureState,
     pub output_management: crate::output_management::OutputManagement,
@@ -210,6 +213,8 @@ impl State {
             data_device_state: DataDeviceState::new::<State>(&dh),
             seat,
             pointer_location: (0.0, 0.0).into(),
+            effect_shaders: None,
+            effect_shaders_failed: false,
             foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState::new::<State>(&dh),
             image_capture: Default::default(),
             output_management: Default::default(),
@@ -323,6 +328,7 @@ impl State {
         self.desktop.appearance = self.config.appearance.layout();
         if let Some(udev) = &mut self.udev {
             udev.late_margin = crate::udev::late_margin(&self.config.render);
+            udev.reset_all_buffers();
         }
         self.install_bindings();
         self.refresh();

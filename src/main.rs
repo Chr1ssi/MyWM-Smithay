@@ -2,6 +2,7 @@
 
 mod cursor;
 mod desktop;
+mod effects;
 mod handlers;
 mod image_capture;
 mod input;

@@ -38,6 +38,15 @@
 #output = "DP-3"
 #command = ["wlr-randr"]
 
+# Effekte (nie bei Vollbildfenstern, also nicht in Spielen).
+#[effects]
+#corner_radius = 12        # abgerundete Fenster und Rahmen, logische Pixel
+#inactive_opacity = 0.95   # Fenster ohne Fokus leicht durchsichtig
+# Transparenz pro Programm: in einer Regel, z. B.
+# [[rules]]
+# app_id = "kitty"
+# opacity = 0.92
+
 # Nur Smithay-Compositor (Hardware): Frames so spaet wie moeglich vor dem Vblank
 # rendern, damit sie den neuesten Client-Inhalt zeigen (weniger Latenz). Bei VRR
 # oder Tearing inaktiv. margin_ms ist die Reserve zusaetzlich zur gemessenen Renderzeit.

@@ -71,6 +71,34 @@ impl VrrConfig {
     }
 }
 
+/// Visual effects outside of fullscreen windows (games never get them).
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct EffectsConfig {
+    /// Corner radius of windows and their borders in logical pixels; 0 keeps square corners.
+    pub corner_radius: i32,
+    /// Opacity of windows that do not have the focus (1.0 = opaque).
+    pub inactive_opacity: f32,
+}
+
+impl Default for EffectsConfig {
+    fn default() -> Self {
+        Self { corner_radius: 0, inactive_opacity: 1.0 }
+    }
+}
+
+impl EffectsConfig {
+    pub fn validate(&self) -> Result<()> {
+        if !(0..=64).contains(&self.corner_radius) {
+            return Err("effects.corner_radius must be between 0 and 64".into());
+        }
+        if !(0.1..=1.0).contains(&self.inactive_opacity) {
+            return Err("effects.inactive_opacity must be between 0.1 and 1.0".into());
+        }
+        Ok(())
+    }
+}
+
 /// Frame pacing of the hardware backend.
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]

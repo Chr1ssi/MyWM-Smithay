@@ -4,8 +4,11 @@ use mywm_layout::{
     arrange, place_floating,
 };
 use smithay::{
+    backend::renderer::{
+        element::Kind,
+        gles::element::PixelShaderElement,
+    },
     backend::renderer::element::{
-        Kind,
         solid::{SolidColorBuffer, SolidColorRenderElement},
         utils::CropRenderElement,
     },
@@ -27,6 +30,8 @@ use smithay::wayland::seat::WaylandFocus;
 
 pub type WindowId = u64;
 
+pub type RingKey = (Rectangle<i32, Logical>, i32, i32, [f32; 4]);
+
 pub struct Managed {
     pub id: WindowId,
     pub window: Window,
@@ -40,6 +45,10 @@ pub struct Managed {
     pub foreign: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
     /// Commits of the main surface, to tell capture sessions when the window changed.
     pub commits: u64,
+    /// Border color for the current focus state.
+    pub border_color: [f32; 4],
+    /// The rounded border ring and what it was built for (frame, radius, width, color).
+    pub ring: Option<(smithay::backend::renderer::gles::element::PixelShaderElement, RingKey)>,
     /// Floating state to restore when leaving the scratchpad.
     pub scratchpad_floating: Option<bool>,
     /// Rules and workspace are applied at the first commit, once the app id is known.
@@ -191,6 +200,8 @@ impl State {
             app_id: None,
             foreign: None,
             commits: 0,
+            border_color: [0.0; 4],
+            ring: None,
             scratchpad_floating: None,
             placed: false,
             frame: None,
@@ -461,6 +472,7 @@ impl State {
                 p.border,
             ));
             let color = if focused == Some(m.id) { active } else { inactive };
+            m.border_color = color;
             if let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) {
                 let strips = [
                     (frame.width, b),
@@ -532,16 +544,40 @@ impl State {
         }
     }
 
-    /// Border rectangles that fall on `output`, top-most first, in output-local physical pixels.
-    pub fn border_elements(&self, output: &Output) -> Vec<CropRenderElement<SolidColorRenderElement>> {
+    /// Compile the effect shaders on first use; `false` if they are unavailable.
+    pub fn ensure_effect_shaders(&mut self, renderer: &mut smithay::backend::renderer::gles::GlesRenderer) -> bool {
+        if self.effect_shaders.is_none() && !self.effect_shaders_failed {
+            match crate::effects::compile(renderer) {
+                Ok(shaders) => self.effect_shaders = Some(shaders),
+                Err(error) => {
+                    tracing::warn!("effect shaders failed to compile, corners stay square: {error}");
+                    self.effect_shaders_failed = true;
+                }
+            }
+        }
+        self.effect_shaders.is_some()
+    }
+
+    /// Borders of the windows on `output`, top-most first: four strips, or one rounded ring
+    /// when `[effects] corner_radius` is set.
+    pub fn border_elements(
+        &mut self,
+        renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+        output: &Output,
+    ) -> Vec<crate::render::OutputElement> {
+        use crate::render::OutputElement;
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
+        let radius = self.config.effects.corner_radius;
+        let rounded = radius > 0 && self.ensure_effect_shaders(renderer);
+        let ring_shader = self.effect_shaders.as_ref().map(|s| s.ring.clone());
+        let monitors: Vec<Option<usize>> = self.desktop.windows.iter().map(|m| self.monitor_of_window(m)).collect();
         // Nothing may show beyond the edge of the output it belongs to.
         let visible_area = Rectangle::<i32, Physical>::from_size(geo.size.to_physical_precise_round(scale));
         let mut elements = Vec::new();
-        for m in self.desktop.windows.iter().rev() {
-            if self.monitor_of_window(m) != Some(this_monitor) {
+        for (m, monitor) in self.desktop.windows.iter_mut().zip(monitors).rev() {
+            if monitor != Some(this_monitor) {
                 continue;
             }
             let Some((frame, b)) = m.frame.filter(|(_, b)| *b > 0) else { continue };
@@ -550,6 +586,33 @@ impl State {
                 && frame.y < geo.loc.y + geo.size.h
                 && frame.y + frame.height > geo.loc.y;
             if !visible {
+                continue;
+            }
+            if let (true, false, Some(shader)) = (rounded, m.fullscreen, &ring_shader) {
+                let area = Rectangle::<i32, Logical>::new(
+                    (frame.x - geo.loc.x, frame.y - geo.loc.y).into(),
+                    (frame.width, frame.height).into(),
+                );
+                let (border, radius) = ((f64::from(b) * scale) as f32, (f64::from(radius) * scale) as f32);
+                let key = (area, (border * 64.0) as i32, (radius * 64.0) as i32, m.border_color);
+                let uniforms = || crate::effects::ring_uniforms(m.border_color, border, radius);
+                match &mut m.ring {
+                    Some((_, old)) if *old == key => {}
+                    Some((element, old)) => {
+                        element.resize(area, None);
+                        element.update_uniforms(crate::effects::ring_uniforms(key.3, border, radius));
+                        *old = key;
+                    }
+                    None => {
+                        let element = PixelShaderElement::new(shader.clone(), area, None, 1.0, uniforms(), Kind::Unspecified);
+                        m.ring = Some((element, key));
+                    }
+                }
+                if let Some((element, _)) = &m.ring
+                    && let Some(cropped) = CropRenderElement::from_element(element.clone(), scale, visible_area)
+                {
+                    elements.push(OutputElement::from(cropped));
+                }
                 continue;
             }
             let origins = [
@@ -565,7 +628,7 @@ impl State {
                 );
                 let element = SolidColorRenderElement::from_buffer(buffer, local, scale, 1.0, Kind::Unspecified);
                 if let Some(cropped) = CropRenderElement::from_element(element, scale, visible_area) {
-                    elements.push(cropped);
+                    elements.push(OutputElement::from(cropped));
                 }
             }
         }

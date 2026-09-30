@@ -9,6 +9,8 @@ pub struct Rule {
     pub dialog: Option<bool>,
     pub workspace: Option<usize>,
     pub floating: Option<bool>,
+    /// Window opacity (0.1 to 1.0), see `[effects]`.
+    pub opacity: Option<f32>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -26,8 +28,11 @@ impl Rule {
         if self.app_id.as_ref().is_some_and(|id| id.trim().is_empty()) {
             return Err("app_id must not be empty".into());
         }
-        if self.workspace.is_none() && self.floating.is_none() {
-            return Err("at least one action (workspace or floating) is required".into());
+        if self.workspace.is_none() && self.floating.is_none() && self.opacity.is_none() {
+            return Err("at least one action (workspace, floating or opacity) is required".into());
+        }
+        if self.opacity.is_some_and(|o| !(0.1..=1.0).contains(&o)) {
+            return Err("opacity must be between 0.1 and 1.0".into());
         }
         if self.workspace.is_some_and(|number| !(1..=MAX_NUMBER).contains(&number)) {
             return Err(format!("workspace must be between 1 and {MAX_NUMBER}"));
@@ -39,6 +44,11 @@ impl Rule {
         self.app_id.as_deref().is_none_or(|expected| app_id == Some(expected))
             && self.dialog.is_none_or(|expected| dialog == expected)
     }
+}
+
+/// The opacity the last matching rule asks for.
+pub fn opacity(rules: &[Rule], app_id: Option<&str>, dialog: bool) -> Option<f32> {
+    rules.iter().filter(|rule| rule.matches(app_id, dialog)).filter_map(|rule| rule.opacity).next_back()
 }
 
 pub fn resolve(rules: &[Rule], app_id: Option<&str>, dialog: bool, float_dialogs: bool) -> Placement {
@@ -72,6 +82,13 @@ mod tests {
         for (id, dialog) in [(None, true), (Some("test.app"), true), (Some("test.App"), false)] {
             assert_eq!(resolve(&config.rules, id, dialog, true).workspace, None);
         }
+    }
+
+    #[test]
+    fn opacity_comes_from_the_last_matching_rule() {
+        let config = Config::parse("[[rules]]\napp_id = 'kitty'\nopacity = 0.9\n[[rules]]\napp_id = 'kitty'\nopacity = 0.8").unwrap();
+        assert_eq!(opacity(&config.rules, Some("kitty"), false), Some(0.8));
+        assert_eq!(opacity(&config.rules, Some("other"), false), None);
     }
 
     #[test]

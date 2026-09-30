@@ -13,10 +13,10 @@ use std::{
 pub use keys::{Modifiers, parse_key};
 use keys::Result;
 use mywm_layout::MAX_NUMBER;
-pub use rules::{Placement, Rule, resolve};
+pub use rules::{Placement, Rule, opacity, resolve};
 use serde::Deserialize;
 pub use sections::{
-    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig,
+    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig,
 };
 
 /// Leaves at least one number of 1 to 9 free for dynamic workspaces.
@@ -78,6 +78,7 @@ pub struct Config {
     pub game_app_id_prefixes: Vec<String>,
     pub vrr: VrrConfig,
     pub render: RenderConfig,
+    pub effects: EffectsConfig,
     pub rules: Vec<Rule>,
     /// Addition over the River-based MyWM: run Xwayland for legacy X11 apps (Steam, older games).
     pub xwayland: bool,
@@ -135,6 +136,7 @@ impl Default for Config {
             game_app_id_prefixes: Vec::new(),
             vrr: VrrConfig::default(),
             render: RenderConfig::default(),
+            effects: EffectsConfig::default(),
             rules: Vec::new(),
             xwayland: true,
             outputs: Vec::new(),
@@ -258,6 +260,7 @@ impl Config {
         }
         config.vrr.validate()?;
         config.render.validate()?;
+        config.effects.validate()?;
         if !non_empty(&config.terminal) {
             return Err("terminal must contain a program, e.g. [\"kitty\"]".into());
         }
@@ -490,6 +493,9 @@ mod tests {
             "[program_bindings.browser]\nkeys = ['Super+b']\ncommand = []",
             "[program_bindings.browser]\nkeys = ['Super+q']\ncommand = ['firefox']",
             "game_app_id_prefixes = ['']",
+            "[effects]\ncorner_radius = 65",
+            "[effects]\ninactive_opacity = 0",
+            "[[rules]]\napp_id = 'a'\nopacity = 1.5",
             "[render]\nmargin_ms = 40",
             "[render]\nmargin_ms = -1",
             "[render]\nlate = true",
