@@ -26,6 +26,9 @@ class Compositor:
         env.update(extra_env or {})
         env.pop("WAYLAND_DISPLAY", None)
         clients = "sleep 1; " + extra_args + "".join("weston-simple-shm & sleep 0.3; " for _ in range(windows)) + "wait"
+        # Start with the X pointer in a corner where no window will be: a pointer left over
+        # from an earlier run would otherwise move focus by hovering over a new window.
+        subprocess.run(["xdotool", "mousemove", "1279", "799"], check=False)
         self.log = open(f"{self.dir}/log", "w")
         self.process = subprocess.Popen([DEBUG_BINARY, clients], env=env, stdout=self.log, stderr=subprocess.STDOUT)
         assert wait(lambda: os.path.exists(self.sock)), "bar socket missing"
