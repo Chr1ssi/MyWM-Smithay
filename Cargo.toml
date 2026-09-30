@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2024"
 description = "Smithay-based Wayland compositor for MyWM"
 
+[workspace]
+members = [".", "crates/*"]
+
 [dependencies]
+mywm-layout = { path = "crates/mywm-layout" }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_egl",

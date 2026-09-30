@@ -1,5 +1,6 @@
 //! MyWM compositor entry point (M0: nested winit backend for development).
 
+mod desktop;
 mod handlers;
 mod input;
 mod state;

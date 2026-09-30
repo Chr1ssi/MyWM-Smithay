@@ -7,7 +7,7 @@ use smithay::{
     desktop::{PopupKind, Window},
     input::{pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
     reexports::wayland_server::{
-        protocol::{wl_buffer, wl_seat, wl_surface::WlSurface},
+        protocol::{wl_buffer, wl_output::WlOutput, wl_seat, wl_surface::WlSurface},
         Client,
     },
     utils::Serial,
@@ -74,20 +74,31 @@ impl XdgShellHandler for State {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        let window = Window::new_wayland_window(surface.clone());
-        self.space.map_element(window, (0, 0), false);
-        self.relayout();
-        self.set_keyboard_focus(Some(surface.wl_surface().clone()));
+        self.add_window(Window::new_wayland_window(surface));
     }
 
-    fn toplevel_destroyed(&mut self, _surface: ToplevelSurface) {
-        self.relayout();
-        let next = self
-            .space
-            .elements()
-            .last()
-            .and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()));
-        self.set_keyboard_focus(next);
+    fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        self.remove_window(surface.wl_surface());
+    }
+
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
+        match self.desktop.by_surface(surface.wl_surface()).map(|w| w.id) {
+            Some(id) => self.set_fullscreen(id, true),
+            None => {
+                surface.send_configure();
+            }
+        }
+    }
+
+    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        if let Some(id) = self.desktop.by_surface(surface.wl_surface()).map(|w| w.id) {
+            self.set_fullscreen(id, false);
+        }
+    }
+
+    fn maximize_request(&mut self, surface: ToplevelSurface) {
+        // The layout decides sizes; acknowledge so the client does not wait.
+        surface.send_pending_configure();
     }
 
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {

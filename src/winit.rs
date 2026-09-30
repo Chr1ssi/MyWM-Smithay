@@ -3,7 +3,7 @@ use std::time::Duration;
 use smithay::{
     backend::{
         renderer::{
-            damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement,
+            damage::OutputDamageTracker, element::solid::SolidColorRenderElement,
             gles::GlesRenderer,
         },
         winit::{self, WinitEvent},
@@ -36,6 +36,8 @@ pub fn init(
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
     output.set_preferred(mode);
     state.space.map_output(&output, (0, 0));
+    state.output = Some(output.clone());
+    state.refresh();
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
@@ -44,7 +46,7 @@ pub fn init(
         .insert_source(winit, move |event, _, state| match event {
             WinitEvent::Resized { size, .. } => {
                 output.change_current_state(Some(Mode { size, refresh: 60_000 }), None, None, None);
-                state.relayout();
+                state.refresh();
             }
             WinitEvent::Input(event) => state.process_input_event(event, &output),
             WinitEvent::Redraw => {
@@ -52,16 +54,18 @@ pub fn init(
                 let damage = Rectangle::from_size(size);
                 {
                     let (renderer, mut framebuffer) = backend.bind().expect("bind");
-                    render_output::<_, WaylandSurfaceRenderElement<GlesRenderer>, _, _>(
+                    let borders = state.border_elements();
+                    let background = state.desktop.appearance.background.0;
+                    render_output::<_, SolidColorRenderElement, _, _>(
                         &output,
                         renderer,
                         &mut framebuffer,
                         1.0,
                         0,
                         [&state.space],
-                        &[],
+                        &borders,
                         &mut damage_tracker,
-                        [0.08, 0.08, 0.1, 1.0],
+                        background,
                     )
                     .expect("render");
                 }

@@ -662,10 +662,15 @@ dependencies = [
 name = "mywm-compositor"
 version = "0.1.0"
 dependencies = [
+ "mywm-layout",
  "smithay",
  "tracing",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "mywm-layout"
+version = "0.1.0"
 
 [[package]]
 name = "ndk"

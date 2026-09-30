@@ -1,6 +1,8 @@
 use std::{ffi::OsString, sync::Arc, time::Instant};
 
+use crate::desktop::Desktop;
 use smithay::{
+    output::Output,
     desktop::{PopupManager, Space, Window},
     input::{Seat, SeatState},
     reexports::{
@@ -39,6 +41,9 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub pointer_location: Point<f64, Logical>,
+
+    pub desktop: Desktop,
+    pub output: Option<Output>,
 }
 
 #[derive(Default)]
@@ -98,32 +103,14 @@ impl State {
             data_device_state: DataDeviceState::new::<State>(&dh),
             seat,
             pointer_location: (0.0, 0.0).into(),
+            desktop: Desktop::default(),
+            output: None,
         }
     }
 
     pub fn spawn(&self, cmd: &str) {
         if let Err(err) = std::process::Command::new("sh").arg("-c").arg(cmd).spawn() {
             tracing::warn!("failed to spawn {cmd:?}: {err}");
-        }
-    }
-
-    /// Placeholder layout for M0: equal-width columns over the first output.
-    /// Replaced by the scrolling layout crate in M1.
-    pub fn relayout(&mut self) {
-        let Some(output) = self.space.outputs().next().cloned() else { return };
-        let Some(geo) = self.space.output_geometry(&output) else { return };
-        let windows: Vec<Window> = self.space.elements().cloned().collect();
-        if windows.is_empty() {
-            return;
-        }
-        let width = geo.size.w / windows.len() as i32;
-        for (i, window) in windows.iter().enumerate() {
-            if let Some(toplevel) = window.toplevel() {
-                toplevel.with_pending_state(|s| s.size = Some((width, geo.size.h).into()));
-                toplevel.send_pending_configure();
-            }
-            self.space
-                .map_element(window.clone(), (geo.loc.x + i as i32 * width, geo.loc.y), false);
         }
     }
 }

@@ -1,10 +1,11 @@
+use mywm_layout::{DragKind, Edges};
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
         KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
     input::{
-        keyboard::{keysyms, FilterResult},
+        keyboard::{FilterResult, Keysym, ModifiersState, keysyms},
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
     output::Output,
@@ -13,13 +14,87 @@ use smithay::{
 
 use crate::State;
 
+const BTN_LEFT: u32 = 0x110;
+const BTN_RIGHT: u32 = 0x111;
+
+#[derive(Clone, Copy, Debug)]
 enum Action {
     Spawn,
     Close,
     Quit,
+    Focus(isize),
+    MoveColumn(isize),
+    Workspace(usize),
+    MoveToWorkspace(usize),
+    CycleWorkspace(isize),
+    NewWorkspace,
+    MoveToNewWorkspace,
+    ToggleFloating,
+    ToggleFullscreen,
+    ResizeColumn(i32),
+}
+
+/// Key bindings. The modifier is Alt while nested (the host owns Super).
+fn binding(mods: &ModifiersState, sym: Keysym) -> Option<Action> {
+    if !mods.alt {
+        return None;
+    }
+    let digit = |sym: Keysym| match sym.raw() {
+        n @ keysyms::KEY_1..=keysyms::KEY_9 => Some((n - keysyms::KEY_1 + 1) as usize),
+        _ => None,
+    };
+    let (shift, ctrl) = (mods.shift, mods.ctrl);
+    Some(match sym.raw() {
+        keysyms::KEY_Return => Action::Spawn,
+        keysyms::KEY_q => Action::Close,
+        keysyms::KEY_e if shift => Action::Quit,
+        keysyms::KEY_h | keysyms::KEY_Left if ctrl => Action::CycleWorkspace(-1),
+        keysyms::KEY_l | keysyms::KEY_Right if ctrl => Action::CycleWorkspace(1),
+        keysyms::KEY_h | keysyms::KEY_Left if shift => Action::MoveColumn(-1),
+        keysyms::KEY_l | keysyms::KEY_Right if shift => Action::MoveColumn(1),
+        keysyms::KEY_h | keysyms::KEY_Left => Action::Focus(-1),
+        keysyms::KEY_l | keysyms::KEY_Right => Action::Focus(1),
+        keysyms::KEY_n if shift => Action::MoveToNewWorkspace,
+        keysyms::KEY_n => Action::NewWorkspace,
+        keysyms::KEY_v => Action::ToggleFloating,
+        keysyms::KEY_f => Action::ToggleFullscreen,
+        keysyms::KEY_minus => Action::ResizeColumn(-100),
+        keysyms::KEY_equal | keysyms::KEY_plus => Action::ResizeColumn(100),
+        _ => {
+            let n = digit(sym)?;
+            if shift { Action::MoveToWorkspace(n) } else { Action::Workspace(n) }
+        }
+    })
 }
 
 impl State {
+    fn run_action(&mut self, action: Action) {
+        match action {
+            Action::Spawn => {
+                let term = std::env::var("MYWM_TERMINAL").unwrap_or_else(|_| "kitty".into());
+                self.spawn(&term);
+            }
+            Action::Close => {
+                if let Some(m) = self.desktop.focused().and_then(|id| self.desktop.get(id))
+                    && let Some(top) = m.window.toplevel()
+                {
+                    top.send_close();
+                }
+            }
+            Action::Quit => self.loop_signal.stop(),
+            Action::Focus(d) => self.focus_step(d),
+            Action::MoveColumn(d) => self.move_column(d),
+            Action::Workspace(n) => self.select_workspace(n),
+            Action::MoveToWorkspace(n) => self.move_to_workspace(n),
+            Action::CycleWorkspace(d) => self.cycle_workspace(d),
+            Action::NewWorkspace => self.new_workspace(),
+            Action::MoveToNewWorkspace => self.move_to_new_workspace(),
+            Action::ToggleFloating => self.toggle_floating(),
+            Action::ToggleFullscreen => self.toggle_fullscreen(),
+            Action::ResizeColumn(p) => self.resize_column(p),
+        }
+    }
+
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>, output: &Output) {
         match event {
             InputEvent::Keyboard { event } => {
@@ -33,73 +108,41 @@ impl State {
                     serial,
                     time,
                     |_, mods, handle| {
-                        // Alt as modifier while nested (the host compositor owns Super).
-                        if event.state() == KeyState::Pressed && mods.alt {
-                            match handle.modified_sym().raw() {
-                                keysyms::KEY_Return => return FilterResult::Intercept(Action::Spawn),
-                                keysyms::KEY_q => return FilterResult::Intercept(Action::Close),
-                                keysyms::KEY_e if mods.shift => return FilterResult::Intercept(Action::Quit),
-                                _ => {}
-                            }
+                        if event.state() != KeyState::Pressed {
+                            return FilterResult::Forward;
                         }
-                        FilterResult::Forward
+                        // Unmodified symbol, so Shift+1 is still "1".
+                        match handle.raw_syms().first().and_then(|sym| binding(mods, *sym)) {
+                            Some(action) => FilterResult::Intercept(action),
+                            None => FilterResult::Forward,
+                        }
                     },
                 );
-                match action {
-                    Some(Action::Spawn) => {
-                        let term = std::env::var("MYWM_TERMINAL").unwrap_or_else(|_| "kitty".into());
-                        self.spawn(&term);
-                    }
-                    Some(Action::Close) => {
-                        if let Some(top) = keyboard
-                            .current_focus()
-                            .and_then(|s| self.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &s)))
-                            .and_then(|w| w.toplevel())
-                        {
-                            top.send_close();
-                        }
-                    }
-                    Some(Action::Quit) => self.loop_signal.stop(),
-                    None => {}
+                if let Some(action) = action {
+                    self.run_action(action);
                 }
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let Some(geo) = self.space.output_geometry(output) else { return };
-                let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
-                self.pointer_location = pos;
-                self.pointer_motion(event.time_msec());
-            }
-            InputEvent::PointerButton { event } => {
-                let pointer = self.seat.get_pointer().unwrap();
-                let serial = SERIAL_COUNTER.next_serial();
-                if event.state() == ButtonState::Pressed && !pointer.is_grabbed() {
-                    let under = self
-                        .space
-                        .element_under(self.pointer_location)
-                        .map(|(w, _)| w.clone());
-                    if let Some(window) = under {
-                        self.space.raise_element(&window, true);
-                        self.set_keyboard_focus(window.toplevel().map(|t| t.wl_surface().clone()));
-                    }
+                self.pointer_location = event.position_transformed(geo.size) + geo.loc.to_f64();
+                if self.desktop.drag.is_some() {
+                    self.update_drag();
+                } else {
+                    self.pointer_motion(event.time_msec());
                 }
-                pointer.button(
-                    self,
-                    &ButtonEvent {
-                        button: event.button_code(),
-                        state: event.state(),
-                        serial,
-                        time: event.time_msec(),
-                    },
-                );
-                pointer.frame(self);
             }
+            InputEvent::PointerButton { event } => self.pointer_button(
+                event.button_code(),
+                event.state(),
+                event.time_msec(),
+            ),
             InputEvent::PointerAxis { event } => {
                 let source = event.source();
                 let mut frame = AxisFrame::new(event.time_msec()).source(source);
                 for axis in [Axis::Horizontal, Axis::Vertical] {
-                    let amount = event.amount(axis).unwrap_or_else(|| {
-                        event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0
-                    });
+                    let amount = event
+                        .amount(axis)
+                        .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0);
                     if amount != 0.0 {
                         frame = frame.value(axis, amount);
                         if let Some(v120) = event.amount_v120(axis) {
@@ -117,28 +160,57 @@ impl State {
         }
     }
 
+    fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
+        let pointer = self.seat.get_pointer().unwrap();
+        let serial = SERIAL_COUNTER.next_serial();
+        if state == ButtonState::Released && self.desktop.drag.is_some() {
+            self.end_drag();
+            return;
+        }
+        if state == ButtonState::Pressed {
+            let mods = self.seat.get_keyboard().unwrap().modifier_state();
+            if mods.alt && (button == BTN_LEFT || button == BTN_RIGHT) {
+                let kind = if button == BTN_LEFT {
+                    DragKind::Move
+                } else {
+                    DragKind::Resize(Edges { right: true, bottom: true, ..Default::default() })
+                };
+                self.begin_drag(kind);
+                if self.desktop.drag.is_some() {
+                    return;
+                }
+            }
+            let under = self.space.element_under(self.pointer_location).map(|(w, _)| w.clone());
+            if let Some(window) = under {
+                self.space.raise_element(&window, true);
+                if let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).map(|m| m.id) {
+                    self.focus_window(id);
+                }
+            }
+        }
+        pointer.button(self, &ButtonEvent { button, state, serial, time });
+        pointer.frame(self);
+    }
+
     fn pointer_motion(&mut self, time: u32) {
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
-        let under = self
-            .space
-            .element_under(self.pointer_location)
-            .and_then(|(window, loc)| {
-                window
-                    .surface_under(self.pointer_location - loc.to_f64(), smithay::desktop::WindowSurfaceType::ALL)
-                    .map(|(s, p)| (s, (p + loc).to_f64()))
-            });
+        let under_window = self.space.element_under(self.pointer_location).map(|(w, l)| (w.clone(), l));
+        let under = under_window.as_ref().and_then(|(window, loc)| {
+            window
+                .surface_under(
+                    self.pointer_location - loc.to_f64(),
+                    smithay::desktop::WindowSurfaceType::ALL,
+                )
+                .map(|(s, p)| (s, (p + *loc).to_f64()))
+        });
         // Focus follows mouse, like MyWM on River.
-        if let Some((surface, _)) = &under
-            && self.seat.get_keyboard().and_then(|k| k.current_focus()).as_ref() != Some(surface)
+        if let Some((window, _)) = &under_window
+            && let Some(id) = self.desktop.windows.iter().find(|m| &m.window == window).map(|m| m.id)
         {
-            self.set_keyboard_focus(Some(surface.clone()));
+            self.focus_window(id);
         }
-        pointer.motion(
-            self,
-            under,
-            &MotionEvent { location: self.pointer_location, serial, time },
-        );
+        pointer.motion(self, under, &MotionEvent { location: self.pointer_location, serial, time });
         pointer.frame(self);
     }
 }
