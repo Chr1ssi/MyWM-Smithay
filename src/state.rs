@@ -332,20 +332,28 @@ impl State {
         }
         if with_theme {
             cmd.envs(self.config.theme_env());
-            cmd.env("MYWM_TERMINAL_COUNT", self.config.terminal.len().to_string());
-            for (index, argument) in self.config.terminal.iter().enumerate() {
-                cmd.env(format!("MYWM_TERMINAL_{index}"), argument);
-            }
+            cmd.envs(self.config.terminal_env());
             cmd.env("MYWM_LAUNCHER_X", (self.pointer_location.x as i32).to_string())
                 .env("MYWM_LAUNCHER_Y", (self.pointer_location.y as i32).to_string());
         }
+        Self::spawn_reaped(cmd, &format!("{program:?}"));
+    }
+
+    /// Open the wallpaper picker of the running wallpaper layer at the pointer.
+    pub fn open_wallpaper_picker(&self) {
+        let mut cmd = mywm_theme::picker_command(self.pointer_location.x as i32, self.pointer_location.y as i32);
+        cmd.env("WAYLAND_DISPLAY", &self.socket_name);
+        Self::spawn_reaped(cmd, "the wallpaper picker (is `mywm-compositor --wallpaper` running?)");
+    }
+
+    fn spawn_reaped(mut cmd: std::process::Command, what: &str) {
         match cmd.spawn() {
             Ok(mut child) => {
                 std::thread::spawn(move || {
                     let _ = child.wait();
                 });
             }
-            Err(error) => tracing::warn!("cannot start {program:?}: {error}"),
+            Err(error) => tracing::warn!("cannot start {what}: {error}"),
         }
     }
 

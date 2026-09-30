@@ -1,0 +1,10 @@
+/* Colors for the regreet login screen, rendered by mywm. */
+@define-color mywm_bg {{ colors.surface.default.hex }};
+@define-color mywm_panel {{ colors.surface_container.default.hex }};
+@define-color mywm_field {{ colors.surface_container_high.default.hex }};
+@define-color mywm_text {{ colors.on_surface.default.hex }};
+@define-color mywm_border {{ colors.outline_variant.default.hex }};
+@define-color mywm_hover {{ colors.surface_container_highest.default.hex }};
+@define-color mywm_accent {{ colors.primary.default.hex }};
+@define-color mywm_on_accent {{ colors.on_primary.default.hex }};
+@define-color mywm_error {{ colors.error.default.hex }};

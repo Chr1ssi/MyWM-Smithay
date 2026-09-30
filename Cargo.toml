@@ -14,6 +14,7 @@ exclude = ["vendor/smithay"]
 
 [dependencies]
 mywm-layout = { path = "crates/mywm-layout" }
+mywm-theme = { path = "crates/mywm-theme" }
 mywm-config = { path = "crates/mywm-config" }
 mywm-ipc = { path = "crates/mywm-ipc" }
 smithay = { version = "0.7", default-features = false, features = [

@@ -151,6 +151,26 @@ impl Default for AppearanceConfig {
 }
 
 impl AppearanceConfig {
+    /// Take the Material-You roles of a generated theme (`mywm-theme`) as window colors.
+    pub fn apply_theme_json(&mut self, json: &str) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else { return };
+        let color = |name: &str| {
+            value["colors"][name]["default"]["hex"].as_str().and_then(|hex| HexColor::try_from(hex.to_owned()).ok())
+        };
+        for (role, target) in [
+            ("surface", &mut self.background),
+            ("surface_container", &mut self.surface),
+            ("on_surface", &mut self.text),
+            ("on_surface_variant", &mut self.muted_text),
+            ("primary", &mut self.active_border),
+            ("outline_variant", &mut self.inactive_border),
+        ] {
+            if let Some(color) = color(role) {
+                *target = color;
+            }
+        }
+    }
+
     /// The subset the layout and renderer need.
     pub fn layout(&self) -> Appearance {
         Appearance {
@@ -254,5 +274,21 @@ impl OutputConfig {
             return Err("scale must be between 0.1 and 10".into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    #[test]
+    fn generated_theme_overrides_only_the_roles_it_has() {
+        let mut appearance = AppearanceConfig::default();
+        let before = appearance.text;
+        appearance.apply_theme_json(r##"{"colors":{"primary":{"default":{"hex":"#112233"}},"surface":{"default":{"hex":"nope"}}}}"##);
+        assert_eq!(appearance.active_border, hex("#112233"));
+        assert_eq!(appearance.text, before);
+        assert_eq!(appearance.background, AppearanceConfig::default().background);
+        appearance.apply_theme_json("not json");
     }
 }

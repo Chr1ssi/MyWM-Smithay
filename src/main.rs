@@ -28,7 +28,13 @@ pub use state::State;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Client modes (`--lock`, `--idle`) write to the terminal only; the compositor logs to a file too.
-    let client_mode = matches!(std::env::args().nth(1).as_deref(), Some("--lock" | "--idle"));
+    let client_mode = matches!(
+        std::env::args().nth(1).as_deref(),
+        Some(
+            "--lock" | "--idle" | "--wallpaper" | "--wallpaper-list" | "--wallpaper-picker" | "--theme-from-wallpaper"
+                | "--theme-from-state" | "--bar" | "--launcher"
+        )
+    );
     let log_file = if client_mode {
         tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))).init();
         None
@@ -48,6 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("--lock") => return mywm_config::session::lock_and_wait(&mywm_config::Config::load()?),
         Some("--idle") => return mywm_config::session::exec_idle(&mywm_config::Config::load()?.idle),
         _ => {}
+    }
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(result) = mywm_theme::client_mode(&args, &mywm_config::Config::load()?) {
+        return result;
     }
 
     let mut event_loop: EventLoop<State> = EventLoop::try_new()?;

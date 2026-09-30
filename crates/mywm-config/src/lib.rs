@@ -85,6 +85,18 @@ pub struct Config {
     pub outputs: Vec<OutputConfig>,
 }
 
+/// Where the generated theme lives (`MYWM_THEME_STATE`, else `$XDG_STATE_HOME/mywm/theme.json`).
+pub fn theme_state_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("MYWM_THEME_STATE").filter(|p| !p.is_empty()) {
+        return Some(path.into());
+    }
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/state")))?;
+    Some(base.join("mywm/theme.json"))
+}
+
 /// Resolve the independently versioned shell at runtime.
 pub fn shell_qml(file: &str) -> PathBuf {
     std::env::var_os("MYWM_SHELL_DIR")
@@ -296,6 +308,12 @@ impl Config {
 
     /// Load `$MYWM_CONFIG` or `$XDG_CONFIG_HOME/mywm/config.toml`; a missing default file means defaults.
     pub fn load() -> Result<Self> {
+        let mut config = Self::load_file()?;
+        config.apply_theme_state();
+        Ok(config)
+    }
+
+    fn load_file() -> Result<Self> {
         let explicit = std::env::var_os("MYWM_CONFIG").is_some();
         let Some(path) = Self::path() else { return Ok(Self::default()) };
         match std::fs::read_to_string(&path) {
@@ -374,9 +392,17 @@ impl Config {
         Ok(bindings)
     }
 
+    /// Environment telling the launcher which terminal to start.
+    pub fn terminal_env(&self) -> Vec<(String, String)> {
+        let mut env = vec![("MYWM_TERMINAL_COUNT".to_owned(), self.terminal.len().to_string())];
+        env.extend(self.terminal.iter().enumerate().map(|(i, arg)| (format!("MYWM_TERMINAL_{i}"), arg.clone())));
+        env
+    }
+
     /// Environment describing the theme for helper programs (launcher, shell).
     pub fn theme_env(&self) -> Vec<(String, String)> {
         let a = &self.appearance;
+        let state = theme_state_path().map(|p| ("MYWM_THEME_STATE".to_owned(), p.to_string_lossy().into_owned()));
         [
             ("BACKGROUND", a.background),
             ("SURFACE", a.surface),
@@ -387,7 +413,17 @@ impl Config {
         ]
         .into_iter()
         .map(|(name, color)| (format!("MYWM_COLOR_{name}"), color.css()))
+        .chain(state)
         .collect()
+    }
+
+    /// Colors generated from the wallpaper (`mywm-theme`) replace the configured ones.
+    pub fn apply_theme_state(&mut self) {
+        if let Some(path) = theme_state_path()
+            && let Ok(text) = std::fs::read_to_string(path)
+        {
+            self.appearance.apply_theme_json(&text);
+        }
     }
 }
 
