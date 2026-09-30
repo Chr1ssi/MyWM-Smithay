@@ -53,6 +53,7 @@ PYTHONPATH=tests python3 tests/globals_smoke.py       # angebotene Wayland-Proto
 PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Power (swaylock/swayidle/wlopm)
 PYTHONPATH=tests python3 tests/xwayland_smoke.py      # X11-Clients (xterm, xeyes)
 PYTHONPATH=tests python3 tests/screencopy_smoke.py    # Aufnahme mit grim
+PYTHONPATH=tests python3 tests/clipboard_smoke.py     # Kopieren/Einfügen (wl-clipboard)
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

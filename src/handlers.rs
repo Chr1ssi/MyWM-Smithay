@@ -2,7 +2,7 @@ use std::os::unix::io::OwnedFd;
 
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::utils::on_commit_buffer_handler},
-    delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat, delegate_shm,
+    delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat, delegate_shm,
     delegate_xdg_shell,
     desktop::{PopupKind, Window},
     input::{pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
@@ -18,8 +18,10 @@ use smithay::{
         output::OutputHandler,
         selection::{
             data_device::{
-                ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
+                set_data_device_focus, ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
             },
+            primary_selection::set_primary_focus,
+            wlr_data_control::{DataControlHandler, DataControlState},
         },
         shell::xdg::{
             PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
@@ -29,7 +31,7 @@ use smithay::{
 };
 
 use crate::state::{ClientState, State};
-use smithay::{wayland::seat::WaylandFocus, xwayland::XWaylandClientData};
+use smithay::{reexports::wayland_server::Resource, wayland::seat::WaylandFocus, xwayland::XWaylandClientData};
 
 impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
@@ -140,10 +142,22 @@ impl SeatHandler for State {
         &mut self.seat_state
     }
 
-    fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
+        // Clipboard and primary selection are offered to the client that has keyboard focus.
+        let display = &self.display_handle;
+        let client = focused.and_then(|surface| display.get_client(surface.id()).ok());
+        set_data_device_focus(display, seat, client.clone());
+        set_primary_focus(display, seat, client);
+    }
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.cursor_status = image;
         self.queue_redraw_all();
+    }
+}
+
+impl DataControlHandler for State {
+    fn data_control_state(&self) -> &DataControlState {
+        &self.data_control_state
     }
 }
 
@@ -183,4 +197,5 @@ delegate_xdg_shell!(State);
 delegate_seat!(State);
 delegate_data_device!(State);
 delegate_output!(State);
+delegate_data_control!(State);
 delegate_dmabuf!(State);

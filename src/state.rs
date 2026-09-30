@@ -33,7 +33,7 @@ use smithay::{
         dmabuf::{DmabufGlobal, DmabufState},
         drm_syncobj::DrmSyncobjState,
         presentation::PresentationState,
-        selection::primary_selection::PrimarySelectionState,
+        selection::{primary_selection::PrimarySelectionState, wlr_data_control::DataControlState},
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         shell::{wlr_layer::WlrLayerShellState, xdg::XdgShellState},
@@ -73,6 +73,7 @@ pub struct State {
     pub udev: Option<UdevData>,
     pub session: Option<LibSeatSession>,
     pub dmabuf_state: DmabufState,
+    pub data_control_state: DataControlState,
     pub layer_shell_state: WlrLayerShellState,
     /// Screen capture requests waiting for their output's next frame.
     pub pending_copies: Vec<PendingCopy>,
@@ -186,6 +187,7 @@ impl State {
             config.gaming_output.clone(),
             config.appearance.layout(),
         );
+        let primary_selection_state = PrimarySelectionState::new::<State>(&dh);
         let mut state = Self {
             start_time: Instant::now(),
             socket_name,
@@ -210,6 +212,13 @@ impl State {
             udev: None,
             session: None,
             dmabuf_state: DmabufState::new(),
+            // Clipboard managers and wl-copy/wl-paste use this; MYWM_NO_DATA_CONTROL=1 hides it
+            // so the plain focus-based clipboard path can be tested.
+            data_control_state: DataControlState::new::<State, _>(
+                &dh,
+                Some(&primary_selection_state),
+                |_| std::env::var_os("MYWM_NO_DATA_CONTROL").is_none(),
+            ),
             layer_shell_state: WlrLayerShellState::new::<State>(&dh),
             pending_copies: Vec::new(),
             xwayland_shell_state: XWaylandShellState::new::<State>(&dh),
@@ -222,7 +231,7 @@ impl State {
             idle_inhibitors: HashSet::new(),
             output_power_objects: Vec::new(),
             layer_focus: None,
-            primary_selection_state: PrimarySelectionState::new::<State>(&dh),
+            primary_selection_state,
             syncobj_state: None,
             presentation_state: None,
             loop_handle: loop_handle.clone(),
