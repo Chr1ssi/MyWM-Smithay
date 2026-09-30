@@ -6,6 +6,7 @@ mod handlers;
 mod input;
 mod ipc;
 mod monitors;
+mod protocols;
 mod udev;
 mod state;
 mod winit;

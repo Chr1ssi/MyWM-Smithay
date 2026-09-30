@@ -1,4 +1,4 @@
-use std::{ffi::OsString, sync::Arc, time::Instant};
+use std::{any::Any, ffi::OsString, sync::Arc, time::Instant};
 
 use crate::{cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, udev::UdevData};
 use mywm_config::{Binding, Config, Modifiers};
@@ -7,16 +7,27 @@ use smithay::{
     backend::session::libseat::LibSeatSession,
     input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatState},
     reexports::{
-        calloop::{generic::Generic, EventLoop, Interest, LoopSignal, Mode, PostAction},
+        calloop::{generic::Generic, EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction},
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
+            protocol::wl_surface::WlSurface,
             Display, DisplayHandle,
         },
     },
     utils::{Logical, Point},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
+        content_type::ContentTypeState,
+        cursor_shape::CursorShapeManagerState,
+        fractional_scale::FractionalScaleManagerState,
+        pointer_constraints::PointerConstraintsState,
+        relative_pointer::RelativePointerManagerState,
+        shell::xdg::decoration::XdgDecorationState,
+        viewporter::ViewporterState,
         dmabuf::{DmabufGlobal, DmabufState},
+        drm_syncobj::DrmSyncobjState,
+        presentation::PresentationState,
+        selection::primary_selection::PrimarySelectionState,
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         shell::xdg::XdgShellState,
@@ -55,6 +66,14 @@ pub struct State {
     pub udev: Option<UdevData>,
     pub session: Option<LibSeatSession>,
     pub dmabuf_state: DmabufState,
+    pub primary_selection_state: PrimarySelectionState,
+    pub syncobj_state: Option<DrmSyncobjState>,
+    pub presentation_state: Option<PresentationState>,
+    pub loop_handle: LoopHandle<'static, State>,
+    /// Protocol globals that only need to stay alive.
+    _protocols: Vec<Box<dyn Any>>,
+    /// Surface under the pointer, for pointer constraints.
+    pub pointer_focus_surface: Option<WlSurface>,
     pub dmabuf_global: Option<DmabufGlobal>,
     pub ipc: Option<crate::ipc::Ipc>,
     /// The desktop changed since the last broadcast to bar clients.
@@ -77,7 +96,7 @@ impl ClientData for ClientState {
 }
 
 impl State {
-    pub fn new(event_loop: &mut EventLoop<State>, display: Display<State>, config: Config, remap_super: bool) -> Self {
+    pub fn new(event_loop: &mut EventLoop<'static, State>, display: Display<State>, config: Config, remap_super: bool) -> Self {
         let dh = display.handle();
         let loop_handle = event_loop.handle();
 
@@ -143,6 +162,21 @@ impl State {
             udev: None,
             session: None,
             dmabuf_state: DmabufState::new(),
+            primary_selection_state: PrimarySelectionState::new::<State>(&dh),
+            syncobj_state: None,
+            presentation_state: None,
+            loop_handle: loop_handle.clone(),
+            _protocols: vec![
+                Box::new(ViewporterState::new::<State>(&dh)),
+                Box::new(FractionalScaleManagerState::new::<State>(&dh)),
+                Box::new(CursorShapeManagerState::new::<State>(&dh)),
+                Box::new(ContentTypeState::new::<State>(&dh)),
+                Box::new(RelativePointerManagerState::new::<State>(&dh)),
+                Box::new(PointerConstraintsState::new::<State>(&dh)),
+                Box::new(XdgDecorationState::new::<State>(&dh)),
+                Box::new(State::create_tearing_control_global(&dh)),
+            ],
+            pointer_focus_surface: None,
             dmabuf_global: None,
             ipc: None,
             ipc_dirty: false,

@@ -8,16 +8,28 @@ use smithay::{
     },
     input::{
         keyboard::{FilterResult, Keysym, ModifiersState, keysyms},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent},
+        pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent},
     },
     output::Output,
+    desktop::WindowSurfaceType,
+    reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point, SERIAL_COUNTER},
+    wayland::{
+        compositor::RegionAttributes,
+        pointer_constraints::{PointerConstraint, with_pointer_constraint},
+    },
 };
 
 use crate::State;
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+
+enum Constraint {
+    Locked,
+    /// Pointer stays within the region (the whole surface if `None`).
+    Confined(Option<RegionAttributes>),
+}
 
 /// What a key press the compositor claims turns into.
 enum Intercepted {
@@ -124,7 +136,31 @@ impl State {
                 self.pointer_moved(event.time_msec());
             }
             InputEvent::PointerMotion { event } => {
-                let target = self.pointer_location + event.delta();
+                let pointer = self.seat.get_pointer().unwrap();
+                let focus = self.pointer_focus();
+                // Games read raw deltas, also while the cursor is held in place.
+                pointer.relative_motion(
+                    self,
+                    focus.clone(),
+                    &RelativeMotionEvent {
+                        delta: event.delta(),
+                        delta_unaccel: event.delta_unaccel(),
+                        utime: event.time(),
+                    },
+                );
+                let mut target = self.pointer_location + event.delta();
+                if let Some((surface, origin)) = &focus {
+                    match self.active_constraint(surface) {
+                        Some(Constraint::Locked) => return pointer.frame(self),
+                        Some(Constraint::Confined(region)) => {
+                            let inside = region.as_ref().is_none_or(|r| r.contains((target - *origin).to_i32_floor()));
+                            if !inside {
+                                target = self.pointer_location;
+                            }
+                        }
+                        None => {}
+                    }
+                }
                 let (x, y) = self.desktop.desk.clamp_to_monitors((target.x, target.y));
                 self.pointer_location = (x, y).into();
                 self.pointer_moved(event.time_msec());
@@ -206,26 +242,43 @@ impl State {
         self.pointer_motion(time);
     }
 
+    /// The surface under the pointer and the global position of its origin.
+    fn pointer_focus(&self) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let (window, loc) = self.space.element_under(self.pointer_location)?;
+        window
+            .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
+            .map(|(surface, origin)| (surface, (origin + loc).to_f64()))
+    }
+
     fn pointer_motion(&mut self, time: u32) {
         self.update_pointer_monitor();
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
-        let under_window = self.space.element_under(self.pointer_location).map(|(w, l)| (w.clone(), l));
-        let under = under_window.as_ref().and_then(|(window, loc)| {
-            window
-                .surface_under(
-                    self.pointer_location - loc.to_f64(),
-                    smithay::desktop::WindowSurfaceType::ALL,
-                )
-                .map(|(s, p)| (s, (p + *loc).to_f64()))
-        });
+        let under = self.pointer_focus();
         // Focus follows mouse, like MyWM on River.
-        if let Some((window, _)) = &under_window
+        if let Some((window, _)) = self.space.element_under(self.pointer_location)
             && let Some(id) = self.desktop.windows.iter().find(|m| &m.window == window).map(|m| m.id)
         {
             self.focus_window(id);
         }
+        let surface = under.as_ref().map(|(s, _)| s.clone());
+        if surface != self.pointer_focus_surface {
+            let old = std::mem::replace(&mut self.pointer_focus_surface, surface.clone());
+            self.pointer_focus_changed(old.as_ref(), surface.as_ref());
+        }
         pointer.motion(self, under, &MotionEvent { location: self.pointer_location, serial, time });
         pointer.frame(self);
+    }
+
+    /// The pointer constraint of `surface`, if one is active.
+    fn active_constraint(&self, surface: &WlSurface) -> Option<Constraint> {
+        let pointer = self.seat.get_pointer()?;
+        with_pointer_constraint(surface, &pointer, |constraint| {
+            let constraint = constraint.filter(|c| c.is_active())?;
+            Some(match &*constraint {
+                PointerConstraint::Locked(_) => Constraint::Locked,
+                PointerConstraint::Confined(_) => Constraint::Confined(constraint.region().cloned()),
+            })
+        })
     }
 }

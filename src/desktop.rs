@@ -15,7 +15,9 @@ use smithay::{
         wayland_server::protocol::wl_surface::WlSurface,
     },
     utils::{Logical, Point},
-    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
+    wayland::{
+        compositor::with_states, fractional_scale::with_fractional_scale, shell::xdg::XdgToplevelSurfaceData,
+    },
 };
 
 use crate::State;
@@ -295,6 +297,7 @@ impl State {
         self.sync_monitor_areas();
         self.apply_layout();
         self.sync_focus();
+        self.update_fractional_scales();
         self.ipc_dirty = true;
         self.queue_redraw_all();
     }
@@ -373,6 +376,17 @@ impl State {
                     buffer.update(size, color);
                 }
             }
+        }
+    }
+
+    /// Tell each window the scale of the output it is on (`wp_fractional_scale_v1`).
+    fn update_fractional_scales(&self) {
+        for m in self.desktop.windows.iter().filter(|m| m.placed) {
+            let monitor = self.desktop.desk.locate(&m.id).map_or_else(|| self.scratchpad_monitor(), |(i, _)| i);
+            let scale = self.outputs.get(monitor).map_or(1.0, |e| e.output.current_scale().fractional_scale());
+            m.window.with_surfaces(|_, states| {
+                with_fractional_scale(states, |fs| fs.set_preferred_scale(scale));
+            });
         }
     }
 
