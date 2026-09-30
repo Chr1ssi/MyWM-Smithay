@@ -539,6 +539,47 @@ impl X11Surface {
         Ok(())
     }
 
+    /// MyWM patch: give the X11 window (`true`) or nobody (`false`) the X11 input focus.
+    ///
+    /// This is the X11 half of `KeyboardTarget::enter`/`leave` for compositors whose keyboard
+    /// focus is a plain `wl_surface`. Without it Xwayland has no focused X11 window and
+    /// clients that wait for `WM_TAKE_FOCUS` (Wine and Proton games) never receive keys.
+    pub fn set_x11_input_focus(&self, focused: bool) {
+        let Some(conn) = self.conn.upgrade() else { return };
+        if !focused {
+            if self.input_mode() != InputMode::None {
+                if let Err(err) = conn.set_input_focus(InputFocus::NONE, x11rb::NONE, x11rb::CURRENT_TIME) {
+                    warn!("Unable to unfocus X11Surface ({:?}): {}", self.window, err);
+                }
+            }
+            let _ = conn.flush();
+            return;
+        }
+        let (set_input_focus, send_take_focus) = match self.input_mode() {
+            InputMode::None => return,
+            InputMode::Passive => (true, false),
+            InputMode::LocallyActive => (true, true),
+            InputMode::GloballyActive => (false, true),
+        };
+        if set_input_focus {
+            if let Err(err) = conn.set_input_focus(InputFocus::NONE, self.window, x11rb::CURRENT_TIME) {
+                warn!("Unable to set focus for X11Surface ({:?}): {}", self.window, err);
+            }
+        }
+        if send_take_focus {
+            let event = ClientMessageEvent::new(
+                32,
+                self.window,
+                self.atoms.WM_PROTOCOLS,
+                [self.atoms.WM_TAKE_FOCUS, x11rb::CURRENT_TIME, 0, 0, 0],
+            );
+            if let Err(err) = conn.send_event(false, self.window, EventMask::NO_EVENT, event) {
+                warn!("Unable to send take focus event for X11Surface ({:?}): {}", self.window, err);
+            }
+        }
+        let _ = conn.flush();
+    }
+
     /// Sets the window as activated or not.
     ///
     /// Allows the client to reflect this state in their UI.

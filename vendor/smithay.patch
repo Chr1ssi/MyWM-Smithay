@@ -1,0 +1,215 @@
+diff -ru a/src/backend/drm/compositor/mod.rs b/src/backend/drm/compositor/mod.rs
+--- a/src/backend/drm/compositor/mod.rs	2026-09-30 12:22:33.637485585 +0000
++++ b/src/backend/drm/compositor/mod.rs	2026-09-30 12:22:33.678413933 +0000
+@@ -2717,6 +2717,11 @@
+         self.surface.vrr_supported(conn).map_err(FrameError::DrmError)
+     }
+ 
++    /// MyWM patch: see [`DrmSurface::set_async_flip`].
++    pub fn set_async_flip(&self, value: bool) {
++        self.surface.set_async_flip(value);
++    }
++
+     /// Returns if Variable Refresh Rate is currently enabled for frames composed by this [`DrmCompositor`].
+     pub fn vrr_enabled(&self) -> bool {
+         self.surface.vrr_enabled()
+diff -ru a/src/backend/drm/surface/atomic.rs b/src/backend/drm/surface/atomic.rs
+--- a/src/backend/drm/surface/atomic.rs	2026-09-30 12:22:33.640670194 +0000
++++ b/src/backend/drm/surface/atomic.rs	2026-09-30 12:22:33.679375131 +0000
+@@ -171,6 +171,8 @@
+     prop_mapping: Arc<RwLock<PropMapping>>,
+     state: RwLock<State>,
+     pending: RwLock<State>,
++    /// MyWM patch: flip immediately instead of waiting for vblank (tearing).
++    async_flip: AtomicBool,
+     pub(super) span: tracing::Span,
+ }
+ 
+@@ -215,6 +217,7 @@
+             crtc,
+             plane,
+             used_planes: Mutex::new(HashSet::new()),
++            async_flip: AtomicBool::new(false),
+             prop_mapping,
+             state: RwLock::new(state),
+             pending: RwLock::new(pending),
+@@ -673,6 +676,11 @@
+         Ok(())
+     }
+ 
++    /// MyWM patch: make following page flips asynchronous (tearing) or synchronous again.
++    pub fn set_async_flip(&self, value: bool) {
++        self.async_flip.store(value, Ordering::SeqCst);
++    }
++
+     pub fn commit_pending(&self) -> bool {
+         *self.pending.read().unwrap() != *self.state.read().unwrap()
+     }
+@@ -881,16 +889,17 @@
+         // If we would set anything here, that would require a modeset, this would fail,
+         // indicating a problem in our assumptions.
+         trace!(?planes, "Queueing page flip: {:?}", req);
++        let mut flags = if event {
++            AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
++        } else {
++            AtomicCommitFlags::NONBLOCK
++        };
++        if self.async_flip.load(Ordering::SeqCst) {
++            flags |= AtomicCommitFlags::PAGE_FLIP_ASYNC;
++        }
+         let res = self
+             .fd
+-            .atomic_commit(
+-                if event {
+-                    AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
+-                } else {
+-                    AtomicCommitFlags::NONBLOCK
+-                },
+-                req.build()?,
+-            )
++            .atomic_commit(flags, req.build()?)
+             .map_err(|source| {
+                 Error::Access(AccessError {
+                     errmsg: "Page flip commit failed",
+diff -ru a/src/backend/drm/surface/mod.rs b/src/backend/drm/surface/mod.rs
+--- a/src/backend/drm/surface/mod.rs	2026-09-30 12:22:33.641210532 +0000
++++ b/src/backend/drm/surface/mod.rs	2026-09-30 12:22:33.679668655 +0000
+@@ -439,6 +439,16 @@
+         }
+     }
+ 
++    /// MyWM patch: let following page flips complete immediately instead of at vblank
++    /// (tearing). Only the atomic API supports this; the legacy one ignores the request.
++    /// The kernel may reject a flip that is not a pure framebuffer swap, so callers must be
++    /// ready for `page_flip` to fail and fall back.
++    pub fn set_async_flip(&self, value: bool) {
++        if let DrmSurfaceInternal::Atomic(surf) = &*self.internal {
++            surf.set_async_flip(value);
++        }
++    }
++
+     /// Returns a set of available planes for this surface
+     pub fn planes(&self) -> &Planes {
+         &self.planes
+diff -ru a/src/desktop/wayland/layer.rs b/src/desktop/wayland/layer.rs
+--- a/src/desktop/wayland/layer.rs	2026-09-30 12:22:33.651612163 +0000
++++ b/src/desktop/wayland/layer.rs	2026-09-30 12:22:33.682790038 +0000
+@@ -318,11 +318,12 @@
+                 let mut size = data.size;
+                 size.w = size.w.min(source.size.w);
+                 size.h = size.h.min(source.size.h);
++                // MyWM patch: a zero size without both anchors is invalid; show 1px until it is fixed.
+                 if size.w == 0 {
+-                    size.w = source.size.w / 2;
++                    size.w = 1;
+                 }
+                 if size.h == 0 {
+-                    size.h = source.size.h / 2;
++                    size.h = 1;
+                 }
+                 if data.anchor.anchored_horizontally() {
+                     size.w = source.size.w;
+diff -ru a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs	2026-09-30 12:22:33.654011443 +0000
++++ b/src/lib.rs	2026-09-30 12:22:33.683601909 +0000
+@@ -1,3 +1,5 @@
++// MyWM patch: vendored dependency, keep its lint noise out of our build output.
++#![allow(warnings)]
+ #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+ #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
+ // Allow acronyms like EGL
+diff -ru a/src/wayland/shell/wlr_layer/handlers.rs b/src/wayland/shell/wlr_layer/handlers.rs
+--- a/src/wayland/shell/wlr_layer/handlers.rs	2026-09-30 12:22:33.663958159 +0000
++++ b/src/wayland/shell/wlr_layer/handlers.rs	2026-09-30 12:22:33.686771577 +0000
+@@ -122,35 +122,11 @@
+                 });
+ 
+                 if initial {
+-                    compositor::add_pre_commit_hook::<D, _>(&wl_surface, |_state, _dh, surface| {
+-                        compositor::with_states(surface, |states| {
+-                            let guard = states
+-                                .data_map
+-                                .get::<Mutex<LayerSurfaceAttributes>>()
+-                                .unwrap()
+-                                .lock()
+-                                .unwrap();
+-
+-                            let mut cached_guard = states.cached_state.get::<LayerSurfaceCachedState>();
+-                            let pending = cached_guard.pending();
+-
+-                            if pending.size.w == 0 && !pending.anchor.anchored_horizontally() {
+-                                guard.surface.post_error(
+-                                    zwlr_layer_surface_v1::Error::InvalidSize,
+-                                    "width 0 requested without setting left and right anchors",
+-                                );
+-                                return;
+-                            }
+-
+-                            if pending.size.h == 0 && !pending.anchor.anchored_vertically() {
+-                                guard.surface.post_error(
+-                                    zwlr_layer_surface_v1::Error::InvalidSize,
+-                                    "height 0 requested without setting top and bottom anchors",
+-                                );
+-                            }
+-                        });
+-                    });
+-
++                    // MyWM patch: the protocol calls a zero size without both anchors an error,
++                    // but Quickshell briefly commits such a size while it recreates a panel that
++                    // becomes visible again, and killing the client (its whole bar!) for it is a
++                    // bad failure mode. The layout gives such a surface a 1px size until the
++                    // client sends a proper one (see `LayerMap::arrange`).
+                     compositor::add_post_commit_hook::<D, _>(&wl_surface, |_state, _dh, surface| {
+                         compositor::with_states(surface, |states| {
+                             let mut guard = states
+diff -ru a/src/xwayland/xwm/surface.rs b/src/xwayland/xwm/surface.rs
+--- a/src/xwayland/xwm/surface.rs	2026-09-30 12:22:33.670564562 +0000
++++ b/src/xwayland/xwm/surface.rs	2026-09-30 12:22:33.688070758 +0000
+@@ -539,6 +539,47 @@
+         Ok(())
+     }
+ 
++    /// MyWM patch: give the X11 window (`true`) or nobody (`false`) the X11 input focus.
++    ///
++    /// This is the X11 half of `KeyboardTarget::enter`/`leave` for compositors whose keyboard
++    /// focus is a plain `wl_surface`. Without it Xwayland has no focused X11 window and
++    /// clients that wait for `WM_TAKE_FOCUS` (Wine and Proton games) never receive keys.
++    pub fn set_x11_input_focus(&self, focused: bool) {
++        let Some(conn) = self.conn.upgrade() else { return };
++        if !focused {
++            if self.input_mode() != InputMode::None {
++                if let Err(err) = conn.set_input_focus(InputFocus::NONE, x11rb::NONE, x11rb::CURRENT_TIME) {
++                    warn!("Unable to unfocus X11Surface ({:?}): {}", self.window, err);
++                }
++            }
++            let _ = conn.flush();
++            return;
++        }
++        let (set_input_focus, send_take_focus) = match self.input_mode() {
++            InputMode::None => return,
++            InputMode::Passive => (true, false),
++            InputMode::LocallyActive => (true, true),
++            InputMode::GloballyActive => (false, true),
++        };
++        if set_input_focus {
++            if let Err(err) = conn.set_input_focus(InputFocus::NONE, self.window, x11rb::CURRENT_TIME) {
++                warn!("Unable to set focus for X11Surface ({:?}): {}", self.window, err);
++            }
++        }
++        if send_take_focus {
++            let event = ClientMessageEvent::new(
++                32,
++                self.window,
++                self.atoms.WM_PROTOCOLS,
++                [self.atoms.WM_TAKE_FOCUS, x11rb::CURRENT_TIME, 0, 0, 0],
++            );
++            if let Err(err) = conn.send_event(false, self.window, EventMask::NO_EVENT, event) {
++                warn!("Unable to send take focus event for X11Surface ({:?}): {}", self.window, err);
++            }
++        }
++        let _ = conn.flush();
++    }
++
+     /// Sets the window as activated or not.
+     ///
+     /// Allows the client to reflect this state in their UI.

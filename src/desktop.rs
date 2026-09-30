@@ -488,7 +488,25 @@ impl State {
                 toplevel.send_pending_configure();
             }
         }
-        let surface = layer.or_else(|| focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface()));
+        let surface = layer.clone().or_else(|| focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface()));
+        // X11 clients also need the X11 input focus; a wl_surface focus alone leaves Wine and
+        // Proton games without keyboard input.
+        let x11 = focused
+            .filter(|_| layer.is_none())
+            .and_then(|id| self.desktop.get(id))
+            .and_then(|m| m.window.x11_surface().cloned());
+        if x11 != self.x11_focus {
+            if let Some(old) = self.x11_focus.take()
+                && x11.is_none()
+            {
+                old.set_x11_input_focus(false);
+            }
+            if let Some(new) = &x11 {
+                tracing::info!("X11 input focus: {} ({})", new.title(), new.class());
+                new.set_x11_input_focus(true);
+            }
+            self.x11_focus = x11;
+        }
         self.set_keyboard_focus(surface);
     }
 

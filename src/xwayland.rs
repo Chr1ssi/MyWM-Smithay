@@ -5,6 +5,7 @@ use std::{os::unix::io::OwnedFd, process::Stdio};
 use smithay::{
     delegate_xwayland_shell,
     desktop::Window,
+    reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Rectangle},
     wayland::{
         selection::{
@@ -72,6 +73,12 @@ pub fn start(state: &mut State) {
 impl XWaylandShellHandler for State {
     fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
         &mut self.xwayland_shell_state
+    }
+
+    /// The window's `wl_surface` exists only from here on. A window that was focused before
+    /// (a game right after it appears) could not get keyboard focus without one, so redo it.
+    fn surface_associated(&mut self, _xwm: XwmId, _surface: WlSurface, _window: X11Surface) {
+        self.refresh();
     }
 }
 

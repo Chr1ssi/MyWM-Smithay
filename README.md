@@ -30,7 +30,7 @@ Aufbau:
   `crates/mywm-config/example.toml`
 - `crates/mywm-ipc` – Bar-Protokoll `v1` (Befehle, Zustands-Snapshot), unverändert
   gegenüber dem River-MyWM, damit `mywm-shell` ohne Änderung läuft
-- `vendor/smithay` – smithay 0.7.0 mit kleinem Patch für Tearing (`vendor/README.md`)
+- `vendor/smithay` – smithay 0.7.0 mit kleinen Patches (Tearing, Layer-Shell-Toleranz, X11-Fokus; `vendor/README.md`)
 - `src/` – Compositor; `udev.rs` ist das Hardware-Backend (DRM/GBM/libinput/libseat),
   `winit.rs` der nested Entwicklungsmodus (`desktop.rs` bildet das Modell auf Smithays `Space` ab)
 
@@ -54,6 +54,8 @@ PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Po
 PYTHONPATH=tests python3 tests/xwayland_smoke.py      # X11-Clients (xterm, xeyes)
 PYTHONPATH=tests python3 tests/screencopy_smoke.py    # Aufnahme mit grim
 PYTHONPATH=tests python3 tests/clipboard_smoke.py     # Kopieren/Einfügen (wl-clipboard)
+PYTHONPATH=tests python3 tests/layer_smoke.py         # Layer-Shell-Client mit Größe 0 (Quickshell-Marker)
+PYTHONPATH=tests python3 tests/x11_focus_smoke.py     # Tastatur in X11-Fenstern (xev)
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

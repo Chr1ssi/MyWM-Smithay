@@ -186,6 +186,20 @@ impl State {
     pub fn set_keyboard_focus(&mut self, surface: Option<WlSurface>) {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         if let Some(keyboard) = self.seat.get_keyboard() {
+            if keyboard.current_focus() != surface {
+                let what = match &surface {
+                    None => "nothing".to_string(),
+                    Some(surface) => match self.desktop.by_surface(surface) {
+                        Some(m) => format!(
+                            "{} window {:?}",
+                            if m.window.x11_surface().is_some() { "X11" } else { "Wayland" },
+                            m.app_id
+                        ),
+                        None => "a panel, lock or popup surface".to_string(),
+                    },
+                };
+                tracing::info!("keyboard focus: {what}");
+            }
             keyboard.set_focus(self, surface, serial);
         }
     }

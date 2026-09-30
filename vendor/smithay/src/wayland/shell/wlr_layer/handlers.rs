@@ -122,35 +122,11 @@ where
                 });
 
                 if initial {
-                    compositor::add_pre_commit_hook::<D, _>(&wl_surface, |_state, _dh, surface| {
-                        compositor::with_states(surface, |states| {
-                            let guard = states
-                                .data_map
-                                .get::<Mutex<LayerSurfaceAttributes>>()
-                                .unwrap()
-                                .lock()
-                                .unwrap();
-
-                            let mut cached_guard = states.cached_state.get::<LayerSurfaceCachedState>();
-                            let pending = cached_guard.pending();
-
-                            if pending.size.w == 0 && !pending.anchor.anchored_horizontally() {
-                                guard.surface.post_error(
-                                    zwlr_layer_surface_v1::Error::InvalidSize,
-                                    "width 0 requested without setting left and right anchors",
-                                );
-                                return;
-                            }
-
-                            if pending.size.h == 0 && !pending.anchor.anchored_vertically() {
-                                guard.surface.post_error(
-                                    zwlr_layer_surface_v1::Error::InvalidSize,
-                                    "height 0 requested without setting top and bottom anchors",
-                                );
-                            }
-                        });
-                    });
-
+                    // MyWM patch: the protocol calls a zero size without both anchors an error,
+                    // but Quickshell briefly commits such a size while it recreates a panel that
+                    // becomes visible again, and killing the client (its whole bar!) for it is a
+                    // bad failure mode. The layout gives such a surface a 1px size until the
+                    // client sends a proper one (see `LayerMap::arrange`).
                     compositor::add_post_commit_hook::<D, _>(&wl_surface, |_state, _dh, surface| {
                         compositor::with_states(surface, |states| {
                             let mut guard = states

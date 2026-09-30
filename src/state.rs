@@ -17,7 +17,7 @@ use smithay::{
         },
     },
     utils::{Logical, Point},
-    xwayland::X11Wm,
+    xwayland::{X11Surface, X11Wm},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         content_type::ContentTypeState,
@@ -79,6 +79,8 @@ pub struct State {
     pub pending_copies: Vec<PendingCopy>,
     pub xwayland_shell_state: XWaylandShellState,
     pub xwm: Option<X11Wm>,
+    /// The X11 window that currently has the X11 input focus.
+    pub x11_focus: Option<X11Surface>,
     /// Display number of Xwayland, once started.
     pub xdisplay: Option<u32>,
     /// Menus, tooltips and other X11 windows that position themselves.
@@ -223,6 +225,7 @@ impl State {
             pending_copies: Vec::new(),
             xwayland_shell_state: XWaylandShellState::new::<State>(&dh),
             xwm: None,
+            x11_focus: None,
             xdisplay: None,
             override_redirect: Vec::new(),
             lock_manager_state: SessionLockManagerState::new::<State, _>(&dh, |_| true),
