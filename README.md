@@ -112,3 +112,8 @@ Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als
 **Alt** (Bindings mit `Super+Alt` entfallen). `MYWM_MODKEY=super` schaltet das ab,
 etwa unter einem Host ohne eigene Super-Belegung. Standard-Bindings: siehe
 `example.toml`; die Standardtastatur ist `de`.
+
+## Lizenz
+
+MIT, siehe `LICENSE`. Das mitgelieferte Smithay unter `vendor/smithay` steht ebenfalls unter MIT
+(`vendor/smithay/LICENSE.txt`).

@@ -2,6 +2,7 @@
 name = "mywm-test-client"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 publish = false
 description = "Wayland test client: keyboard-shortcuts-inhibit and xdg-activation (used by the smoke tests)"
 

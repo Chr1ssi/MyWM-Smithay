@@ -2,6 +2,7 @@
 name = "mywm-settings"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "Graphical settings and keybinding editor for the MyWM compositor"
 
 [lib]

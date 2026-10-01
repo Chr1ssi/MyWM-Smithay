@@ -2,6 +2,7 @@
 name = "mywm-portal"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "Screen-cast portal backend for the MyWM compositor (xdg-desktop-portal impl, PipeWire, ext-image-copy-capture)"
 
 [dependencies]

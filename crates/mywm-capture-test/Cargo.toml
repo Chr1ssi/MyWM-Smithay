@@ -2,6 +2,7 @@
 name = "mywm-capture-test"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 publish = false
 description = "Test client for ext-image-copy-capture (used by tests/image_capture_smoke.py)"
 
