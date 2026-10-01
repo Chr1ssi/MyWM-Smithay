@@ -66,6 +66,10 @@ pub unsafe fn export_theme() {
     }
 }
 
+/// The memory format of the cursor images: `Argb8888` is the layout of Xcursor's pixels (B, G, R, A, premultiplied)
+/// and the only one the DRM cursor plane takes; another format keeps the cursor on the primary plane.
+const CURSOR_FORMAT: Fourcc = Fourcc::Argb8888;
+
 /// Cursors of the X cursor font that Xwayland hands over as plain images: a client that makes its cursors
 /// with `XCreateFontCursor` (Steam does) bypasses the theme. Image size and hotspot of such a cursor, and
 /// the themed icon to draw instead. More can be added from the `cursor:` log lines.
@@ -100,9 +104,13 @@ impl CursorAssets {
         // The first frame; animated cursors stay still.
         let image = images.iter().find(|image| image.size == nearest.size)?;
         Some(Loaded {
+            // Despite its name `pixels_rgba` holds the file's bytes: B, G, R, A, premultiplied, i.e. the memory layout
+            // of `Argb8888`. (Declared as `Abgr8888` the colors of a colored theme are swapped, and the DRM
+            // cursor plane, which only takes `Argb8888` buffers, cannot be used: the cursor then sits on the
+            // primary plane and a game cannot be scanned out directly.)
             buffer: MemoryRenderBuffer::from_slice(
                 &image.pixels_rgba,
-                Fourcc::Abgr8888,
+                CURSOR_FORMAT,
                 (image.width as i32, image.height as i32),
                 1,
                 Transform::Normal,
@@ -125,7 +133,7 @@ impl CursorAssets {
             }
         }
         Loaded {
-            buffer: MemoryRenderBuffer::from_slice(&pixels, Fourcc::Abgr8888, (W as i32, H as i32), 1, Transform::Normal, None),
+            buffer: MemoryRenderBuffer::from_slice(&pixels, CURSOR_FORMAT, (W as i32, H as i32), 1, Transform::Normal, None),
             hotspot: (0, 0).into(),
         }
     }
@@ -228,6 +236,12 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The DRM cursor plane takes `Argb8888` only: a cursor buffer of any other format stays on the primary plane.
+    #[test]
+    fn cursor_buffers_are_argb8888() {
+        assert_eq!(CURSOR_FORMAT, Fourcc::Argb8888);
+    }
 
     #[test]
     fn the_x_core_arrow_becomes_the_themed_default() {
