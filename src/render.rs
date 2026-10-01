@@ -35,6 +35,8 @@ render_elements! {
     Surface=WaylandSurfaceRenderElement<GlesRenderer>,
     /// A managed window, cut off at the edge of its own output.
     Window=CropRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
+    /// A window shrunk into a workspace thumbnail of the overview.
+    Thumbnail=CropRenderElement<smithay::backend::renderer::element::utils::RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
 }
 
 impl State {

@@ -81,6 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     // Nested, the host owns Super; MYWM_MODKEY=super keeps the configured modifiers.
     let remap_super = nested && std::env::var("MYWM_MODKEY").map_or(true, |v| !v.eq_ignore_ascii_case("super"));
+    // SAFETY: nothing else runs yet.
+    unsafe { cursor::export_theme() };
     let mut state = State::new(&mut event_loop, display, config, remap_super);
 
     if nested {

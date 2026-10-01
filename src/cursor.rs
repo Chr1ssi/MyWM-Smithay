@@ -34,6 +34,37 @@ struct Loaded {
     hotspot: Point<i32, Logical>,
 }
 
+/// The cursor theme and size from the GTK settings, for sessions that only configure them there.
+fn gtk_cursor_settings() -> (Option<String>, Option<String>) {
+    let config = std::env::var("XDG_CONFIG_HOME").ok().filter(|v| !v.is_empty()).or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.config")));
+    let Some(text) = config.and_then(|dir| std::fs::read_to_string(format!("{dir}/gtk-3.0/settings.ini")).ok()) else { return (None, None) };
+    let value = |key: &str| {
+        text.lines().find_map(|line| {
+            let (name, value) = line.split_once('=')?;
+            (name.trim() == key).then(|| value.trim().to_owned()).filter(|v| !v.is_empty())
+        })
+    };
+    (value("gtk-cursor-theme-name"), value("gtk-cursor-theme-size"))
+}
+
+/// Export `XCURSOR_THEME` and `XCURSOR_SIZE` (from the GTK settings when unset) so that this
+/// compositor, Xwayland and everything started from here draw the same cursor.
+///
+/// # Safety
+/// Changes the process environment: call while no other thread runs.
+pub unsafe fn export_theme() {
+    let (theme, size) = gtk_cursor_settings();
+    for (name, value) in [("XCURSOR_THEME", theme), ("XCURSOR_SIZE", size)] {
+        if std::env::var_os(name).is_none()
+            && let Some(value) = value
+        {
+            tracing::info!("{name}={value} (from the GTK settings)");
+            // SAFETY: the caller guarantees a single thread.
+            unsafe { std::env::set_var(name, value) };
+        }
+    }
+}
+
 /// Cursor images of the configured theme, loaded on first use.
 pub struct CursorAssets {
     theme: CursorTheme,
@@ -120,6 +151,10 @@ impl State {
             && pointer.y < f64::from(geo.loc.y + geo.size.h + 256);
         if !near {
             return Vec::new();
+        }
+        // A client that went away (or dropped its cursor surface) must not leave an invisible cursor.
+        if matches!(&self.cursor_status, CursorImageStatus::Surface(surface) if !smithay::reexports::wayland_server::Resource::is_alive(surface)) {
+            self.cursor_status = CursorImageStatus::default_named();
         }
         match self.cursor_status.clone() {
             CursorImageStatus::Hidden => Vec::new(),

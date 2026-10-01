@@ -229,6 +229,10 @@ struct Shared {
     ended_itself: bool,
     /// Frames handed to PipeWire since the last statistics line, and when that was.
     delivered: u32,
+    /// Shortest time between two captures: the frame rate the consumer negotiated.
+    frame_interval: std::time::Duration,
+    /// Earliest start of the next capture.
+    next_capture: std::time::Instant,
     last_stats: std::time::Instant,
 }
 
@@ -351,6 +355,13 @@ impl Shared {
             return;
         }
         let Some((format, size)) = self.format else { return };
+        // The consumer asked for at most so many frames a second: a game at 144 fps must not
+        // cost 144 full-size copies a second.
+        let now = std::time::Instant::now();
+        if now < self.next_capture {
+            return;
+        }
+        self.next_capture = if now.duration_since(self.next_capture) > self.frame_interval { now + self.frame_interval } else { self.next_capture + self.frame_interval };
         // SAFETY: a buffer we get here is handed back with `queue_raw_buffer` exactly once.
         let raw = unsafe { stream.dequeue_raw_buffer() };
         if raw.is_null() {
@@ -522,6 +533,8 @@ fn run(
         ready_tx: Some(ready_tx.clone()),
         ended_itself: false,
         delivered: 0,
+        frame_interval: std::time::Duration::from_micros(16_667),
+        next_capture: std::time::Instant::now(),
         last_stats: std::time::Instant::now(),
     }));
 
@@ -595,6 +608,10 @@ fn run(
             let size = (info.size().width, info.size().height);
             tracing::info!("screen cast: negotiated {:?} {}x{} at up to {}/{} fps", info.format(), size.0, size.1, info.max_framerate().num, info.max_framerate().denom.max(1));
             if let Ok(mut s) = shared.try_borrow_mut() {
+                let rate = info.max_framerate();
+                if rate.num > 0 {
+                    s.frame_interval = std::time::Duration::from_secs_f64(f64::from(rate.denom.max(1)) / f64::from(rate.num));
+                }
                 s.format = Some((info.format(), size));
             }
             let (buffers, meta) = (buffers_pod(size), header_meta_pod());
@@ -703,7 +720,7 @@ fn run(
             }
         }
     });
-    let interval = std::time::Duration::from_millis(8);
+    let interval = std::time::Duration::from_millis(4);
     let _ = timer.update_timer(Some(interval), Some(interval));
     let _stop = stop_rx.attach(mainloop.loop_(), {
         let quit = quit.clone();

@@ -27,6 +27,8 @@ use wayland_protocols::{
             xdg_activation_v1::XdgActivationV1,
         },
         shell::client::{
+            xdg_popup::{self, XdgPopup},
+            xdg_positioner::{Anchor, ConstraintAdjustment, Gravity, XdgPositioner},
             xdg_surface::{self, XdgSurface},
             xdg_toplevel::XdgToplevel,
             xdg_wm_base::{self, XdgWmBase},
@@ -40,6 +42,7 @@ struct App {
     configured: Vec<bool>,
     inhibitor_active: Option<bool>,
     token: Option<String>,
+    popup: Option<(i32, i32, i32, i32)>,
 }
 
 impl Dispatch<WlRegistry, GlobalListContents> for App {
@@ -111,6 +114,15 @@ delegate_noop!(App: ignore WlSurface);
 delegate_noop!(App: ignore WlSeat);
 delegate_noop!(App: ignore ZwpKeyboardShortcutsInhibitManagerV1);
 delegate_noop!(App: ignore XdgActivationV1);
+delegate_noop!(App: ignore XdgPositioner);
+
+impl Dispatch<XdgPopup, ()> for App {
+    fn event(state: &mut Self, _: &XdgPopup, event: xdg_popup::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_popup::Event::Configure { x, y, width, height } = event {
+            state.popup = Some((x, y, width, height));
+        }
+    }
+}
 
 struct Window {
     surface: WlSurface,
@@ -239,6 +251,32 @@ fn main() {
             activation.activate(app.token.clone().unwrap(), &windows[0].surface);
             queue.roundtrip(&mut app).unwrap();
             println!("activation requested");
+        }
+        "popup" => {
+            // A popup anchored at the bottom right corner of the window, pointing down and right:
+            // it must be configured, and a compositor may flip it to stay on screen.
+            let positioner = wm_base.create_positioner(&qh, ());
+            positioner.set_size(100, 80);
+            positioner.set_anchor_rect(0, 0, w, h);
+            positioner.set_anchor(Anchor::BottomRight);
+            positioner.set_gravity(Gravity::BottomRight);
+            positioner.set_constraint_adjustment(ConstraintAdjustment::all());
+            let surface = compositor.create_surface(&qh, ());
+            let popup_xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
+            let popup = popup_xdg.get_popup(Some(&windows[0]._xdg), &positioner, &qh, ());
+            surface.commit();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while app.popup.is_none() && Instant::now() < deadline {
+                queue.roundtrip(&mut app).unwrap();
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            match app.popup {
+                Some((x, y, w, h)) => println!("popup configured {x} {y} {w} {h}"),
+                None => println!("popup never configured"),
+            }
+            let _keep = (popup, popup_xdg, surface);
+            std::thread::sleep(Duration::from_secs(seconds));
+            return;
         }
         other => panic!("unknown mode {other}"),
     }

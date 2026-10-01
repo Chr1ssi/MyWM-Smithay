@@ -7,7 +7,7 @@ use smithay::{
     backend::{
         input::ButtonState,
         renderer::{
-            element::{AsRenderElements, Id, Kind, solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement},
+            element::{AsRenderElements, Id, Kind, utils::{CropRenderElement, RescaleRenderElement}, solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement},
             gles::GlesRenderer,
             utils::CommitCounter,
         },
@@ -163,7 +163,7 @@ impl State {
         // Cropped solids (the `Border` variant) rather than plain ones, which are the capture-exempt overlay.
         let solid = |area: Rectangle<i32, Physical>, color: [f32; 4]| {
             let element = SolidColorRenderElement::new(Id::new(), area, CommitCounter::default(), color, Kind::Unspecified);
-            smithay::backend::renderer::element::utils::CropRenderElement::from_element(element, scale, full)
+            CropRenderElement::from_element(element, scale, full)
                 .map(OutputElement::from)
         };
         let accent = self.desktop.appearance.active_border.0;
@@ -197,35 +197,38 @@ impl State {
             // Lay the workspace out as it would be shown (on a copy: arranging scrolls it).
             let mut copy = Workspace { number: workspace.number, kind: workspace.kind, windows: workspace.windows.clone(), focused: workspace.focused, scroll: workspace.scroll };
             let placements = arrange(&mut copy, &infos, usable, area, appearance);
-            let k = f64::from(cell.size.w) / f64::from(area.width.max(1));
+            // A scrolling workspace reaches beyond the screen: shrink the picture until every window fits.
+            let left = placements.iter().map(|p| p.content.x).min().unwrap_or(area.x).min(area.x);
+            let right = placements.iter().map(|p| p.content.x + p.content.width).max().unwrap_or(area.x + area.width).max(area.x + area.width);
+            let span = f64::from((right - left).max(1));
+            let k = f64::from(cell.size.w) / span;
             // Placements come back in paint order (back to front); we list front to back.
             for placement in placements.iter().rev() {
                 let Some(managed) = self.desktop.get(placement.id) else { continue };
                 let Rect { x, y, .. } = placement.content;
                 let origin = (
-                    f64::from(cell.loc.x) + f64::from(x - area.x) * k,
+                    f64::from(cell.loc.x) + f64::from(x - left) * k,
                     f64::from(cell.loc.y) + f64::from(y - area.y) * k,
                 );
                 let geometry_offset = managed.window.geometry().loc;
-                let location = Point::<i32, Physical>::from((
-                    ((origin.0 - f64::from(geometry_offset.x) * k) * scale).round() as i32,
-                    ((origin.1 - f64::from(geometry_offset.y) * k) * scale).round() as i32,
-                ));
+                // The window is laid out at full size around its top left corner and then shrunk about that corner.
+                let corner = Point::<i32, Physical>::from(((origin.0 * scale).round() as i32, (origin.1 * scale).round() as i32));
+                let location = corner - geometry_offset.to_physical_precise_round(scale);
                 // A window on a hidden workspace may still hold a buffer of an older size: keep it in its slot.
                 let slot = to_phys(Rectangle::new(
                     (origin.0.round() as i32, origin.1.round() as i32).into(),
                     ((f64::from(placement.content.width) * k).round() as i32, (f64::from(placement.content.height) * k).round() as i32).into(),
                 ));
                 let Some(clip) = cell_phys.intersection(slot) else { continue };
-                let thumb_scale = scale * k;
                 for element in AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
                     &managed.window,
                     renderer,
                     location,
-                    Scale::from(thumb_scale),
+                    Scale::from(scale),
                     1.0,
                 ) {
-                    if let Some(cropped) = smithay::backend::renderer::element::utils::CropRenderElement::from_element(element, thumb_scale, clip) {
+                    let shrunk = RescaleRenderElement::from_element(element, corner, k);
+                    if let Some(cropped) = CropRenderElement::from_element(shrunk, scale, clip) {
                         windows.push(OutputElement::from(cropped));
                     }
                 }

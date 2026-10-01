@@ -70,12 +70,32 @@ impl CompositorHandler for State {
             }
         }
         self.popups.commit(surface);
+        // A popup is mapped by its first configure, which the compositor has to send.
+        if let Some(PopupKind::Xdg(popup)) = self.popups.find_popup(surface)
+            && !popup.is_initial_configure_sent()
+        {
+            let _ = popup.send_configure();
+        }
         self.count_commit(surface);
         self.queue_redraw_for(surface);
     }
 }
 
 impl State {
+    /// Move a popup (menu, tooltip) so it stays on the output of its window: flipped or slid
+    /// the way the client allowed in its positioner.
+    fn unconstrain_popup(&self, popup: &PopupSurface) {
+        let kind = PopupKind::Xdg(popup.clone());
+        let Ok(root) = smithay::desktop::find_popup_root_surface(&kind) else { return };
+        let Some(window) = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == root)) else { return };
+        let (Some(output), Some(location)) = (self.space.outputs_for_element(window).first().cloned(), self.space.element_location(window)) else { return };
+        let Some(output_geo) = self.space.output_geometry(&output) else { return };
+        let mut target = output_geo;
+        target.loc -= smithay::desktop::get_popup_toplevel_coords(&kind);
+        target.loc -= location - window.geometry().loc;
+        popup.with_pending_state(|s| s.geometry = s.positioner.get_unconstrained_geometry(target));
+    }
+
     /// A surface changed: redraw the outputs it shows on (all of them if it is not a plain window).
     fn queue_redraw_for(&mut self, surface: &WlSurface) {
         let mut root = surface.clone();
@@ -147,6 +167,7 @@ impl XdgShellHandler for State {
 
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
         surface.with_pending_state(|s| s.geometry = positioner.get_geometry());
+        self.unconstrain_popup(&surface);
         let _ = self.popups.track_popup(PopupKind::Xdg(surface));
     }
 
@@ -157,6 +178,7 @@ impl XdgShellHandler for State {
             s.geometry = positioner.get_geometry();
             s.positioner = positioner;
         });
+        self.unconstrain_popup(&surface);
         surface.send_repositioned(token);
     }
 }

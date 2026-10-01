@@ -314,10 +314,13 @@ impl State {
             if owner.is_some_and(|owner| owner != monitor) {
                 return None;
             }
-            if !self.space.element_bbox(window)?.to_f64().contains(point) {
+            let render_location = self.space.element_location(window)? - window.geometry().loc;
+            // Popups (menus) may reach beyond the window itself.
+            let mut area = window.bbox_with_popups();
+            area.loc += render_location;
+            if !area.to_f64().contains(point) {
                 return None;
             }
-            let render_location = self.space.element_location(window)? - window.geometry().loc;
             window
                 .is_in_input_region(&(point - render_location.to_f64()))
                 .then(|| (window.clone(), render_location))
