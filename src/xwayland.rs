@@ -216,7 +216,21 @@ impl XwmHandler for State {
 
     fn move_request(&mut self, _xwm: XwmId, _window: X11Surface, _button: u32) {}
 
+    /// X11 clients may read the Wayland clipboard while an X11 window has the keyboard focus (they
+    /// could otherwise spy on it in the background).
+    fn allow_selection_access(&mut self, _xwm: XwmId, _selection: SelectionTarget) -> bool {
+        use smithay::reexports::wayland_server::Resource;
+        let Some(surface) = self.seat.get_keyboard().and_then(|keyboard| keyboard.current_focus()) else { return false };
+        let allowed = self
+            .display_handle
+            .get_client(surface.id())
+            .is_ok_and(|client| client.get_data::<smithay::xwayland::XWaylandClientData>().is_some());
+        tracing::debug!("an X11 client wants the selection: {}", if allowed { "allowed" } else { "refused" });
+        allowed
+    }
+
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
+        tracing::debug!("X11 asks for the Wayland {selection:?} as {mime_type}");
         let result = match selection {
             SelectionTarget::Clipboard => request_data_device_client_selection(&self.seat, mime_type, fd).map_err(|e| format!("{e:?}")),
             SelectionTarget::Primary => request_primary_client_selection(&self.seat, mime_type, fd).map_err(|e| format!("{e:?}")),
@@ -246,6 +260,7 @@ impl SelectionHandler for State {
 
     /// A Wayland client took the selection: let X11 clients know.
     fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: smithay::input::Seat<Self>) {
+        tracing::debug!("selection {ty:?} by a Wayland client: {:?}", source.as_ref().map(|s| s.mime_types()));
         if let Some(xwm) = self.xwm.as_mut()
             && let Err(error) = xwm.new_selection(ty, source.map(|source| source.mime_types()))
         {

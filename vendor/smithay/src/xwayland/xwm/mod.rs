@@ -1158,6 +1158,9 @@ impl X11Wm {
             self.conn
                 .set_selection_owner(x11rb::NONE, selection.atom, selection.timestamp)?;
         }
+        // Without this the request waits in the buffer until some other X event flushes it, and
+        // X11 clients see no selection owner in the meantime.
+        self.conn.flush()?;
 
         Ok(())
     }
