@@ -52,9 +52,6 @@ impl CompositorHandler for State {
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
-        if matches!(&self.cursor_status, CursorImageStatus::Surface(cursor) if cursor == surface) {
-            self.log_cursor_change();
-        }
         if self.layer_commit(surface) {
             return;
         }
@@ -77,8 +74,6 @@ impl CompositorHandler for State {
         if let Some(PopupKind::Xdg(popup)) = self.popups.find_popup(surface)
             && !popup.is_initial_configure_sent()
         {
-            let geometry = popup.with_pending_state(|s| s.geometry);
-            tracing::info!("popup: initial configure {}x{} at {},{}", geometry.size.w, geometry.size.h, geometry.loc.x, geometry.loc.y);
             let _ = popup.send_configure();
         }
         self.count_commit(surface);
@@ -104,27 +99,7 @@ impl State {
         let mut target = output_geo;
         target.loc -= location;
         target.loc -= smithay::desktop::get_popup_toplevel_coords(&kind);
-        let placed = popup.with_pending_state(|s| {
-            s.geometry = s.positioner.get_unconstrained_geometry(target);
-            s.geometry
-        });
-        tracing::info!(
-            "popup: window at {},{} (geometry {:?}), output {} at {},{} {}x{}, target {},{} {}x{} -> popup at {},{}",
-            location.x,
-            location.y,
-            window.geometry(),
-            output.name(),
-            output_geo.loc.x,
-            output_geo.loc.y,
-            output_geo.size.w,
-            output_geo.size.h,
-            target.loc.x,
-            target.loc.y,
-            target.size.w,
-            target.size.h,
-            placed.loc.x,
-            placed.loc.y
-        );
+        popup.with_pending_state(|s| s.geometry = s.positioner.get_unconstrained_geometry(target));
     }
 
     /// A surface changed: redraw the outputs it shows on (all of them if it is not a plain window).
@@ -198,30 +173,11 @@ impl XdgShellHandler for State {
 
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
         surface.with_pending_state(|s| s.geometry = positioner.get_geometry());
-        let asked = positioner.get_geometry();
         self.unconstrain_popup(&surface);
-        let placed = surface.with_pending_state(|s| s.geometry);
-        tracing::info!(
-            "popup: new, wants {}x{} at {},{}, placed at {},{} ({} the parent {})",
-            asked.size.w,
-            asked.size.h,
-            asked.loc.x,
-            asked.loc.y,
-            placed.loc.x,
-            placed.loc.y,
-            if surface.get_parent_surface().is_some() { "of" } else { "without" },
-            self.describe_surface(surface.get_parent_surface().as_ref())
-        );
         let _ = self.popups.track_popup(PopupKind::Xdg(surface));
     }
 
-    fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
-        tracing::info!("popup: grab requested (not implemented) by a popup of {}", self.describe_surface(surface.get_parent_surface().as_ref()));
-    }
-
-    fn popup_destroyed(&mut self, surface: PopupSurface) {
-        tracing::info!("popup: destroyed (parent {})", self.describe_surface(surface.get_parent_surface().as_ref()));
-    }
+    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {}
 
     fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {
         surface.with_pending_state(|s| {
@@ -251,7 +207,6 @@ impl SeatHandler for State {
     }
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.cursor_status = image;
-        self.log_cursor_change();
         self.queue_redraw_all();
     }
 }
@@ -284,62 +239,9 @@ impl DmabufHandler for State {
 }
 
 impl State {
-    /// A surface in words, for the log: which kind of window, or "a panel, lock or popup surface".
-    pub fn describe_surface(&self, surface: Option<&WlSurface>) -> String {
-        match surface {
-            None => "nothing".to_string(),
-            Some(surface) => match self.desktop.by_surface(surface) {
-                Some(m) => format!("{} window {:?}", if m.window.x11_surface().is_some() { "X11" } else { "Wayland" }, m.app_id),
-                None => "a panel, lock or popup surface".to_string(),
-            },
-        }
-    }
-
-    /// Log the cursor image if it differs from the one logged last.
-    pub fn log_cursor_change(&mut self) {
-        let what = self.describe_cursor(&self.cursor_status);
-        if what != self.cursor_desc {
-            tracing::info!("cursor: {what}");
-            self.cursor_desc = what;
-        }
-    }
-
-    /// A cursor image in words: its name, or which client supplied the surface (with size and hotspot).
-    fn describe_cursor(&self, image: &CursorImageStatus) -> String {
-        match image {
-            CursorImageStatus::Hidden => "hidden by the client".to_string(),
-            CursorImageStatus::Named(icon) => format!("named {:?}", icon.name()),
-            CursorImageStatus::Surface(surface) => {
-                let owner = self.display_handle.get_client(surface.id()).ok().map_or("a dead client".to_string(), |client| {
-                    if client.get_data::<XWaylandClientData>().is_some() {
-                        "Xwayland".to_string()
-                    } else {
-                        client.get_data::<ClientState>().and_then(|d| d.name.get().cloned()).unwrap_or_else(|| "a client".to_string())
-                    }
-                });
-                let size = smithay::backend::renderer::utils::with_renderer_surface_state(surface, |state| state.buffer_size())
-                    .flatten()
-                    .map_or("no buffer yet".to_string(), |size| format!("{}x{}", size.w, size.h));
-                let hotspot = smithay::wayland::compositor::with_states(surface, |states| {
-                    states
-                        .data_map
-                        .get::<std::sync::Mutex<smithay::input::pointer::CursorImageAttributes>>()
-                        .map(|attrs| attrs.lock().unwrap().hotspot)
-                        .unwrap_or_default()
-                });
-                let core = if self.core_cursor_of(image).is_some() { " (a core X cursor, drawn as the themed default)" } else { "" };
-                format!("surface of {owner}, {size}, hotspot {},{}{core}", hotspot.x, hotspot.y)
-            }
-        }
-    }
-
     pub fn set_keyboard_focus(&mut self, surface: Option<WlSurface>) {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         if let Some(keyboard) = self.seat.get_keyboard() {
-            if keyboard.current_focus() != surface {
-                let what = self.describe_surface(surface.as_ref());
-                tracing::info!("keyboard focus: {what}");
-            }
             keyboard.set_focus(self, surface, serial);
         }
     }

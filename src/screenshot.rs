@@ -339,7 +339,7 @@ fn timestamp() -> String {
 fn save(directory: PathBuf, width: u32, height: u32, mut pixels: Vec<u8>, wayland_display: String) {
     std::thread::spawn(move || {
         // The renderer hands over B, G, R, A; the output is opaque.
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }

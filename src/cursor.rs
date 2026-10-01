@@ -72,8 +72,11 @@ const CURSOR_FORMAT: Fourcc = Fourcc::Argb8888;
 
 /// Cursors of the X cursor font that Xwayland hands over as plain images: a client that makes its cursors
 /// with `XCreateFontCursor` (Steam does) bypasses the theme. Image size and hotspot of such a cursor, and
-/// the themed icon to draw instead. More can be added from the `cursor:` log lines.
-const CORE_CURSORS: &[((i32, i32), (i32, i32), CursorIcon)] = &[((10, 16), (1, 1), CursorIcon::Default)];
+/// the themed icon to draw instead.
+const CORE_CURSORS: &[CoreCursor] = &[((10, 16), (1, 1), CursorIcon::Default)];
+
+/// Size, hotspot and the themed icon of one such cursor.
+type CoreCursor = ((i32, i32), (i32, i32), CursorIcon);
 
 /// The themed icon for an Xwayland cursor image that is one of the X cursor font's glyphs.
 pub fn core_cursor_icon(size: (i32, i32), hotspot: (i32, i32)) -> Option<CursorIcon> {

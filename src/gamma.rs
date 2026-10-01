@@ -124,7 +124,7 @@ fn read_ramp(fd: OwnedFd, size: usize) -> Option<Ramp> {
     if file.read(&mut extra).ok()? != 0 {
         return None;
     }
-    let values: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect();
+    let values: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|c| u16::from_ne_bytes(*c)).collect();
     Some((values[..size].to_vec(), values[size..2 * size].to_vec(), values[2 * size..].to_vec()))
 }
 

@@ -87,8 +87,6 @@ pub struct State {
     pub config: Config,
     pub cursor_status: CursorImageStatus,
     pub cursor_assets: CursorAssets,
-    /// The cursor image as last logged, to log changes only.
-    pub cursor_desc: String,
     /// Present with the hardware backend.
     pub udev: Option<UdevData>,
     pub session: Option<LibSeatSession>,
@@ -197,10 +195,8 @@ impl State {
             .insert_source(
                 Generic::new(display, Interest::READ, Mode::Level),
                 |_, display, state| {
-                    let started = Instant::now();
                     // SAFETY: the display is never dropped while the source is alive.
                     unsafe { display.get_mut().dispatch_clients(state).unwrap() };
-                    crate::logging::note_slow("handling client requests", started.elapsed(), std::time::Duration::from_millis(5));
                     Ok(PostAction::Continue)
                 },
             )
@@ -249,7 +245,6 @@ impl State {
             bindings: Vec::new(),
             cursor_status: CursorImageStatus::default_named(),
             cursor_assets: CursorAssets::new(),
-            cursor_desc: String::new(),
             udev: None,
             session: None,
             dmabuf_state: DmabufState::new(),

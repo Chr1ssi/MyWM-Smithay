@@ -151,7 +151,6 @@ impl XwmHandler for State {
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window unmapped: {:?} ({})", window.title(), window.class());
         self.forget_x11_window(&window);
         if !window.is_override_redirect() {
             let _ = window.set_mapped(false);
@@ -159,7 +158,6 @@ impl XwmHandler for State {
     }
 
     fn destroyed_window(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window destroyed: {:?} ({})", window.title(), window.class());
         self.forget_x11_window(&window);
     }
 
@@ -214,14 +212,12 @@ impl XwmHandler for State {
     }
 
     fn fullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window asks for fullscreen: {:?} ({})", window.title(), window.class());
         if let Some(id) = self.desktop.by_x11(window.window_id()).map(|m| m.id) {
             self.set_fullscreen(id, true);
         }
     }
 
     fn unfullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window leaves fullscreen: {:?} ({})", window.title(), window.class());
         if let Some(id) = self.desktop.by_x11(window.window_id()).map(|m| m.id) {
             self.set_fullscreen(id, false);
         }
@@ -232,7 +228,6 @@ impl XwmHandler for State {
     // The client is told it is minimized, the window stays shown (it keeps its last picture and still gets the
     // pointer), and it is restored when it gets the focus again.
     fn minimize_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window minimizes itself: {:?} ({})", window.title(), window.class());
         if let Some(m) = self.desktop.by_x11(window.window_id()).map(|m| m.id).and_then(|id| self.desktop.get_mut(id)) {
             m.minimized = true;
             window.set_iconic(true);
@@ -240,7 +235,6 @@ impl XwmHandler for State {
     }
 
     fn unminimize_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window asks to be restored: {:?} ({})", window.title(), window.class());
         if let Some(id) = self.desktop.by_x11(window.window_id()).map(|m| m.id) {
             self.restore_minimized(id);
         }
@@ -256,16 +250,12 @@ impl XwmHandler for State {
     fn allow_selection_access(&mut self, _xwm: XwmId, _selection: SelectionTarget) -> bool {
         use smithay::reexports::wayland_server::Resource;
         let Some(surface) = self.seat.get_keyboard().and_then(|keyboard| keyboard.current_focus()) else { return false };
-        let allowed = self
-            .display_handle
+        self.display_handle
             .get_client(surface.id())
-            .is_ok_and(|client| client.get_data::<smithay::xwayland::XWaylandClientData>().is_some());
-        tracing::debug!("an X11 client wants the selection: {}", if allowed { "allowed" } else { "refused" });
-        allowed
+            .is_ok_and(|client| client.get_data::<smithay::xwayland::XWaylandClientData>().is_some())
     }
 
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
-        tracing::debug!("X11 asks for the Wayland {selection:?} as {mime_type}");
         let result = match selection {
             SelectionTarget::Clipboard => request_data_device_client_selection(&self.seat, mime_type, fd).map_err(|e| format!("{e:?}")),
             SelectionTarget::Primary => request_primary_client_selection(&self.seat, mime_type, fd).map_err(|e| format!("{e:?}")),
@@ -295,7 +285,6 @@ impl SelectionHandler for State {
 
     /// A Wayland client took the selection: let X11 clients know.
     fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: smithay::input::Seat<Self>) {
-        tracing::debug!("selection {ty:?} by a Wayland client: {:?}", source.as_ref().map(|s| s.mime_types()));
         if let Some(xwm) = self.xwm.as_mut()
             && let Err(error) = xwm.new_selection(ty, source.map(|source| source.mime_types()))
         {

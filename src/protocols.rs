@@ -128,7 +128,6 @@ impl State {
 
     /// Called when the surface under the pointer changes: constraints follow pointer focus.
     pub fn pointer_focus_changed(&mut self, old: Option<&WlSurface>, new: Option<&WlSurface>) {
-        tracing::debug!(target: "cursor", "pointer focus: {} -> {}", self.describe_surface(old), self.describe_surface(new));
         let Some(pointer) = self.seat.get_pointer() else { return };
         if let Some(old) = old {
             with_pointer_constraint(old, &pointer, |constraint| {

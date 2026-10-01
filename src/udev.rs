@@ -19,7 +19,7 @@ use smithay::{
         },
         drm::{
             DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, NodeType, DrmEventMetadata as EventMetadata, DrmEventTime as DrmTime, VrrSupport,
-            compositor::{DrmCompositor, FrameFlags, PrimaryPlaneElement},
+            compositor::{DrmCompositor, FrameFlags},
             exporter::gbm::GbmFramebufferExporter,
         },
         egl::{EGLContext, EGLDisplay, context::ContextPriority},
@@ -27,7 +27,7 @@ use smithay::{
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             ImportDma,
-            element::{Element, RenderElementPresentationState, default_primary_scanout_output_compare, utils::select_dmabuf_feedback},
+            element::{default_primary_scanout_output_compare, utils::select_dmabuf_feedback},
             gles::GlesRenderer,
         },
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
@@ -99,7 +99,6 @@ struct PresentationPolicy {
     tearing: bool,
     /// A recognized game is fullscreen and focused on the output.
     game: bool,
-    tearing_configured: bool,
     tearing_requested: bool,
 }
 
@@ -121,8 +120,6 @@ struct Surface {
     tearing: bool,
     /// The display is on; while off nothing is drawn.
     powered: bool,
-    /// Last (game, tearing configured, tearing requested) that was logged.
-    situation: (bool, bool, bool),
     /// Cleared when the driver rejected an immediate flip.
     tearing_works: bool,
     /// Adaptive sync was requested but cannot be enabled on this output.
@@ -139,14 +136,6 @@ struct Surface {
     stats: FrameStats,
     /// The last frame went to the screen without a compositing pass.
     scanout: bool,
-    /// Frames since a recognized game took the output (0 while none does), for the scanout report.
-    game_frames: u32,
-    /// What the last "not scanned out" report said about the elements, and when: reported again when it changes.
-    scanout_signature: Option<String>,
-    last_scanout_report: Option<Instant>,
-    /// When the last "slow redraw" line was logged and how many were left out since.
-    last_slow_log: Option<Instant>,
-    slow_suppressed: u32,
 }
 
 /// Counters logged now and then (target `perf`, level debug).
@@ -704,7 +693,6 @@ impl State {
                 vrr: false,
                 tearing: false,
                 powered: true,
-                situation: (false, false, false),
                 tearing_works: async_flip,
                 vrr_failed: false,
                 modes: info.modes().to_vec(),
@@ -714,11 +702,6 @@ impl State {
                 times: RenderTimes::default(),
                 stats: FrameStats::new(),
                 scanout: false,
-                game_frames: 0,
-                scanout_signature: None,
-                last_scanout_report: None,
-                last_slow_log: None,
-                slow_suppressed: 0,
             },
         );
         self.add_output(output, position);
@@ -808,29 +791,12 @@ impl State {
         }
         let output = surface.output.clone();
 
-        let redraw_started = Instant::now();
         let elements = self.output_elements(renderer, &output);
-        let elements_took = redraw_started.elapsed();
         let background = self.clear_color();
 
         // Adaptive sync and tearing only while a game owns the output.
         let policy = self.presentation_policy(&output);
         let (vrr_wanted, tearing_wanted) = (policy.vrr, policy.tearing);
-        // Say why VRR and tearing are (not) used whenever the situation changes: a game owning
-        // the output, whether the config allows tearing here and whether the game asks for it.
-        let situation = (policy.game, policy.tearing_configured, policy.tearing_requested);
-        if surface.situation != situation {
-            surface.situation = situation;
-            if policy.game || surface.tearing {
-                tracing::info!(
-                    "{}: fullscreen game: {}; tearing allowed by config: {}; requested by the game: {}",
-                    output.name(),
-                    policy.game,
-                    policy.tearing_configured,
-                    policy.tearing_requested
-                );
-            }
-        }
         if vrr_wanted != surface.vrr && !surface.vrr_failed {
             surface.vrr = set_vrr(&mut surface.compositor, surface.connector, vrr_wanted, &output.name());
             // Not supported (or refused): do not ask again every frame.
@@ -845,11 +811,8 @@ impl State {
 
         let started = Instant::now();
         let mut had_damage = false;
-        let (mut render_took, mut queue_took) = (Duration::ZERO, Duration::ZERO);
         let queued = match surface.compositor.render_frame(renderer, &elements, background, SCANOUT_FLAGS) {
             Ok(result) => {
-                render_took = started.elapsed();
-                let planes = (matches!(result.primary_element, PrimaryPlaneElement::Element(_)), result.overlay_elements.len(), result.cursor_element.is_some());
                 let states = result.states.clone();
                 let is_empty = result.is_empty;
                 had_damage = !is_empty;
@@ -866,67 +829,6 @@ impl State {
                         }
                     }
                 }
-                // While a game owns the output but is composited, say once why it is not scanned out: every
-                // element on the output with what became of it, and the format of the game's own buffer.
-                if policy.game {
-                    surface.game_frames = surface.game_frames.saturating_add(1);
-                    if !is_empty && !direct_scanout(&states) && surface.game_frames >= 120 {
-                        let scale = smithay::utils::Scale::from(output.current_scale().fractional_scale());
-                        let listing: Vec<String> = elements
-                            .iter()
-                            .take(8)
-                            .map(|element| {
-                                let area = element.geometry(scale);
-                                let what = match states.states.get(element.id()).map(|state| state.presentation_state) {
-                                    Some(RenderElementPresentationState::ZeroCopy) => "scanned out".to_string(),
-                                    Some(RenderElementPresentationState::Rendering { reason }) => format!("composited ({reason:?})"),
-                                    Some(RenderElementPresentationState::Skipped) => "hidden".to_string(),
-                                    None => "not listed".to_string(),
-                                };
-                                format!("{} {}x{} at {},{}: {what}", element.kind(), area.size.w, area.size.h, area.loc.x, area.loc.y)
-                            })
-                            .collect();
-                        // Report again when the picture changes (the cursor hidden in the game, say), not more than every 5 s.
-                        let signature = format!("{}|{}|{}|{}", planes.0, planes.1, planes.2, listing.iter().map(|l| l.split(" at ").next().unwrap_or("")).collect::<Vec<_>>().join(","));
-                        let due = surface.last_scanout_report.is_none_or(|at| at.elapsed() >= Duration::from_secs(5));
-                        if due && surface.scanout_signature.as_deref() != Some(signature.as_str()) {
-                            surface.scanout_signature = Some(signature);
-                            surface.last_scanout_report = Some(Instant::now());
-                            // The reason smithay does not scan the game out is only a trace line: record one second of it.
-                            crate::logging::trace_burst("smithay::backend::drm=trace", Duration::from_secs(1));
-                            let (buffer, buffer_format) = self.game_buffer_description(&output);
-                            let inventory = {
-                                let planes = surface.compositor.surface().planes();
-                                let primary = surface.compositor.surface().plane_info();
-                                let primary_takes_it = buffer_format.map(|format| if primary.formats.contains(&format) { "yes" } else { "no" }).unwrap_or("unknown");
-                                let overlay_takes_it = buffer_format
-                                    .map(|format| if planes.overlay.iter().any(|plane| plane.formats.contains(&format)) { "yes" } else { "no" })
-                                    .unwrap_or("unknown");
-                                format!(
-                                    "{} primary, {} cursor ({}), {} overlay plane(s); the primary plane takes the game's format and modifier: {primary_takes_it}; an overlay plane does: {overlay_takes_it}",
-                                    planes.primary.len(),
-                                    planes.cursor.len(),
-                                    planes.cursor.iter().map(|plane| format!("size hints {:?}", plane.size_hints)).collect::<Vec<_>>().join(", "),
-                                    planes.overlay.len()
-                                )
-                            };
-                            tracing::info!(
-                                "{}: the game is composited, not scanned out; primary plane {}, {} overlay plane(s), cursor plane {}; front to back: [{}]; game buffer: {}; hardware: {}",
-                                output.name(),
-                                if planes.0 { "scanout" } else { "composited" },
-                                planes.1,
-                                if planes.2 { "used" } else { "unused" },
-                                listing.join("; "),
-                                buffer,
-                                inventory
-                            );
-                        }
-                    }
-                } else {
-                    surface.game_frames = 0;
-                    surface.scanout_signature = None;
-                    surface.last_scanout_report = None;
-                }
                 if is_empty {
                     false
                 } else {
@@ -936,10 +838,7 @@ impl State {
                             surface_presentation_feedback_flags_from_states(surface, &states)
                         });
                     }
-                    let queue_started = Instant::now();
-                    let queue_result = surface.compositor.queue_frame(Some(feedback));
-                    queue_took = queue_started.elapsed();
-                    match queue_result {
+                    match surface.compositor.queue_frame(Some(feedback)) {
                         Ok(()) => true,
                         Err(error) if surface.tearing => {
                             // The driver refused an immediate flip; do not try again on this output.
@@ -984,35 +883,9 @@ impl State {
                 );
             }
         }
-        let captures_started = Instant::now();
         self.fulfill_screencopy(renderer, &output, &elements, had_damage);
         self.fulfill_image_captures(renderer, &output, &elements, had_damage);
         self.fulfill_screenshots(renderer, &output, &elements);
-        let captures_took = captures_started.elapsed();
-        // A redraw that holds the thread up for long (the budget at 144 Hz is 6.9 ms): where did the time go?
-        let total = redraw_started.elapsed();
-        if total > Duration::from_millis(8) {
-            let now = Instant::now();
-            if surface.last_slow_log.is_none_or(|at| now.duration_since(at) >= Duration::from_secs(1)) {
-                let more = std::mem::take(&mut surface.slow_suppressed);
-                surface.last_slow_log = Some(now);
-                let ms = |d: Duration| d.as_secs_f64() * 1000.0;
-                tracing::info!(
-                    "{}: slow redraw {:.1} ms (elements {:.1}, render {:.1}, queue {:.1}, captures {:.1}); {} elements{}{}",
-                    output.name(),
-                    ms(total),
-                    ms(elements_took),
-                    ms(render_took),
-                    ms(queue_took),
-                    ms(captures_took),
-                    elements.len(),
-                    if policy.game { ", a game owns the output" } else { "" },
-                    if more > 0 { format!("; {more} more since the last line") } else { String::new() }
-                );
-            } else {
-                surface.slow_suppressed += 1;
-            }
-        }
         // With late scheduling frame callbacks go out at the vblank instead (see `on_vblank`).
         if !late {
             self.send_frames(&output);
@@ -1049,22 +922,6 @@ impl State {
         }
     }
 
-    /// The pixel format of the buffer of the game that owns `output`, for the log, and that format.
-    fn game_buffer_description(&self, output: &Output) -> (String, Option<smithay::backend::allocator::Format>) {
-        let Some(monitor) = self.outputs.iter().position(|e| &e.output == output) else { return ("unknown output".into(), None) };
-        let Some(surface) = self.fullscreen_game_on(monitor).and_then(|game| game.surface()) else { return ("no game surface".into(), None) };
-        smithay::backend::renderer::utils::with_renderer_surface_state(&surface, |state| {
-            use smithay::backend::allocator::Buffer as _;
-            let size = state.buffer_size().map_or("?".to_string(), |size| format!("{}x{}", size.w, size.h));
-            match state.buffer().map(|buffer| smithay::wayland::dmabuf::get_dmabuf(&**buffer).map(|dmabuf| (dmabuf.format(), dmabuf.num_planes()))) {
-                Some(Ok((format, planes))) => (format!("dmabuf {:?}, modifier {:?}, {planes} plane(s), {size}", format.code, format.modifier), Some(format)),
-                Some(Err(_)) => (format!("shared memory, {size}"), None),
-                None => ("none attached".to_string(), None),
-            }
-        })
-        .unwrap_or_else(|| ("no renderer state".to_string(), None))
-    }
-
     /// Whether VRR and tearing should be active on `output` right now.
     ///
     /// VRR needs `[vrr] enabled` with this output named, tearing needs the output in
@@ -1074,7 +931,7 @@ impl State {
         let name = output.name();
         let vrr_allowed = self.config.vrr.enabled && self.config.vrr.output == name;
         let tearing_configured = self.config.async_outputs.contains(&name);
-        let mut policy = PresentationPolicy { tearing_configured, ..Default::default() };
+        let mut policy = PresentationPolicy::default();
         if !vrr_allowed && !tearing_configured {
             return policy;
         }

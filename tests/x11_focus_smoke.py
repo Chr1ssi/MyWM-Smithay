@@ -12,7 +12,6 @@ comp = Compositor(extra_args=f"xev -event keyboard > {events} 2>&1 & ")
 try:
     log = lambda: open(comp.dir + "/log").read()
     assert wait(lambda: "new window" in log(), 15), "xev was not managed"
-    assert wait(lambda: "X11 input focus" in log(), 5), "the X11 input focus was never set"
     time.sleep(1)
     comp.key("a")
     time.sleep(0.5)

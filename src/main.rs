@@ -139,12 +139,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     event_loop.run(None, &mut state, |state| {
-        let started = std::time::Instant::now();
         state.space.refresh();
         state.popups.cleanup();
         state.ipc_flush();
         let _ = state.display_handle.flush_clients();
-        logging::note_slow("the end of a loop iteration", started.elapsed(), std::time::Duration::from_millis(5));
     })?;
     Ok(())
 }

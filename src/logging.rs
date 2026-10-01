@@ -3,23 +3,9 @@
 //! The file is `$MYWM_LOG_FILE`, else `$XDG_STATE_HOME/mywm/compositor.log`
 //! (`~/.local/state/mywm/compositor.log`); the previous session's log is kept as `compositor.log.1`.
 //! `MYWM_LOG_FILE=off` turns the file off. `RUST_LOG` sets the level (default `info`).
-use std::{
-    fs::File,
-    io,
-    path::PathBuf,
-    sync::{
-        Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{fs::File, io, path::PathBuf, sync::Mutex};
 
-use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
-
-/// Changes the file's log filter while the compositor runs (see `trace_burst`), and the filter it goes back to.
-static FILE_FILTER: OnceLock<Box<dyn Fn(EnvFilter) + Send + Sync>> = OnceLock::new();
-static BASE_FILTER: OnceLock<String> = OnceLock::new();
-static BURSTING: AtomicBool = AtomicBool::new(false);
+use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Info level, except for X11 protocol errors about windows that vanished (Steam does this all
 /// the time and they are harmless).
@@ -51,8 +37,6 @@ fn open_log(path: &PathBuf) -> io::Result<File> {
 
 /// Set up logging; returns the log file's path when there is one.
 pub fn init() -> Option<PathBuf> {
-    let base = std::env::var("RUST_LOG").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| DEFAULT_FILTER.to_owned());
-    let _ = BASE_FILTER.set(base);
     let filter = || EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER));
     let path = log_path();
     let mut opened = None;
@@ -69,13 +53,7 @@ pub fn init() -> Option<PathBuf> {
     let registry = tracing_subscriber::registry().with(fmt::layer().with_writer(io::stderr).with_filter(filter()));
     match file {
         Some(file) => {
-            let (file_filter, handle) = reload::Layer::new(filter());
-            registry
-                .with(fmt::layer().with_ansi(false).with_writer(Mutex::new(file)).with_filter(file_filter))
-                .init();
-            let _ = FILE_FILTER.set(Box::new(move |filter| {
-                let _ = handle.reload(filter);
-            }));
+            registry.with(fmt::layer().with_ansi(false).with_writer(Mutex::new(file)).with_filter(filter())).init();
         }
         None => registry.init(),
     }
@@ -86,49 +64,4 @@ pub fn init() -> Option<PathBuf> {
         default_hook(info);
     }));
     opened
-}
-
-/// Log that `what` took `took` if that is more than `limit`: at most one line a second per `what`, the
-/// others are counted. For finding what holds up the compositor's thread.
-pub fn note_slow(what: &'static str, took: std::time::Duration, limit: std::time::Duration) {
-    use std::{sync::Mutex, time::{Duration, Instant}};
-    if took < limit {
-        return;
-    }
-    static LAST: Mutex<Vec<(&'static str, Instant, u32)>> = Mutex::new(Vec::new());
-    let mut last = LAST.lock().unwrap();
-    let now = Instant::now();
-    let slot = match last.iter().position(|(w, _, _)| *w == what) {
-        Some(index) => index,
-        None => {
-            last.push((what, now - Duration::from_secs(2), 0));
-            last.len() - 1
-        }
-    };
-    let (_, at, skipped) = &mut last[slot];
-    if now.duration_since(*at) < Duration::from_secs(1) {
-        *skipped += 1;
-        return;
-    }
-    let more = std::mem::take(skipped);
-    *at = now;
-    tracing::info!("{what} took {:.1} ms{}", took.as_secs_f64() * 1000.0, if more > 0 { format!(" ({more} more slow ones since the last line)") } else { String::new() });
-}
-
-/// Log `directive` (for instance `smithay::backend::drm=trace`) to the file for `length`, on top of the usual
-/// filter, then go back. For catching what a library only says at trace level when something specific happens.
-/// A burst already running is left alone.
-pub fn trace_burst(directive: &'static str, length: Duration) {
-    let (Some(apply), Some(base)) = (FILE_FILTER.get(), BASE_FILTER.get()) else { return };
-    if BURSTING.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    apply(EnvFilter::new(format!("{base},{directive}")));
-    std::thread::spawn(move || {
-        std::thread::sleep(length);
-        if let Some(apply) = FILE_FILTER.get() {
-            apply(EnvFilter::new(BASE_FILTER.get().map_or(DEFAULT_FILTER, String::as_str)));
-        }
-        BURSTING.store(false, Ordering::SeqCst);
-    });
 }
