@@ -70,7 +70,11 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                         .damage
                         .is_some_and(|d| !d.is_empty());
                 }
-                backend.submit(Some(&[damage])).expect("submit");
+                // Under Xvfb, presenting fails now and then (EGL cannot recreate the window surface while the
+                // old one exists); the old surface stays usable, so the next frame presents again.
+                if let Err(error) = backend.submit(Some(&[damage])) {
+                    tracing::warn!("cannot present the nested window: {error}");
+                }
 
                 // Captures render offscreen, which must not happen while the window is being drawn.
                 state.fulfill_screencopy(backend.renderer(), &output, &elements, true);
