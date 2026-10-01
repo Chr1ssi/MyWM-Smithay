@@ -7,9 +7,10 @@ Idle startet der Compositor selbst (swaylock/swayidle).
 
 ## NixOS (Flake)
 
-Die Nix-Dateien (`flake.nix`, `nix/package.nix`, `nix/module.nix`) sind **ungetestet**: sie
-wurden ohne Nix in der Cloud geschrieben. Bei Fehlern beim Bauen zuerst `nix/package.nix`
-ansehen (Bibliotheken, `LIBCLANG_PATH`, `cargoBuildFlags`).
+Flake und Paket (`flake.nix`, `nix/package.nix`) sind im täglichen Gebrauch. Das NixOS-Modul
+(`nix/module.nix`) ist noch nicht in einer echten Systemkonfiguration erprobt, weil es dieselbe
+Sitzung „mywm“ wie das River-MyWM anlegt; wer beide parallel nutzt, nimmt nur die Pakete und legt
+eine eigene Sitzung an.
 
 ```nix
 # flake.nix des Systems

@@ -11,10 +11,10 @@ Presentation-Time, explizite Sync, Relative Pointer/Pointer Constraints, Viewpor
 Fractional Scale) und Desktop-Integration: Layer-Shell (Quickshell-Bar, Launcher),
 Sitzungssperre (`ext-session-lock`/swaylock), Idle (`ext-idle-notify`/swayidle,
 `wlr-output-power-management`/wlopm), Xwayland für Legacy-Apps (Steam) und
-Bildschirmaufnahme (`wlr-screencopy` → OBS, Browser, grim). M2–M4 wurden nested
-getestet (Layer-Shell, Sperre, Idle, Monitor-Power, Xwayland, Capture, Multi-Monitor
-mit virtuellen Ausgängen); der Hardware-Teil (DRM, libinput, VRR, Tearing, Scanout)
-lief noch nicht auf echter Hardware, siehe `docs/hardware-test.md`.
+Bildschirmaufnahme (`wlr-screencopy` → OBS, Browser, grim). Der Compositor läuft im
+Alltag auf echter Hardware (NixOS, eigene Sitzung); die nested Smoke-Tests decken Layer-Shell,
+Sperre, Idle, Monitor-Power, Xwayland, Capture und Multi-Monitor mit virtuellen Ausgängen ab.
+Hinweise zum Test auf neuer Hardware: `docs/hardware-test.md`.
 
 Langfristig läuft alles nativ unter Wayland: Xwayland ist nur für Apps da, die es noch
 brauchen (Steam selbst, ältere Spiele) und lässt sich mit `xwayland = false` abschalten.
@@ -53,7 +53,7 @@ Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-
 Screen-Sharing ohne `xdg-desktop-portal-wlr`: `mywm-portal` fragt im Compositor nach Fenster oder Monitor
 und streamt über PipeWire (`docs/streaming.md`).
 
-Installation, Session und NixOS-Modul (ungetestet): `docs/install.md`. Zusätzlich: `[input]` (Beschleunigung,
+Installation, Session und NixOS-Modul: `docs/install.md`. Zusätzlich: `[input]` (Beschleunigung,
 Scrollrichtung, Tastenwiederholung), `keyboard-shortcuts-inhibit` (mit `Super+Shift+Escape` holt man die Kürzel
 zurück), `xdg-activation` (Fenster mit Aufmerksamkeitswunsch bekommen einen roten Rahmen) und `wlr-gamma-control`
 (Nachtlicht mit gammastep/wlsunset, nur Hardware).
