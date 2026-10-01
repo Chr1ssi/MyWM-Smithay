@@ -1,4 +1,4 @@
-# MyWM-smithey
+# MyWM-Smithay
 
 Smithay-based Wayland compositor: lightweight, with a small set of selected visual
 effects. Priorities, in this order of weight: **stability**, **ease of use**, **low

@@ -99,7 +99,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Smithay-based tiling Wayland compositor with its Quickshell shell and screen-cast portal";
-    homepage = "https://github.com/Chr1ssi/MyWM-smithey";
+    homepage = "https://github.com/Chr1ssi/MyWM-Smithay";
     mainProgram = "mywm-compositor";
     platforms = lib.platforms.linux;
   };

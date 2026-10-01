@@ -13,7 +13,7 @@ ansehen (Bibliotheken, `LIBCLANG_PATH`, `cargoBuildFlags`).
 
 ```nix
 # flake.nix des Systems
-inputs.mywm.url = "github:Chr1ssi/MyWM-smithey";
+inputs.mywm.url = "github:Chr1ssi/MyWM-Smithay";
 # ...
 modules = [
   inputs.mywm.nixosModules.default

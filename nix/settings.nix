@@ -52,7 +52,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Graphical settings and keybinding editor for mywm";
-    homepage = "https://github.com/Chr1ssi/MyWM-smithey";
+    homepage = "https://github.com/Chr1ssi/MyWM-Smithay";
     mainProgram = "mywm-settings";
     platforms = lib.platforms.linux;
   };
