@@ -112,6 +112,8 @@ in
       before = [ "graphical-session.target" ];
     };
     programs.xwayland.enable = true;
+    # mywm-portal.service, the session-bound unit behind the portal's D-Bus activation.
+    systemd.packages = [ cfg.package ];
 
     # Screen sharing goes through mywm-portal (the compositor asks what to share); the
     # file chooser and the rest come from the GTK portal.

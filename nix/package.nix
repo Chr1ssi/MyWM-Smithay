@@ -72,12 +72,14 @@ rustPlatform.buildRustPackage {
   LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
 
   postInstall = ''
-    mkdir -p $out/share/mywm $out/share/xdg-desktop-portal/portals $out/share/dbus-1/services
+    mkdir -p $out/share/mywm $out/share/xdg-desktop-portal/portals $out/share/dbus-1/services $out/lib/systemd/user
     cp -r scripts $out/share/mywm/
     cp -r ${shellSrc}/quickshell $out/share/mywm/quickshell
     install -Dm644 portal/mywm.portal $out/share/xdg-desktop-portal/portals/mywm.portal
     substitute portal/org.freedesktop.impl.portal.desktop.mywm.service \
       $out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.mywm.service \
+      --replace-fail "/usr/bin/env mywm-portal" "$out/bin/mywm-portal"
+    substitute portal/mywm-portal.service $out/lib/systemd/user/mywm-portal.service \
       --replace-fail "/usr/bin/env mywm-portal" "$out/bin/mywm-portal"
     install -Dm755 scripts/mywm-session $out/bin/mywm-session
     install -Dm755 scripts/session-environment $out/bin/session-environment

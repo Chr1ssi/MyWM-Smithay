@@ -24,7 +24,10 @@ Einrichtung:
 
 1. `cargo build --release -p mywm-portal` und die Binary `mywm-portal` in den `PATH` legen.
 2. Aus `portal/` installieren: `mywm.portal` nach `…/share/xdg-desktop-portal/portals/`,
-   `org.freedesktop.impl.portal.desktop.mywm.service` nach `…/share/dbus-1/services/`, und die
+   `org.freedesktop.impl.portal.desktop.mywm.service` nach `…/share/dbus-1/services/`,
+   `mywm-portal.service` nach `~/.config/systemd/user/` (die D-Bus-Aktivierung startet das Portal als
+   diese Unit, die mit der Sitzung endet; ohne sie bliebe ein Portal mit dem Socket einer alten
+   Sitzung hängen), und die
    Portal-Auswahl `mywm-portals.conf` nach `~/.config/xdg-desktop-portal/` (bzw.
    `river-portals.conf`, denn der Compositor setzt `XDG_CURRENT_DESKTOP=river`, solange nichts anderes gesetzt ist).
    Unter NixOS gehört `mywm.portal` in ein Paket, das unter `xdg.portal.extraPortals` steht.
@@ -37,7 +40,7 @@ Ruhige Bilder: Steht das Bild still, liefert der Compositor trotzdem etwa alle 0
 sonst hält Chromium (Discord, Vesktop) den Strom für tot. Öffnet eine App zwei Sitzungen gleichzeitig (Vesktop tut das),
 beantwortet die Auswahl beide; die zweite wird nicht abgelehnt.
 
-Logs: `journalctl --user -u 'dbus-*mywm*'` bzw. die Ausgabe von `mywm-portal` zeigt Format, Bildgröße,
+Logs: `journalctl --user -u mywm-portal` bzw. die Ausgabe von `mywm-portal` zeigt Format, Bildgröße,
 Verbraucher und Bilder pro 5 s; im Compositor-Log stehen `capture session: …` (Quelle, Größe, erstes Bild, Ende).
 
 Technik: Das Portal hängt als Wayland-Client am Compositor (`ext-image-copy-capture`) und schreibt

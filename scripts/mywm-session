@@ -16,6 +16,11 @@ export XDG_SESSION_TYPE=wayland
 ipc_dir=$(mktemp -d "${XDG_RUNTIME_DIR:?}/mywm-session.XXXXXX")
 export MYWM_SOCKET="$ipc_dir/control.sock"
 cleanup() {
+    # Ends the session's systemd units (portal, services bound to graphical-session.target),
+    # so the next login starts them again with its own environment.
+    if systemctl --user cat mywm-session.target >/dev/null 2>&1; then
+        systemctl --user stop mywm-session.target graphical-session.target || true
+    fi
     rm -f -- "$MYWM_SOCKET" "$ipc_dir/startup.sh"
     rmdir -- "$ipc_dir" 2>/dev/null || true
 }

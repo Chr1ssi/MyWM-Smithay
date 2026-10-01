@@ -15,6 +15,9 @@ dbus-update-activation-environment --systemd \
 # NixOS (and other systemd-managed setups) provide a compositor-specific target
 # that pulls in graphical-session.target, which refuses direct manual starts.
 if systemctl --user cat mywm-session.target >/dev/null 2>&1; then
+    # A previous session that did not end cleanly (crash, killed) leaves the targets active:
+    # starting them again would be a no-op and keep that session's services and environment.
+    systemctl --user stop mywm-session.target graphical-session.target
     systemctl --user start mywm-session.target
 fi
 # mywm-portal is started by D-Bus activation; the file chooser etc. come from the GTK portal.

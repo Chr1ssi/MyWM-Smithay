@@ -1,0 +1,11 @@
+# Started by D-Bus activation (SystemdService= in the D-Bus service file). Bound to the
+# session so that a later login gets a fresh portal with that session's MYWM_SOCKET.
+[Unit]
+Description=mywm screen-cast portal
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.impl.portal.desktop.mywm
+ExecStart=/usr/bin/env mywm-portal
