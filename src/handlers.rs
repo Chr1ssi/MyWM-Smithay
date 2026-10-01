@@ -77,6 +77,8 @@ impl CompositorHandler for State {
         if let Some(PopupKind::Xdg(popup)) = self.popups.find_popup(surface)
             && !popup.is_initial_configure_sent()
         {
+            let geometry = popup.with_pending_state(|s| s.geometry);
+            tracing::info!("popup: initial configure {}x{} at {},{}", geometry.size.w, geometry.size.h, geometry.loc.x, geometry.loc.y);
             let _ = popup.send_configure();
         }
         self.count_commit(surface);
@@ -170,11 +172,30 @@ impl XdgShellHandler for State {
 
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
         surface.with_pending_state(|s| s.geometry = positioner.get_geometry());
+        let asked = positioner.get_geometry();
         self.unconstrain_popup(&surface);
+        let placed = surface.with_pending_state(|s| s.geometry);
+        tracing::info!(
+            "popup: new, wants {}x{} at {},{}, placed at {},{} ({} the parent {})",
+            asked.size.w,
+            asked.size.h,
+            asked.loc.x,
+            asked.loc.y,
+            placed.loc.x,
+            placed.loc.y,
+            if surface.get_parent_surface().is_some() { "of" } else { "without" },
+            self.describe_surface(surface.get_parent_surface().as_ref())
+        );
         let _ = self.popups.track_popup(PopupKind::Xdg(surface));
     }
 
-    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {}
+    fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+        tracing::info!("popup: grab requested (not implemented) by a popup of {}", self.describe_surface(surface.get_parent_surface().as_ref()));
+    }
+
+    fn popup_destroyed(&mut self, surface: PopupSurface) {
+        tracing::info!("popup: destroyed (parent {})", self.describe_surface(surface.get_parent_surface().as_ref()));
+    }
 
     fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {
         surface.with_pending_state(|s| {

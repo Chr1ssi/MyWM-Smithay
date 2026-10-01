@@ -224,6 +224,7 @@ impl State {
     pub fn add_x11_window(&mut self, x11: X11Surface) {
         let id = self.push_window(Window::new_x11_window(x11));
         self.place(id);
+        self.size_floating_to_client(id);
         self.refresh();
     }
 
@@ -266,7 +267,30 @@ impl State {
             return;
         };
         self.place(id);
+        self.size_floating_to_client(id);
         self.refresh();
+    }
+
+    /// A floating window without a place of its own starts at the size its client wants, centered on its monitor.
+    /// The layout's default, two thirds of the work area, is far more than a fixed-size dialog can fill: it drew its
+    /// small content in a corner of a huge frame.
+    fn size_floating_to_client(&mut self, id: WindowId) {
+        let Some(m) = self.desktop.get(id) else { return };
+        if !m.floating || m.floating_rect.is_some() {
+            return;
+        }
+        let size = m.window.geometry().size;
+        let Some(area) = self.desktop.monitor_area_of(id) else { return };
+        if size.w <= 0 || size.h <= 0 {
+            return;
+        }
+        // The rect is the frame: the content is smaller by the border on every side.
+        let border = self.desktop.appearance.border_width;
+        let (width, height) = (size.w + 2 * border, size.h + 2 * border);
+        let rect = Rect { x: (area.width - width) / 2, y: (area.height - height) / 2, width, height };
+        if let Some(m) = self.desktop.get_mut(id) {
+            m.floating_rect = Some(rect);
+        }
     }
 
     /// Windows that arrived while no monitor existed get placed once one appears.
