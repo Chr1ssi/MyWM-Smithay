@@ -65,3 +65,30 @@ pub fn init() -> Option<PathBuf> {
     }));
     opened
 }
+
+/// Log that `what` took `took` if that is more than `limit`: at most one line a second per `what`, the
+/// others are counted. For finding what holds up the compositor's thread.
+pub fn note_slow(what: &'static str, took: std::time::Duration, limit: std::time::Duration) {
+    use std::{sync::Mutex, time::{Duration, Instant}};
+    if took < limit {
+        return;
+    }
+    static LAST: Mutex<Vec<(&'static str, Instant, u32)>> = Mutex::new(Vec::new());
+    let mut last = LAST.lock().unwrap();
+    let now = Instant::now();
+    let slot = match last.iter().position(|(w, _, _)| *w == what) {
+        Some(index) => index,
+        None => {
+            last.push((what, now - Duration::from_secs(2), 0));
+            last.len() - 1
+        }
+    };
+    let (_, at, skipped) = &mut last[slot];
+    if now.duration_since(*at) < Duration::from_secs(1) {
+        *skipped += 1;
+        return;
+    }
+    let more = std::mem::take(skipped);
+    *at = now;
+    tracing::info!("{what} took {:.1} ms{}", took.as_secs_f64() * 1000.0, if more > 0 { format!(" ({more} more slow ones since the last line)") } else { String::new() });
+}

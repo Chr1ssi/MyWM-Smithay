@@ -39,6 +39,24 @@ render_elements! {
     Thumbnail=CropRenderElement<smithay::backend::renderer::element::utils::RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
 }
 
+impl OutputElement {
+    /// What the element is, for the log.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Cursor(_) => "cursor",
+            Self::Border(_) => "border",
+            Self::Ring(_) => "border ring",
+            Self::Overlay(_) => "screenshot overlay",
+            Self::Backdrop(_) => "blurred backdrop",
+            Self::Rounded(_) => "rounded window",
+            Self::Surface(_) => "surface",
+            Self::Window(_) => "window",
+            Self::Thumbnail(_) => "overview thumbnail",
+            _ => "element",
+        }
+    }
+}
+
 impl State {
     /// The elements to draw on `output`, front to back.
     pub fn output_elements(&mut self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {

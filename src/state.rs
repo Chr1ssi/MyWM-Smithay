@@ -197,8 +197,10 @@ impl State {
             .insert_source(
                 Generic::new(display, Interest::READ, Mode::Level),
                 |_, display, state| {
+                    let started = Instant::now();
                     // SAFETY: the display is never dropped while the source is alive.
                     unsafe { display.get_mut().dispatch_clients(state).unwrap() };
+                    crate::logging::note_slow("handling client requests", started.elapsed(), std::time::Duration::from_millis(5));
                     Ok(PostAction::Continue)
                 },
             )
