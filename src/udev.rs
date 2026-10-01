@@ -883,6 +883,8 @@ impl State {
                         if due && surface.scanout_signature.as_deref() != Some(signature.as_str()) {
                             surface.scanout_signature = Some(signature);
                             surface.last_scanout_report = Some(Instant::now());
+                            // The reason smithay does not scan the game out is only a trace line: record one second of it.
+                            crate::logging::trace_burst("smithay::backend::drm=trace", Duration::from_secs(1));
                             let (buffer, buffer_format) = self.game_buffer_description(&output);
                             let inventory = {
                                 let planes = surface.compositor.surface().planes();
