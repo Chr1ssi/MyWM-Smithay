@@ -5,7 +5,9 @@
 //! `mywm-test-client frames <seconds> [fullscreen]` (a window that draws on every frame callback and prints
 //! `frames <n>` each second; `fullscreen` makes it fullscreen and opaque) or
 //! `mywm-test-client urgent <seconds>` (two windows; the second asks to activate the first
-//! without any user input behind the request).
+//! without any user input behind the request) or `mywm-test-client pointer <seconds> [lock]` (a window
+//! that prints `pointer enter`/`pointer leave`; with `lock` it locks the pointer on enter like a game and
+//! prints `pointer locked`/`pointer unlocked`).
 use std::{os::fd::AsFd, time::{Duration, Instant}};
 
 use wayland_client::{
@@ -13,6 +15,7 @@ use wayland_client::{
     globals::{GlobalListContents, registry_queue_init},
     protocol::{
         wl_keyboard::{self, WlKeyboard},
+        wl_pointer::{self, WlPointer},
         wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::{self, WlShm},
         wl_shm_pool::WlShmPool, wl_surface::WlSurface, wl_region::WlRegion,
         wl_callback::{self, WlCallback},
@@ -25,6 +28,10 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 use wayland_protocols::{
     wp::idle_inhibit::zv1::client::{
         zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1, zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1,
+    },
+    wp::pointer_constraints::zv1::client::{
+        zwp_locked_pointer_v1::{self, ZwpLockedPointerV1},
+        zwp_pointer_constraints_v1::{Lifetime, ZwpPointerConstraintsV1},
     },
     wp::keyboard_shortcuts_inhibit::zv1::client::{
         zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1,
@@ -56,6 +63,8 @@ struct App {
     toplevel_size: (i32, i32),
     /// The last frame callback fired.
     frame_done: bool,
+    /// The surface the pointer entered (pointer mode), cleared on leave.
+    pointer_entered: bool,
 }
 
 impl Dispatch<WlCallback, ()> for App {
@@ -130,6 +139,33 @@ impl Dispatch<WlKeyboard, ()> for App {
     }
 }
 
+impl Dispatch<WlPointer, ()> for App {
+    fn event(state: &mut Self, _: &WlPointer, event: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            wl_pointer::Event::Enter { .. } => {
+                state.pointer_entered = true;
+                println!("pointer enter");
+            }
+            wl_pointer::Event::Leave { .. } => {
+                state.pointer_entered = false;
+                println!("pointer leave");
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZwpLockedPointerV1, ()> for App {
+    fn event(_: &mut Self, _: &ZwpLockedPointerV1, event: zwp_locked_pointer_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            zwp_locked_pointer_v1::Event::Locked => println!("pointer locked"),
+            zwp_locked_pointer_v1::Event::Unlocked => println!("pointer unlocked"),
+            _ => {}
+        }
+    }
+}
+
+delegate_noop!(App: ignore ZwpPointerConstraintsV1);
 delegate_noop!(App: ignore ZwlrLayerShellV1);
 delegate_noop!(App: ignore WlCompositor);
 delegate_noop!(App: ignore WlShm);
@@ -433,6 +469,27 @@ fn main() {
             }
             let _keep = (popup, popup_xdg, surface);
             std::thread::sleep(Duration::from_secs(seconds));
+            return;
+        }
+        "pointer" => {
+            let lock = std::env::args().nth(3).is_some_and(|a| a == "lock");
+            let seat: WlSeat = globals.bind(&qh, 1..=7, ()).unwrap();
+            let pointer = seat.get_pointer(&qh, ());
+            // A persistent lock, made once: the compositor activates it whenever the window has
+            // pointer focus, like a game holding the mouse.
+            let _locked = lock.then(|| {
+                let constraints: ZwpPointerConstraintsV1 = globals.bind(&qh, 1..=1, ()).expect("pointer constraints");
+                constraints.lock_pointer(&windows[0].surface, &pointer, None, Lifetime::Persistent, &qh, ())
+            });
+            queue.roundtrip(&mut app).unwrap();
+            println!("pointer client ready");
+            let end = Instant::now() + Duration::from_secs(seconds);
+            while Instant::now() < end {
+                if queue.roundtrip(&mut app).is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
             return;
         }
         other => panic!("unknown mode {other}"),

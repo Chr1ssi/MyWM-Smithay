@@ -465,6 +465,7 @@ impl State {
         self.sync_monitor_areas();
         self.apply_layout();
         self.sync_focus();
+        self.refresh_pointer_focus();
         self.update_fractional_scales();
         self.ipc_dirty = true;
         self.queue_redraw_all();

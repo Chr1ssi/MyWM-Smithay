@@ -348,6 +348,28 @@ impl State {
         pointer.frame(self);
     }
 
+    /// Re-evaluate what is under the pointer after the layout changed (a workspace switch, a
+    /// window that closed, moved or went fullscreen). Pointer focus otherwise follows only
+    /// motion, and a locked pointer (games) produces none: the hidden game would keep the
+    /// pointer and its lock.
+    pub fn refresh_pointer_focus(&mut self) {
+        if self.overview.is_some() || self.selecting.is_some() || self.desktop.drag.is_some() {
+            return;
+        }
+        let Some(pointer) = self.seat.get_pointer() else { return };
+        let under = self.pointer_focus();
+        let surface = under.as_ref().map(|(s, _)| s.clone());
+        if surface == self.pointer_focus_surface {
+            return;
+        }
+        let old = std::mem::replace(&mut self.pointer_focus_surface, surface.clone());
+        self.pointer_focus_changed(old.as_ref(), surface.as_ref());
+        let serial = SERIAL_COUNTER.next_serial();
+        let time = self.start_time.elapsed().as_millis() as u32;
+        pointer.motion(self, under, &MotionEvent { location: self.pointer_location, serial, time });
+        pointer.frame(self);
+    }
+
     /// The pointer constraint of `surface`, if one is active.
     fn active_constraint(&self, surface: &WlSurface) -> Option<Constraint> {
         let pointer = self.seat.get_pointer()?;

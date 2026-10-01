@@ -104,6 +104,7 @@ PYTHONPATH=tests python3 tests/overview_smoke.py      # Workspace-Übersicht
 PYTHONPATH=tests python3 tests/layer_focus_smoke.py    # Launcher/Picker bekommen die Tastatur ohne Klick
 PYTHONPATH=tests python3 tests/stacking_smoke.py      # Vollbild über der Bar, Rahmen unter Overlays
 PYTHONPATH=tests python3 tests/attention_smoke.py     # Shortcut-Inhibit und Urgent-Rahmen (crates/mywm-test-client)
+PYTHONPATH=tests python3 tests/pointer_focus_smoke.py # gesperrter Zeiger (Spiel) wird beim Workspace-Wechsel frei
 PYTHONPATH=tests python3 tests/settings_smoke.py      # Einstellungs-GUI: Taste aufnehmen, speichern, Duplikate
 PYTHONPATH=tests python3 tests/portal_smoke.py        # mywm-portal: D-Bus, Auswahl im Compositor, PipeWire (braucht pipewire, wireplumber, dbus-daemon, gst)
 ```
