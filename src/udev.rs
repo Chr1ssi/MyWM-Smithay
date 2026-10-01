@@ -74,6 +74,12 @@ type GbmCompositor = DrmCompositor<
     DrmDeviceFd,
 >;
 
+/// How a frame may be put together. Besides the default (scan out on the primary, overlay and cursor planes), a
+/// buffer may go to the primary plane whatever its format and modifier: by default only one that matches the
+/// swapchain's exactly does, and a game's buffer (XRGB8888 with an NVIDIA block-linear modifier) never does. The
+/// atomic test of the plane still decides; if it fails the frame is composited as before.
+const SCANOUT_FLAGS: FrameFlags = FrameFlags::DEFAULT.union(FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT_ANY);
+
 /// Where an output is in its redraw cycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Redraw {
@@ -831,7 +837,7 @@ impl State {
         let started = Instant::now();
         let mut had_damage = false;
         let (mut render_took, mut queue_took) = (Duration::ZERO, Duration::ZERO);
-        let queued = match surface.compositor.render_frame(renderer, &elements, background, FrameFlags::DEFAULT) {
+        let queued = match surface.compositor.render_frame(renderer, &elements, background, SCANOUT_FLAGS) {
             Ok(result) => {
                 render_took = started.elapsed();
                 let planes = (matches!(result.primary_element, PrimaryPlaneElement::Element(_)), result.overlay_elements.len(), result.cursor_element.is_some());
