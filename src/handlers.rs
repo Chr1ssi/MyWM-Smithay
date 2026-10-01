@@ -89,16 +89,42 @@ impl CompositorHandler for State {
 impl State {
     /// Move a popup (menu, tooltip) so it stays on the output of its window: flipped or slid
     /// the way the client allowed in its positioner.
+    ///
+    /// xdg-shell gives the popup's position and the target rectangle relative to the parent's *window geometry*,
+    /// whose top left corner is where the window sits on the screen (`element_location`).
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         let kind = PopupKind::Xdg(popup.clone());
         let Ok(root) = smithay::desktop::find_popup_root_surface(&kind) else { return };
         let Some(window) = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == root)) else { return };
-        let (Some(output), Some(location)) = (self.space.outputs_for_element(window).first().cloned(), self.space.element_location(window)) else { return };
+        let Some(location) = self.space.element_location(window) else { return };
+        // The output of the window's workspace; the space's own idea (`outputs_for_element`) as a fallback.
+        let by_layout = self.desktop.by_surface(&root).and_then(|m| self.monitor_of_window(m)).and_then(|monitor| self.outputs.get(monitor)).map(|e| e.output.clone());
+        let Some(output) = by_layout.or_else(|| self.space.outputs_for_element(window).first().cloned()) else { return };
         let Some(output_geo) = self.space.output_geometry(&output) else { return };
         let mut target = output_geo;
+        target.loc -= location;
         target.loc -= smithay::desktop::get_popup_toplevel_coords(&kind);
-        target.loc -= location - window.geometry().loc;
-        popup.with_pending_state(|s| s.geometry = s.positioner.get_unconstrained_geometry(target));
+        let placed = popup.with_pending_state(|s| {
+            s.geometry = s.positioner.get_unconstrained_geometry(target);
+            s.geometry
+        });
+        tracing::info!(
+            "popup: window at {},{} (geometry {:?}), output {} at {},{} {}x{}, target {},{} {}x{} -> popup at {},{}",
+            location.x,
+            location.y,
+            window.geometry(),
+            output.name(),
+            output_geo.loc.x,
+            output_geo.loc.y,
+            output_geo.size.w,
+            output_geo.size.h,
+            target.loc.x,
+            target.loc.y,
+            target.size.w,
+            target.size.h,
+            placed.loc.x,
+            placed.loc.y
+        );
     }
 
     /// A surface changed: redraw the outputs it shows on (all of them if it is not a plain window).
