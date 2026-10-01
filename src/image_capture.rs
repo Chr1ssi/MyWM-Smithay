@@ -13,7 +13,7 @@ use smithay::{
         renderer::{
             damage::OutputDamageTracker,
             element::{AsRenderElements, RenderElement, surface::WaylandSurfaceRenderElement},
-            gles::GlesRenderer,
+            gles::{GlesRenderer, GlesTexture},
         },
     },
     output::Output,
@@ -46,7 +46,11 @@ use smithay::{
 };
 use smithay::backend::allocator::Buffer as _;
 
-use crate::{State, render::OutputElement, screencopy::render_to_buffer};
+use crate::{
+    State,
+    render::OutputElement,
+    screencopy::{Readback, offscreen_texture, render_to_buffer, start_readback},
+};
 
 smithay::delegate_foreign_toplevel_list!(State);
 
@@ -90,7 +94,24 @@ pub struct ImageCaptureState {
     pending: Vec<PendingFrame>,
     /// Outputs with a redraw timer for waiting frames.
     timers: std::collections::HashSet<String>,
+    /// Shared-memory frames whose pixels the GPU is still copying.
+    readbacks: Vec<InFlight>,
+    /// Whether the timer that completes `readbacks` is armed.
+    readback_timer: bool,
+    /// Per session, the offscreen texture its frames are rendered into (reused while the size stays).
+    textures: Vec<(std::sync::Weak<SessionShared>, Size<i32, Physical>, GlesTexture)>,
 }
+
+struct InFlight {
+    frame: PendingFrame,
+    readback: Readback,
+    /// When the picture was rendered: its presentation time and the limit for waiting on the GPU.
+    captured_at: std::time::Instant,
+    timestamp: std::time::Duration,
+}
+
+/// How long a read-back may take before the event loop waits for it (a hung GPU, not a busy one).
+const READBACK_LIMIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 pub struct PendingFrame {
     frame: ExtImageCopyCaptureFrameV1,
@@ -233,6 +254,7 @@ impl State {
         had_damage: bool,
     ) {
         self.image_capture.sessions.retain(|(resource, _)| resource.is_alive());
+        self.complete_readbacks(renderer, false);
         if self.image_capture.pending.is_empty() {
             return;
         }
@@ -278,18 +300,24 @@ impl State {
             }
             inner.captured = Some(mark);
             drop(inner);
+            let timestamp: std::time::Duration = Clock::<Monotonic>::new().now().into();
             match self.capture_frame(renderer, elements, &frame, size) {
-                Ok(()) => {
-                    let now: std::time::Duration = Clock::<Monotonic>::new().now().into();
-                    frame.frame.transform(WlTransform::Normal);
-                    frame.frame.damage(0, 0, size.w, size.h);
-                    frame.frame.presentation_time((now.as_secs() >> 32) as u32, now.as_secs() as u32, now.subsec_nanos());
-                    frame.frame.ready();
+                Ok(None) => send_ready(&frame.frame, size, timestamp),
+                Ok(Some(readback)) => {
+                    self.image_capture.readbacks.push(InFlight { frame, readback, captured_at: std::time::Instant::now(), timestamp });
                 }
                 Err(error) => {
                     tracing::warn!("image capture failed: {error}");
                     frame.frame.failed(FailureReason::Unknown);
                 }
+            }
+        }
+        if !self.image_capture.readbacks.is_empty() {
+            if self.udev.is_some() {
+                self.arm_readback_timer();
+            } else {
+                // The nested backend has no renderer outside its redraw: finish right away.
+                self.complete_readbacks(renderer, true);
             }
         }
         waiting.append(&mut self.image_capture.pending);
@@ -315,13 +343,15 @@ impl State {
     }
 
     fn capture_frame(
-        &self,
+        &mut self,
         renderer: &mut GlesRenderer,
         elements: &[OutputElement],
         frame: &PendingFrame,
         size: Size<i32, Physical>,
-    ) -> Result<(), String> {
+    ) -> Result<Option<Readback>, String> {
         let region = Rectangle::from_size(size);
+        // Shared memory goes through a read-back that completes later; GPU buffers are drawn into.
+        let mut texture = if get_dmabuf(&frame.buffer).is_err() { Some(self.capture_texture(renderer, &frame.session, size)?) } else { None };
         match &frame.session.source {
             Source::Output(output) => {
                 let mode_size = output.current_mode().ok_or("the output has no mode")?.size;
@@ -333,7 +363,10 @@ impl State {
                     .filter(|e| !matches!(e, OutputElement::Overlay(_)))
                     .filter(|e| frame.session.paint_cursors || !matches!(e, OutputElement::Cursor(_)))
                     .collect();
-                render_to_buffer(renderer, &mut tracker, &visible, self.clear_color(), &frame.buffer, size, region)
+                match texture.as_mut() {
+                    Some(texture) => start_readback(renderer, &mut tracker, &visible, self.clear_color(), texture, region).map(Some),
+                    None => render_to_buffer(renderer, &mut tracker, &visible, self.clear_color(), &frame.buffer, size, region).map(|()| None),
+                }
             }
             Source::Toplevel(handle) => {
                 let managed = self.managed_for_handle(handle).ok_or("the window is gone")?;
@@ -350,10 +383,85 @@ impl State {
                     1.0,
                 );
                 let mut tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
-                render_elements_to_buffer(renderer, &mut tracker, &elements, &frame.buffer, size, region)
+                match texture.as_mut() {
+                    Some(texture) => start_readback(renderer, &mut tracker, &elements, [0.0, 0.0, 0.0, 0.0], texture, region).map(Some),
+                    None => render_elements_to_buffer(renderer, &mut tracker, &elements, &frame.buffer, size, region).map(|()| None),
+                }
             }
         }
     }
+
+    /// The session's offscreen texture for frames of `size`, created when missing or resized.
+    fn capture_texture(&mut self, renderer: &mut GlesRenderer, session: &Arc<SessionShared>, size: Size<i32, Physical>) -> Result<GlesTexture, String> {
+        let textures = &mut self.image_capture.textures;
+        textures.retain(|(owner, _, _)| owner.strong_count() > 0);
+        if let Some((_, _, texture)) = textures.iter().find(|(owner, s, _)| owner.as_ptr() == Arc::as_ptr(session) && *s == size) {
+            return Ok(texture.clone());
+        }
+        let texture = offscreen_texture(renderer, size)?;
+        textures.retain(|(owner, _, _)| owner.as_ptr() != Arc::as_ptr(session));
+        textures.push((Arc::downgrade(session), size, texture.clone()));
+        Ok(texture)
+    }
+
+    /// Hand finished read-backs to their clients; with `block`, wait for the unfinished ones too.
+    fn complete_readbacks(&mut self, renderer: &mut GlesRenderer, block: bool) {
+        if self.image_capture.readbacks.is_empty() {
+            return;
+        }
+        let mut still = Vec::new();
+        for flight in std::mem::take(&mut self.image_capture.readbacks) {
+            if !flight.frame.frame.is_alive() {
+                flight.readback.discard(renderer);
+                continue;
+            }
+            if !block && flight.captured_at.elapsed() < READBACK_LIMIT && !flight.readback.is_ready(renderer) {
+                still.push(flight);
+                continue;
+            }
+            let size = flight.readback.size();
+            match flight.readback.finish(renderer, &flight.frame.buffer) {
+                Ok(()) => send_ready(&flight.frame.frame, size, flight.timestamp),
+                Err(error) => {
+                    tracing::warn!("image capture failed: {error}");
+                    flight.frame.frame.failed(FailureReason::Unknown);
+                }
+            }
+        }
+        self.image_capture.readbacks = still;
+    }
+
+    /// Poll the GPU for finished read-backs every millisecond while some are in flight.
+    fn arm_readback_timer(&mut self) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        if self.image_capture.readback_timer {
+            return;
+        }
+        self.image_capture.readback_timer = true;
+        const POLL: std::time::Duration = std::time::Duration::from_millis(1);
+        let _ = self.loop_handle.insert_source(Timer::from_duration(POLL), |_, _, state| {
+            let polled = state.with_capture_renderer(|state, renderer| state.complete_readbacks(renderer, false));
+            if !polled {
+                // The GPU went away: these frames will not be filled.
+                for flight in std::mem::take(&mut state.image_capture.readbacks) {
+                    flight.frame.frame.failed(FailureReason::Unknown);
+                }
+            }
+            if state.image_capture.readbacks.is_empty() {
+                state.image_capture.readback_timer = false;
+                TimeoutAction::Drop
+            } else {
+                TimeoutAction::ToDuration(POLL)
+            }
+        });
+    }
+}
+
+fn send_ready(frame: &ExtImageCopyCaptureFrameV1, size: Size<i32, Physical>, timestamp: std::time::Duration) {
+    frame.transform(WlTransform::Normal);
+    frame.damage(0, 0, size.w, size.h);
+    frame.presentation_time((timestamp.as_secs() >> 32) as u32, timestamp.as_secs() as u32, timestamp.subsec_nanos());
+    frame.ready();
 }
 
 fn render_elements_to_buffer<E: RenderElement<GlesRenderer>>(
@@ -615,7 +723,16 @@ impl Dispatch<ExtImageCopyCaptureFrameV1, FrameData, State> for State {
                     return;
                 }
                 state.image_capture.pending.push(PendingFrame { frame: frame.clone(), session: data.session.clone(), buffer, requested: std::time::Instant::now() });
-                state.queue_redraw_all();
+                // Only the output that answers the frame: a redraw of the others (a game's output
+                // when a different monitor is shared) would cost them a frame for nothing.
+                let output = match &data.session.source {
+                    Source::Output(output) => Some(output.clone()),
+                    Source::Toplevel(handle) => state.managed_for_handle(handle).and_then(|m| state.capture_output(&m.window)),
+                };
+                match output {
+                    Some(output) => state.queue_redraw_output(&output),
+                    None => state.queue_redraw_all(),
+                }
             }
             _ => {}
         }

@@ -46,7 +46,9 @@ Verbraucher und Bilder pro 5 s; im Compositor-Log stehen `capture session: …` 
 Technik: Das Portal hängt als Wayland-Client am Compositor (`ext-image-copy-capture`) und schreibt
 die Bilder direkt in PipeWire-Puffer (gemeinsamer Speicher, keine zusätzliche Kopie im Portal). Dmabuf
 (GPU-Puffer ohne Umweg über die CPU) gibt es für diesen Weg noch nicht; bei 1440p144 ist der
-Auslese-Weg der wichtigste Punkt zum Messen.
+Auslese-Weg der wichtigste Punkt zum Messen. Das Auslesen blockiert den Compositor nicht: Er stößt die Kopie auf der GPU an, verschickt
+die Frame-Callbacks (ein Spiel auf demselben Monitor rendert also gleich weiter) und übergibt das
+Bild erst, wenn eine GPU-Fence meldet, dass die Kopie fertig ist.
 
 ## Alternative: `xdg-desktop-portal-wlr`
 

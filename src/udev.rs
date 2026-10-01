@@ -773,6 +773,21 @@ impl State {
         }
     }
 
+    /// Run `f` with the renderer outside a redraw, for work that completes later (capture
+    /// read-backs). False when there is no GPU.
+    pub fn with_capture_renderer(&mut self, f: impl FnOnce(&mut State, &mut GlesRenderer)) -> bool {
+        let Some(mut udev) = self.udev.take() else { return false };
+        let ran = match udev.gpu.as_mut() {
+            Some(gpu) => {
+                f(self, &mut gpu.renderer);
+                true
+            }
+            None => false,
+        };
+        self.udev = Some(udev);
+        ran
+    }
+
     /// Render and queue one frame of the output on `crtc`.
     fn udev_redraw(&mut self, dev_id: u64, crtc: crtc::Handle) {
         // Take the backend out so rendering can borrow the rest of the state freely.
@@ -883,13 +898,15 @@ impl State {
                 );
             }
         }
-        self.fulfill_screencopy(renderer, &output, &elements, had_damage);
-        self.fulfill_image_captures(renderer, &output, &elements, had_damage);
-        self.fulfill_screenshots(renderer, &output, &elements);
+        // Frame callbacks before the capture work: a game on this output starts its next frame
+        // while the copies for a stream or screenshot are rendered.
         // With late scheduling frame callbacks go out at the vblank instead (see `on_vblank`).
         if !late {
             self.send_frames(&output);
         }
+        self.fulfill_screencopy(renderer, &output, &elements, had_damage);
+        self.fulfill_image_captures(renderer, &output, &elements, had_damage);
+        self.fulfill_screenshots(renderer, &output, &elements);
         self.note_locked_frame(&output);
 
         if queued {

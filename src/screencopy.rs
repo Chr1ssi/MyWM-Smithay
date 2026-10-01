@@ -9,7 +9,9 @@ use smithay::{
     backend::{
         allocator::{Buffer as _, Fourcc},
         renderer::{
-            Bind, ExportMem, Offscreen, damage::OutputDamageTracker, gles::GlesRenderer,
+            Bind, ExportMem, Offscreen,
+            damage::OutputDamageTracker,
+            gles::{GlesMapping, GlesRenderer, GlesTexture, ffi},
         },
     },
     output::Output,
@@ -342,15 +344,98 @@ pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<Gl
     }
 
     // Shared memory: render into a texture, read it back and copy the wanted part.
-    let pixels = render_to_pixels(renderer, tracker, elements, clear, size, region)?;
-    let region = Rectangle::<i32, BufferCoords>::new(
+    let mut texture = offscreen_texture(renderer, size)?;
+    start_readback(renderer, tracker, elements, clear, &mut texture, region)?.finish(renderer, buffer)
+}
+
+/// An offscreen texture of `size` pixels to render captures into.
+pub fn offscreen_texture(renderer: &mut GlesRenderer, size: Size<i32, Physical>) -> Result<GlesTexture, String> {
+    Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Argb8888, (size.w, size.h).into())
+        .map_err(|e| format!("offscreen buffer: {e}"))
+}
+
+/// A capture rendered on the GPU whose pixels are on their way into a pixel buffer.
+///
+/// Mapping the pixel buffer waits until the GPU has finished the copy (and everything queued
+/// before it). The fence lets the event loop check for that without blocking, so the copy for a
+/// stream never holds up the frames of other clients (a game on the same output).
+pub struct Readback {
+    mapping: GlesMapping,
+    fence: ffi::types::GLsync,
+    region: Rectangle<i32, Physical>,
+}
+
+/// Render `elements` into `texture` and start reading back `region`; see [`Readback`].
+pub fn start_readback<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
+    renderer: &mut GlesRenderer,
+    tracker: &mut OutputDamageTracker,
+    elements: &[E],
+    clear: [f32; 4],
+    texture: &mut GlesTexture,
+    region: Rectangle<i32, Physical>,
+) -> Result<Readback, String> {
+    let mut target = renderer.bind(texture).map_err(|e| format!("bind: {e}"))?;
+    tracker
+        .render_output(renderer, &mut target, 0, elements, clear)
+        .map_err(|e| format!("render: {e:?}"))?;
+    let buffer_region = Rectangle::<i32, BufferCoords>::new(
         (region.loc.x, region.loc.y).into(),
         (region.size.w, region.size.h).into(),
     );
-    let row = region.size.w as usize * 4;
+    let mapping = renderer.copy_framebuffer(&target, buffer_region, Fourcc::Argb8888).map_err(|e| format!("read back: {e}"))?;
+    drop(target);
+    // Flush so the fence is submitted: an unflushed fence would never signal while polling.
+    let fence = renderer
+        .with_context(|gl| unsafe {
+            let fence = gl.FenceSync(ffi::SYNC_GPU_COMMANDS_COMPLETE, 0);
+            gl.Flush();
+            fence
+        })
+        .map_err(|e| format!("fence: {e}"))?;
+    Ok(Readback { mapping, fence, region })
+}
+
+impl Readback {
+    /// Whether the GPU has finished the copy, so [`Readback::finish`] does not block.
+    pub fn is_ready(&self, renderer: &mut GlesRenderer) -> bool {
+        if self.fence.is_null() {
+            return true;
+        }
+        let status = renderer.with_context(|gl| unsafe { gl.ClientWaitSync(self.fence, 0, 0) });
+        // A failed query or a lost context: finishing (which blocks at worst) is the way out.
+        !matches!(status, Ok(ffi::TIMEOUT_EXPIRED))
+    }
+
+    /// Size of the pixels read back.
+    pub fn size(&self) -> Size<i32, Physical> {
+        self.region.size
+    }
+
+    /// Copy the pixels into the client's shared-memory `buffer`.
+    pub fn finish(self, renderer: &mut GlesRenderer, buffer: &WlBuffer) -> Result<(), String> {
+        let result = renderer
+            .map_texture(&self.mapping)
+            .map_err(|e| format!("map: {e}"))
+            .and_then(|pixels| copy_to_shm(pixels, buffer, self.region.size));
+        self.discard(renderer);
+        result
+    }
+
+    /// Release the fence without using the pixels (the frame went away).
+    pub fn discard(self, renderer: &mut GlesRenderer) {
+        if !self.fence.is_null() {
+            let fence = self.fence;
+            let _ = renderer.with_context(|gl| unsafe { gl.DeleteSync(fence) });
+        }
+    }
+}
+
+/// Copy `Argb8888` rows of `size` into a client's shared-memory buffer, honoring its stride.
+fn copy_to_shm(pixels: &[u8], buffer: &WlBuffer, size: Size<i32, Physical>) -> Result<(), String> {
+    let row = size.w as usize * 4;
     with_buffer_contents_mut(buffer, |ptr, len, data: BufferData| {
         let (offset, stride) = (data.offset as usize, data.stride as usize);
-        for y in 0..region.size.h as usize {
+        for y in 0..size.h as usize {
             let start = offset + y * stride;
             if start + row > len || (y + 1) * row > pixels.len() {
                 return Err("the client's buffer is smaller than announced");
