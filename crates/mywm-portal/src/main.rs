@@ -189,10 +189,10 @@ fn choose_once(app_id: &str, kinds: SourceKinds) -> Result<Chosen, String> {
             std::thread::sleep(Duration::from_millis(500));
             result = chooser::choose(kinds);
         }
-        if let Ok(chosen) = &result {
-            if !matches!(chosen, Chosen::Nothing) {
-                RECENT.lock().unwrap().push((app_id.to_owned(), std::time::Instant::now(), chosen.clone()));
-            }
+        if let Ok(chosen) = &result
+            && !matches!(chosen, Chosen::Nothing)
+        {
+            RECENT.lock().unwrap().push((app_id.to_owned(), std::time::Instant::now(), chosen.clone()));
         }
         *answer.value.lock().unwrap() = Some(result.clone());
         answer.ready.notify_all();

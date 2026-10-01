@@ -662,6 +662,14 @@ impl State {
             }
         };
         let feedback = surface_feedback(&gpu.renderer, &compositor, gpu.render_node);
+        // Immediate page flips through the atomic API are a driver capability; NVIDIA reports none.
+        let async_flip = {
+            use smithay::reexports::drm::{Device as BasicDevice, DriverCapability};
+            gpu.drm.get_driver_capability(DriverCapability::AtomicASyncPageFlip).unwrap_or(0) == 1
+        };
+        if !async_flip && self.config.async_outputs.contains(&name) {
+            tracing::warn!("{name}: the driver cannot flip immediately with atomic commits; tearing stays off, vsync is used");
+        }
         gpu.surfaces.insert(
             crtc,
             Surface {
@@ -674,7 +682,7 @@ impl State {
                 tearing: false,
                 powered: true,
                 situation: (false, false, false),
-                tearing_works: true,
+                tearing_works: async_flip,
                 vrr_failed: false,
                 modes: info.modes().to_vec(),
                 gamma: None,

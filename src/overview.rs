@@ -211,15 +211,21 @@ impl State {
                     ((origin.0 - f64::from(geometry_offset.x) * k) * scale).round() as i32,
                     ((origin.1 - f64::from(geometry_offset.y) * k) * scale).round() as i32,
                 ));
-                let clip = cell_phys;
+                // A window on a hidden workspace may still hold a buffer of an older size: keep it in its slot.
+                let slot = to_phys(Rectangle::new(
+                    (origin.0.round() as i32, origin.1.round() as i32).into(),
+                    ((f64::from(placement.content.width) * k).round() as i32, (f64::from(placement.content.height) * k).round() as i32).into(),
+                ));
+                let Some(clip) = cell_phys.intersection(slot) else { continue };
+                let thumb_scale = scale * k;
                 for element in AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
                     &managed.window,
                     renderer,
                     location,
-                    Scale::from(scale * k),
+                    Scale::from(thumb_scale),
                     1.0,
                 ) {
-                    if let Some(cropped) = smithay::backend::renderer::element::utils::CropRenderElement::from_element(element, scale, clip) {
+                    if let Some(cropped) = smithay::backend::renderer::element::utils::CropRenderElement::from_element(element, thumb_scale, clip) {
                         windows.push(OutputElement::from(cropped));
                     }
                 }
