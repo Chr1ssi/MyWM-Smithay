@@ -200,6 +200,10 @@ impl SeatHandler for State {
         set_primary_focus(display, seat, client);
     }
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+        let what = self.describe_cursor(&image);
+        if what != self.describe_cursor(&self.cursor_status) {
+            tracing::info!("cursor: {what}");
+        }
         self.cursor_status = image;
         self.queue_redraw_all();
     }
@@ -233,21 +237,40 @@ impl DmabufHandler for State {
 }
 
 impl State {
+    /// A surface in words, for the log: which kind of window, or "a panel, lock or popup surface".
+    pub fn describe_surface(&self, surface: Option<&WlSurface>) -> String {
+        match surface {
+            None => "nothing".to_string(),
+            Some(surface) => match self.desktop.by_surface(surface) {
+                Some(m) => format!("{} window {:?}", if m.window.x11_surface().is_some() { "X11" } else { "Wayland" }, m.app_id),
+                None => "a panel, lock or popup surface".to_string(),
+            },
+        }
+    }
+
+    /// A cursor image in words: its name, or which client supplied the surface.
+    fn describe_cursor(&self, image: &CursorImageStatus) -> String {
+        match image {
+            CursorImageStatus::Hidden => "hidden by the client".to_string(),
+            CursorImageStatus::Named(icon) => format!("named {:?}", icon.name()),
+            CursorImageStatus::Surface(surface) => {
+                let owner = self.display_handle.get_client(surface.id()).ok().map_or("a dead client".to_string(), |client| {
+                    if client.get_data::<XWaylandClientData>().is_some() {
+                        "Xwayland".to_string()
+                    } else {
+                        client.get_data::<ClientState>().and_then(|d| d.name.get().cloned()).unwrap_or_else(|| "a client".to_string())
+                    }
+                });
+                format!("surface of {owner}")
+            }
+        }
+    }
+
     pub fn set_keyboard_focus(&mut self, surface: Option<WlSurface>) {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         if let Some(keyboard) = self.seat.get_keyboard() {
             if keyboard.current_focus() != surface {
-                let what = match &surface {
-                    None => "nothing".to_string(),
-                    Some(surface) => match self.desktop.by_surface(surface) {
-                        Some(m) => format!(
-                            "{} window {:?}",
-                            if m.window.x11_surface().is_some() { "X11" } else { "Wayland" },
-                            m.app_id
-                        ),
-                        None => "a panel, lock or popup surface".to_string(),
-                    },
-                };
+                let what = self.describe_surface(surface.as_ref());
                 tracing::info!("keyboard focus: {what}");
             }
             keyboard.set_focus(self, surface, serial);
