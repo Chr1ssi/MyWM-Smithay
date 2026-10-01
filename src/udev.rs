@@ -440,7 +440,16 @@ impl UdevData {
     }
 
     pub fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> bool {
-        self.gpu.as_mut().is_some_and(|gpu| gpu.renderer.import_dmabuf(dmabuf, None).is_ok())
+        self.gpu.as_mut().is_some_and(|gpu| {
+            let imported = gpu.renderer.import_dmabuf(dmabuf, None).is_ok();
+            if imported {
+                // smithay creates a client's dmabuf without a device node, and the framebuffer exporter takes a
+                // client buffer for scanout only if its node is the one it imports for (`can_add_framebuffer`):
+                // without this no client buffer could ever go to a plane, so games were always composited.
+                dmabuf.set_node(gpu.render_node);
+            }
+            imported
+        })
     }
 }
 
