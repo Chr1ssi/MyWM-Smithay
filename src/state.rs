@@ -8,7 +8,11 @@ use smithay::{
     backend::session::libseat::LibSeatSession,
     input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatState},
     reexports::{
-        calloop::{generic::Generic, EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction},
+        calloop::{
+            generic::Generic,
+            timer::{TimeoutAction, Timer},
+            EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction,
+        },
         wayland_protocols_wlr::output_power_management::v1::server::zwlr_output_power_v1::ZwlrOutputPowerV1,
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
@@ -210,6 +214,14 @@ impl State {
                 },
             )
             .expect("display source");
+
+        // Hidden surfaces get their throttled frame callbacks even while no output redraws.
+        loop_handle
+            .insert_source(Timer::from_duration(crate::layers::HIDDEN_FRAME_TIMER), |_, _, state: &mut State| {
+                state.send_overdue_frames();
+                TimeoutAction::ToDuration(crate::layers::HIDDEN_FRAME_TIMER)
+            })
+            .expect("frame callback timer");
 
         let desktop = Desktop::new(
             config.workspace_outputs.clone(),

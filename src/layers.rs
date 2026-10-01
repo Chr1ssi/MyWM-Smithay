@@ -4,7 +4,11 @@ use std::time::Duration;
 use mywm_layout::Rect;
 use smithay::{
     delegate_layer_shell,
-    desktop::{LayerSurface, PopupKind, WindowSurfaceType, layer_map_for_output, utils::send_frames_surface_tree},
+    backend::renderer::element::{RenderElementStates, default_primary_scanout_output_compare},
+    desktop::{
+        LayerSurface, PopupKind, WindowSurfaceType, layer_map_for_output,
+        utils::{send_frames_surface_tree, surface_primary_scanout_output, update_surface_primary_scanout_output},
+    },
     output::Output,
     reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface},
     utils::{Logical, Point},
@@ -18,6 +22,11 @@ use smithay::{
 };
 
 use crate::State;
+
+/// How often a surface nobody sees (covered by a fullscreen window, scrolled out of view) may draw.
+/// Just under the fallback timer's second, so the timer always finds it due.
+const HIDDEN_FRAME_THROTTLE: Duration = Duration::from_millis(995);
+pub const HIDDEN_FRAME_TIMER: Duration = Duration::from_secs(1);
 
 impl WlrLayerShellHandler for State {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
@@ -162,18 +171,75 @@ impl State {
         self.refresh();
     }
 
-    /// Tell every mapped surface on `output` it may draw its next frame.
+    /// Tell the surfaces `output` just showed that they may draw their next frame.
+    ///
+    /// Only surfaces the last frame of `output` actually showed (see `update_primary_outputs`) get one with
+    /// every frame; hidden ones get one per `HIDDEN_FRAME_THROTTLE`, so a browser or a video behind a game
+    /// or scrolled out of view does not keep drawing at the full refresh rate. A window that is being
+    /// captured draws for the capture even where nobody sees it.
     pub fn send_frames(&self, output: &Output) {
         let elapsed = self.start_time.elapsed();
-        for window in self.space.elements_for_output(output) {
-            window.send_frame(output, elapsed, Some(Duration::ZERO), |_, _| Some(output.clone()));
+        for window in self.space.elements() {
+            if self.window_captured(window) {
+                if self.capture_output(window).as_ref() == Some(output) {
+                    window.send_frame(output, elapsed, None, |_, _| Some(output.clone()));
+                }
+                continue;
+            }
+            window.send_frame(output, elapsed, Some(HIDDEN_FRAME_THROTTLE), surface_primary_scanout_output);
         }
         for layer in layer_map_for_output(output).layers() {
-            layer.send_frame(output, elapsed, Some(Duration::ZERO), |_, _| Some(output.clone()));
+            layer.send_frame(output, elapsed, Some(HIDDEN_FRAME_THROTTLE), surface_primary_scanout_output);
         }
-        // The locker draws its input feedback (swaylock's ring) only when its frame callback comes.
+        self.send_lock_frame(output, elapsed);
+    }
+
+    /// Like `send_frames`, for an output that is never presented (the nested backend's virtual outputs):
+    /// without a frame there is nothing to tell what is visible, so everything on it may draw.
+    pub fn send_frames_unpresented(&self, output: &Output) {
+        let elapsed = self.start_time.elapsed();
+        for window in self.space.elements_for_output(output) {
+            window.send_frame(output, elapsed, None, |_, _| Some(output.clone()));
+        }
+        for layer in layer_map_for_output(output).layers() {
+            layer.send_frame(output, elapsed, None, |_, _| Some(output.clone()));
+        }
+        self.send_lock_frame(output, elapsed);
+    }
+
+    /// The locker draws its input feedback (swaylock's ring) only when its frame callback comes.
+    fn send_lock_frame(&self, output: &Output, elapsed: Duration) {
         if let Some(lock) = self.lock_surface_for(output) {
             send_frames_surface_tree(lock.wl_surface(), output, elapsed, None, |_, _| Some(output.clone()));
+        }
+    }
+
+    /// The fallback timer: hidden surfaces whose throttled frame is due get it even while no output redraws.
+    pub fn send_overdue_frames(&self) {
+        let elapsed = self.start_time.elapsed();
+        if let Some(entry) = self.outputs.first() {
+            for window in self.space.elements() {
+                window.send_frame(&entry.output, elapsed, Some(HIDDEN_FRAME_THROTTLE), |_, _| None);
+            }
+        }
+        for entry in &self.outputs {
+            for layer in layer_map_for_output(&entry.output).layers() {
+                layer.send_frame(&entry.output, elapsed, Some(HIDDEN_FRAME_THROTTLE), |_, _| None);
+            }
+        }
+    }
+
+    /// Remember for every surface whether the frame just rendered for `output` showed it (its primary scanout
+    /// output). Covered or cropped-away surfaces lose `output`, which throttles their frame callbacks.
+    pub fn update_primary_outputs(&self, output: &Output, states: &RenderElementStates) {
+        let update = |surface: &WlSurface, data: &smithay::wayland::compositor::SurfaceData| {
+            update_surface_primary_scanout_output(surface, output, data, states, default_primary_scanout_output_compare);
+        };
+        for window in self.space.elements() {
+            window.with_surfaces(update);
+        }
+        for layer in layer_map_for_output(output).layers() {
+            layer.with_surfaces(update);
         }
     }
 }

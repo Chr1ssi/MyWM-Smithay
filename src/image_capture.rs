@@ -130,6 +130,20 @@ impl State {
         self.image_capture.pending.iter().any(|p| self.frame_belongs_to(p, output))
     }
 
+    /// Whether a capture session follows `window`.
+    pub fn window_captured(&self, window: &smithay::desktop::Window) -> bool {
+        self.image_capture.sessions.iter().any(|(_, shared)| match &shared.source {
+            Source::Toplevel(handle) => self.managed_for_handle(handle).is_some_and(|m| &m.window == window),
+            Source::Output(_) => false,
+        })
+    }
+
+    /// The output whose frames drive the capture of `window`: the first it shows on, or the first output
+    /// when it shows on none (the same choice as for its pending capture frames).
+    pub fn capture_output(&self, window: &smithay::desktop::Window) -> Option<Output> {
+        self.space.outputs_for_element(window).into_iter().next().or_else(|| self.outputs.first().map(|e| e.output.clone()))
+    }
+
     fn managed_for_handle(&self, handle: &ForeignToplevelHandle) -> Option<&crate::desktop::Managed> {
         let id = handle.identifier();
         self.desktop.windows.iter().find(|m| m.foreign.as_ref().is_some_and(|h| h.identifier() == id))

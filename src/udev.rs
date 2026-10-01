@@ -27,7 +27,7 @@ use smithay::{
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             ImportDma,
-            element::{default_primary_scanout_output_compare, utils::select_dmabuf_feedback},
+            element::utils::select_dmabuf_feedback,
             gles::GlesRenderer,
         },
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
@@ -36,7 +36,7 @@ use smithay::{
     desktop::{
         utils::{
             OutputPresentationFeedback, surface_presentation_feedback_flags_from_states,
-            surface_primary_scanout_output, update_surface_primary_scanout_output,
+            surface_primary_scanout_output,
         },
     },
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
@@ -954,10 +954,8 @@ impl State {
         states: &smithay::backend::renderer::element::RenderElementStates,
         feedback: Option<&SurfaceFeedback>,
     ) {
+        self.update_primary_outputs(output, states);
         for window in self.space.elements_for_output(output) {
-            window.with_surfaces(|surface, data| {
-                update_surface_primary_scanout_output(surface, output, data, states, default_primary_scanout_output_compare);
-            });
             if let Some(feedback) = feedback {
                 window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
                     select_dmabuf_feedback(surface, states, &feedback.render, &feedback.scanout)

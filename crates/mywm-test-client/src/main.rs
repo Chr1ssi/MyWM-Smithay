@@ -1,7 +1,9 @@
 //! Usage: `mywm-test-client simple <seconds>` (a window that fills the size it is given with a color that
 //! changes all the time; stands in for `weston-simple-shm`, which nixpkgs does not ship),
 //! `mywm-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts),
-//! `mywm-test-client idle-inhibit <seconds>` (a window that keeps the session from going idle) or
+//! `mywm-test-client idle-inhibit <seconds>` (a window that keeps the session from going idle),
+//! `mywm-test-client frames <seconds> [fullscreen]` (a window that draws on every frame callback and prints
+//! `frames <n>` each second; `fullscreen` makes it fullscreen and opaque) or
 //! `mywm-test-client urgent <seconds>` (two windows; the second asks to activate the first
 //! without any user input behind the request).
 use std::{os::fd::AsFd, time::{Duration, Instant}};
@@ -12,7 +14,8 @@ use wayland_client::{
     protocol::{
         wl_keyboard::{self, WlKeyboard},
         wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::{self, WlShm},
-        wl_shm_pool::WlShmPool, wl_surface::WlSurface,
+        wl_shm_pool::WlShmPool, wl_surface::WlSurface, wl_region::WlRegion,
+        wl_callback::{self, WlCallback},
     },
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{
@@ -51,6 +54,16 @@ struct App {
     popup: Option<(i32, i32, i32, i32)>,
     /// The size the compositor last gave the toplevel (0x0: the client chooses).
     toplevel_size: (i32, i32),
+    /// The last frame callback fired.
+    frame_done: bool,
+}
+
+impl Dispatch<WlCallback, ()> for App {
+    fn event(state: &mut Self, _: &WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_callback::Event::Done { .. } = event {
+            state.frame_done = true;
+        }
+    }
 }
 
 impl Dispatch<WlRegistry, GlobalListContents> for App {
@@ -123,6 +136,7 @@ delegate_noop!(App: ignore WlShm);
 delegate_noop!(App: ignore WlShmPool);
 delegate_noop!(App: ignore WlBuffer);
 delegate_noop!(App: ignore WlSurface);
+delegate_noop!(App: ignore WlRegion);
 delegate_noop!(App: ignore WlSeat);
 delegate_noop!(App: ignore ZwpKeyboardShortcutsInhibitManagerV1);
 delegate_noop!(App: ignore ZwpIdleInhibitManagerV1);
@@ -190,6 +204,68 @@ fn simple_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, com
     }
 }
 
+/// A window that commits a new frame whenever the compositor says it may, counting the frame callbacks.
+fn frames_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, seconds: u64, fullscreen: bool) {
+    let qh = queue.handle();
+    app.configured = vec![false];
+    let surface = compositor.create_surface(&qh, ());
+    let xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
+    let toplevel = xdg.get_toplevel(&qh, ());
+    toplevel.set_app_id("mywm.test.frames".into());
+    if fullscreen {
+        toplevel.set_fullscreen(None);
+    }
+    surface.commit();
+    while !app.configured[0] {
+        queue.blocking_dispatch(app).unwrap();
+    }
+    let (w, h) = if app.toplevel_size.0 > 0 && app.toplevel_size.1 > 0 { app.toplevel_size } else { (200, 150) };
+    let file = std::fs::File::options().read(true).write(true).create(true).truncate(true).open(std::env::temp_dir().join(format!("mywm-tc-{}", std::process::id()))).unwrap();
+    file.set_len((w * h * 4) as u64).unwrap();
+    std::os::unix::fs::FileExt::write_all_at(&file, &vec![0x60u8; (w * h * 4) as usize], 0).unwrap();
+    let pool = shm.create_pool(file.as_fd(), w * h * 4, &qh, ());
+    let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, &qh, ());
+    // Opaque, so that the compositor may skip what is behind it.
+    let region = compositor.create_region(&qh, ());
+    region.add(0, 0, w, h);
+    surface.set_opaque_region(Some(&region));
+    app.frame_done = true;
+    let end = Instant::now() + Duration::from_secs(seconds);
+    let mut second = Instant::now();
+    let mut count = 0;
+    while Instant::now() < end {
+        if app.frame_done {
+            app.frame_done = false;
+            surface.frame(&qh, ());
+            surface.attach(Some(&buffer), 0, 0);
+            surface.damage_buffer(0, 0, w, h);
+            surface.commit();
+        }
+        if queue.flush().is_err() {
+            return;
+        }
+        if let Some(guard) = queue.prepare_read() {
+            let mut pfd = libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(&guard.connection_fd()), events: libc::POLLIN, revents: 0 };
+            // SAFETY: a valid pollfd for a single descriptor.
+            if unsafe { libc::poll(&mut pfd, 1, 20) } > 0 {
+                let _ = guard.read();
+            }
+        }
+        let before = app.frame_done;
+        if queue.dispatch_pending(app).is_err() {
+            return;
+        }
+        if app.frame_done && !before {
+            count += 1;
+        }
+        if second.elapsed() >= Duration::from_secs(1) {
+            println!("frames {count}");
+            count = 0;
+            second += Duration::from_secs(1);
+        }
+    }
+}
+
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();
     let seconds: u64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(30);
@@ -204,6 +280,12 @@ fn main() {
 
     if mode == "simple" {
         simple_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds);
+        return;
+    }
+
+    if mode == "frames" {
+        let fullscreen = std::env::args().nth(3).is_some_and(|a| a == "fullscreen");
+        frames_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds, fullscreen);
         return;
     }
 

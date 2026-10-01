@@ -64,11 +64,9 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                     let (renderer, mut framebuffer) = backend.bind().expect("bind");
                     elements = state.output_elements(renderer, &output);
                     let clear = state.clear_color();
-                    had_damage = damage_tracker
-                        .render_output(renderer, &mut framebuffer, age, &elements, clear)
-                        .expect("render")
-                        .damage
-                        .is_some_and(|d| !d.is_empty());
+                    let result = damage_tracker.render_output(renderer, &mut framebuffer, age, &elements, clear).expect("render");
+                    had_damage = result.damage.is_some_and(|d| !d.is_empty());
+                    state.update_primary_outputs(&output, &result.states);
                 }
                 // Under Xvfb, presenting fails now and then (EGL cannot recreate the window surface while the
                 // old one exists); the old surface stays usable, so the next frame presents again.
@@ -91,8 +89,14 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                         state.fulfill_screenshots(renderer, other, &elements);
                     }
                 }
+                for other in &outputs {
+                    if other == &output {
+                        state.send_frames(other);
+                    } else {
+                        state.send_frames_unpresented(other);
+                    }
+                }
                 for output in &outputs {
-                    state.send_frames(output);
                     // Outputs without a picture have nothing to hide: count them as showing the lock.
                     state.note_locked_frame(output);
                 }
