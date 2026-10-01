@@ -155,9 +155,23 @@ struct Answer {
 /// instead of being refused.
 static ANSWERS: Mutex<Vec<(String, Arc<Answer>)>> = Mutex::new(Vec::new());
 
+/// Vesktop asks once to list the sources and again, a moment later, to start: a choice made
+/// within this window counts for the follow-up sessions of the same app.
+const REUSE: Duration = Duration::from_secs(8);
+
+static RECENT: Mutex<Vec<(String, std::time::Instant, Chosen)>> = Mutex::new(Vec::new());
+
 fn choose_once(app_id: &str, kinds: SourceKinds) -> Result<Chosen, String> {
     let (answer, mine) = {
         let mut answers = ANSWERS.lock().unwrap();
+        let now = std::time::Instant::now();
+        let mut recent = RECENT.lock().unwrap();
+        recent.retain(|(_, at, _)| now.duration_since(*at) < REUSE);
+        if let Some((_, _, chosen)) = recent.iter().find(|(id, _, _)| id == app_id) {
+            tracing::info!("{app_id}: reusing the choice made a moment ago");
+            return Ok(chosen.clone());
+        }
+        drop(recent);
         match answers.iter().find(|(id, _)| id == app_id) {
             Some((_, answer)) => (answer.clone(), false),
             None => {
@@ -174,6 +188,11 @@ fn choose_once(app_id: &str, kinds: SourceKinds) -> Result<Chosen, String> {
         while matches!(&result, Err(e) if e.contains("busy")) && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(500));
             result = chooser::choose(kinds);
+        }
+        if let Ok(chosen) = &result {
+            if !matches!(chosen, Chosen::Nothing) {
+                RECENT.lock().unwrap().push((app_id.to_owned(), std::time::Instant::now(), chosen.clone()));
+            }
         }
         *answer.value.lock().unwrap() = Some(result.clone());
         answer.ready.notify_all();

@@ -65,11 +65,11 @@ try:
     def stream(choose, label):
         fresh_wireplumber()
         session = f"/org/freedesktop/portal/desktop/session/test/{label}"
-        r = busctl(*PORTAL[:2], PORTAL[2], "CreateSession", "oosa{sv}", f"/req/{label}1", session, "test", "0")
+        r = busctl(*PORTAL[:2], PORTAL[2], "CreateSession", "oosa{sv}", f"/req/{label}1", session, f"app-{label}", "0")
         assert r.returncode == 0 and r.stdout.startswith("ua{sv} 0"), r.stderr + r.stdout
-        r = busctl(*PORTAL[:2], PORTAL[2], "SelectSources", "oosa{sv}", f"/req/{label}2", session, "test", "2", "types", "u", "3", "cursor_mode", "u", "2")
+        r = busctl(*PORTAL[:2], PORTAL[2], "SelectSources", "oosa{sv}", f"/req/{label}2", session, f"app-{label}", "2", "types", "u", "3", "cursor_mode", "u", "2")
         assert r.returncode == 0 and r.stdout.startswith("ua{sv} 0"), r.stderr + r.stdout
-        start = subprocess.Popen(["busctl", f"--address={bus_address}", "--user", "call", *PORTAL, "Start", "oossa{sv}", f"/req/{label}3", session, "test", "", "0"],
+        start = subprocess.Popen(["busctl", f"--address={bus_address}", "--user", "call", *PORTAL, "Start", "oossa{sv}", f"/req/{label}3", session, f"app-{label}", "", "0"],
                                  env=pw_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         time.sleep(1.5)
         choose()
@@ -175,6 +175,35 @@ try:
     print("two sessions at once OK")
     for session in sessions:
         busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+
+    # Vesktop's second question within a moment reuses the first answer; a later one asks again.
+    def ask(label):
+        session = f"/org/freedesktop/portal/desktop/session/test/{label}"
+        busctl(*PORTAL[:2], PORTAL[2], "CreateSession", "oosa{sv}", f"/req/{label}1", session, "again", "0")
+        busctl(*PORTAL[:2], PORTAL[2], "SelectSources", "oosa{sv}", f"/req/{label}2", session, "again", "2", "types", "u", "3")
+        return session, subprocess.Popen(["busctl", f"--address={bus_address}", "--user", "call", *PORTAL, "Start", "oossa{sv}", f"/req/{label}3", session, "again", "", "0"],
+                                         env=pw_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    fresh_wireplumber()
+    first, p1 = ask("reuse1")
+    time.sleep(1.5)
+    comp.key("Return")
+    out, _ = p1.communicate(timeout=30)
+    assert out.startswith("ua{sv} 0"), out
+    second, p2 = ask("reuse2")
+    out, _ = p2.communicate(timeout=10)  # no key press: the answer is reused
+    assert out.startswith("ua{sv} 0"), out
+    print("a follow-up session reuses the choice")
+    for session in (first, second):
+        busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    time.sleep(9)
+    third, p3 = ask("reuse3")
+    time.sleep(1.5)
+    assert p3.poll() is None, "after the window the chooser must ask again"
+    comp.key("Return")
+    out, _ = p3.communicate(timeout=30)
+    assert out.startswith("ua{sv} 0"), out
+    busctl("org.freedesktop.impl.portal.desktop.mywm", third, "org.freedesktop.impl.portal.Session", "Close")
 
     # Escape cancels the chooser: response 1.
     def cancel():
