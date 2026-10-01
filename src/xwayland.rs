@@ -25,6 +25,32 @@ use smithay::{
 
 use crate::State;
 
+/// Where Xwayland finds the cursor theme. libXcursor only looks in a few fixed directories unless
+/// `XCURSOR_PATH` says otherwise; on NixOS the themes live elsewhere, so X11 windows would get its
+/// plain built-in cursor. Offer the same directories the compositor itself searches.
+fn cursor_environment() -> Vec<(String, String)> {
+    let mut env = Vec::new();
+    if std::env::var_os("XCURSOR_PATH").is_none() {
+        let mut dirs: Vec<String> = Vec::new();
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            dirs.push(format!("{home}/.icons"));
+            dirs.push(format!("{home}/.local/share/icons"));
+            dirs.push(format!("{home}/.nix-profile/share/icons"));
+        }
+        let data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+        dirs.extend(data_dirs.split(':').filter(|d| !d.is_empty()).map(|d| format!("{d}/icons")));
+        dirs.extend(["/run/current-system/sw/share/icons".into(), "/usr/share/icons".into(), "/usr/share/pixmaps".into()]);
+        dirs.dedup();
+        env.push(("XCURSOR_PATH".to_owned(), dirs.join(":")));
+    }
+    // The compositor draws with this theme and size; X11 clients should match.
+    if std::env::var_os("XCURSOR_SIZE").is_none() {
+        env.push(("XCURSOR_SIZE".to_owned(), "24".to_owned()));
+    }
+    env
+}
+
 /// Spawn Xwayland and, once it is up, become its window manager.
 pub fn start(state: &mut State) {
     if !state.config.xwayland {
@@ -33,7 +59,7 @@ pub fn start(state: &mut State) {
     let spawned = XWayland::spawn(
         &state.display_handle,
         None,
-        std::iter::empty::<(String, String)>(),
+        cursor_environment(),
         true,
         Stdio::null(),
         Stdio::null(),
