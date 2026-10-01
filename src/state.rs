@@ -178,7 +178,15 @@ impl State {
         loop_handle
             .insert_source(socket, |stream, _, state: &mut State| {
                 let data = Arc::new(ClientState::default());
-                let client = state.display_handle.insert_client(stream, data.clone()).expect("insert client");
+                // Fails when the connection cannot be registered (e.g. out of file descriptors):
+                // refuse this client instead of taking the session down.
+                let client = match state.display_handle.insert_client(stream, data.clone()) {
+                    Ok(client) => client,
+                    Err(error) => {
+                        tracing::warn!("cannot accept a Wayland client: {error}");
+                        return;
+                    }
+                };
                 let name = client
                     .get_credentials(&state.display_handle)
                     .ok()
