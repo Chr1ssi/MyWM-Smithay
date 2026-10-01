@@ -52,6 +52,9 @@ impl CompositorHandler for State {
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
+        if matches!(&self.cursor_status, CursorImageStatus::Surface(cursor) if cursor == surface) {
+            self.log_cursor_change();
+        }
         if self.layer_commit(surface) {
             return;
         }
@@ -200,11 +203,8 @@ impl SeatHandler for State {
         set_primary_focus(display, seat, client);
     }
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
-        let what = self.describe_cursor(&image);
-        if what != self.describe_cursor(&self.cursor_status) {
-            tracing::info!("cursor: {what}");
-        }
         self.cursor_status = image;
+        self.log_cursor_change();
         self.queue_redraw_all();
     }
 }
@@ -248,7 +248,16 @@ impl State {
         }
     }
 
-    /// A cursor image in words: its name, or which client supplied the surface.
+    /// Log the cursor image if it differs from the one logged last.
+    pub fn log_cursor_change(&mut self) {
+        let what = self.describe_cursor(&self.cursor_status);
+        if what != self.cursor_desc {
+            tracing::info!("cursor: {what}");
+            self.cursor_desc = what;
+        }
+    }
+
+    /// A cursor image in words: its name, or which client supplied the surface (with size and hotspot).
     fn describe_cursor(&self, image: &CursorImageStatus) -> String {
         match image {
             CursorImageStatus::Hidden => "hidden by the client".to_string(),
@@ -261,7 +270,17 @@ impl State {
                         client.get_data::<ClientState>().and_then(|d| d.name.get().cloned()).unwrap_or_else(|| "a client".to_string())
                     }
                 });
-                format!("surface of {owner}")
+                let size = smithay::backend::renderer::utils::with_renderer_surface_state(surface, |state| state.buffer_size())
+                    .flatten()
+                    .map_or("no buffer yet".to_string(), |size| format!("{}x{}", size.w, size.h));
+                let hotspot = smithay::wayland::compositor::with_states(surface, |states| {
+                    states
+                        .data_map
+                        .get::<std::sync::Mutex<smithay::input::pointer::CursorImageAttributes>>()
+                        .map(|attrs| attrs.lock().unwrap().hotspot)
+                        .unwrap_or_default()
+                });
+                format!("surface of {owner}, {size}, hotspot {},{}", hotspot.x, hotspot.y)
             }
         }
     }
