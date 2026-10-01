@@ -1,6 +1,7 @@
 //! Usage: `mywm-test-client simple <seconds>` (a window that fills the size it is given with a color that
 //! changes all the time; stands in for `weston-simple-shm`, which nixpkgs does not ship),
-//! `mywm-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts) or
+//! `mywm-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts),
+//! `mywm-test-client idle-inhibit <seconds>` (a window that keeps the session from going idle) or
 //! `mywm-test-client urgent <seconds>` (two windows; the second asks to activate the first
 //! without any user input behind the request).
 use std::{os::fd::AsFd, time::{Duration, Instant}};
@@ -19,6 +20,9 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_surface_v1::{self, KeyboardInteractivity, ZwlrLayerSurfaceV1},
 };
 use wayland_protocols::{
+    wp::idle_inhibit::zv1::client::{
+        zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1, zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1,
+    },
     wp::keyboard_shortcuts_inhibit::zv1::client::{
         zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1,
         zwp_keyboard_shortcuts_inhibitor_v1::{self, ZwpKeyboardShortcutsInhibitorV1},
@@ -121,6 +125,8 @@ delegate_noop!(App: ignore WlBuffer);
 delegate_noop!(App: ignore WlSurface);
 delegate_noop!(App: ignore WlSeat);
 delegate_noop!(App: ignore ZwpKeyboardShortcutsInhibitManagerV1);
+delegate_noop!(App: ignore ZwpIdleInhibitManagerV1);
+delegate_noop!(App: ignore ZwpIdleInhibitorV1);
 delegate_noop!(App: ignore XdgActivationV1);
 delegate_noop!(App: ignore XdgPositioner);
 
@@ -298,6 +304,16 @@ fn main() {
             let _inhibitor = manager.inhibit_shortcuts(&windows[0].surface, &seat, &qh, ());
             queue.roundtrip(&mut app).unwrap();
             println!("inhibitor {:?}", app.inhibitor_active);
+        }
+        "idle-inhibit" => {
+            // Like Chromium: replace the inhibitor by creating the new one before destroying the old one.
+            // The surviving inhibitor is never destroyed; it goes away with the connection on exit.
+            let manager: ZwpIdleInhibitManagerV1 = globals.bind(&qh, 1..=1, ()).expect("idle inhibit manager");
+            let first = manager.create_inhibitor(&windows[0].surface, &qh, ());
+            let _second = manager.create_inhibitor(&windows[0].surface, &qh, ());
+            first.destroy();
+            queue.roundtrip(&mut app).unwrap();
+            println!("inhibiting");
         }
         "urgent" => {
             let activation: XdgActivationV1 = globals.bind(&qh, 1..=1, ()).expect("xdg_activation_v1");

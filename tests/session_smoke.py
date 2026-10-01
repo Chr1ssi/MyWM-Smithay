@@ -34,8 +34,21 @@ try:
     assert wait(lambda: os.path.exists(f"{idle_dir}/resume"), 5), "input did not end idleness"
     print("idle notification OK")
 
-    # --- monitor power (wlr-output-power-management) ---
+    # --- idle inhibition (idle-inhibit) ---
     env = comp.env()
+    # The client replaces its first inhibitor with a second one on the same surface and then exits
+    # without destroying the second.
+    client = subprocess.Popen(["./target/debug/mywm-test-client", "idle-inhibit", "6"], env=env,
+                              stdout=subprocess.PIPE, text=True)
+    assert client.stdout.readline().strip() == "inhibiting", "the idle-inhibit client did not start"
+    if os.path.exists(f"{idle_dir}/idle"):
+        os.remove(f"{idle_dir}/idle")
+    assert not wait(lambda: os.path.exists(f"{idle_dir}/idle"), 4), "went idle despite a live inhibitor"
+    client.wait(10)
+    assert wait(lambda: os.path.exists(f"{idle_dir}/idle"), 6), "still inhibited after the client exited"
+    print("idle inhibition OK")
+
+    # --- monitor power (wlr-output-power-management) ---
     listing = subprocess.check_output(["wlopm"], env=env).decode()
     assert "winit on" in listing, listing
     subprocess.run(["wlopm", "--off", "winit"], env=env, check=True)

@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashSet, ffi::OsString, sync::Arc, time::Instant};
+use std::{any::Any, collections::HashMap, ffi::OsString, sync::Arc, time::Instant};
 
 use crate::{screencopy::PendingCopy, cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, session::SessionLock, udev::UdevData};
 use mywm_config::{Binding, Config, Modifiers};
@@ -106,8 +106,9 @@ pub struct State {
     pub lock_manager_state: SessionLockManagerState,
     pub session_lock: SessionLock,
     pub idle_notifier_state: IdleNotifierState<State>,
-    /// Surfaces that ask the desktop not to go idle (video players).
-    pub idle_inhibitors: HashSet<WlSurface>,
+    /// Surfaces that ask the desktop not to go idle (video players), with the number of live
+    /// inhibitor objects on each: a client may replace an inhibitor by creating the new one first.
+    pub idle_inhibitors: HashMap<WlSurface, usize>,
     pub output_power_objects: Vec<(Output, ZwlrOutputPowerV1)>,
     /// Layer surface the user clicked and that accepts keyboard input.
     pub layer_focus: Option<WlSurface>,
@@ -265,7 +266,7 @@ impl State {
             lock_manager_state: SessionLockManagerState::new::<State, _>(&dh, |_| true),
             session_lock: SessionLock::default(),
             idle_notifier_state: IdleNotifierState::new(&dh, loop_handle.clone()),
-            idle_inhibitors: HashSet::new(),
+            idle_inhibitors: HashMap::new(),
             output_power_objects: Vec::new(),
             layer_focus: None,
             primary_selection_state,

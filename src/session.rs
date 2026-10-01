@@ -172,12 +172,17 @@ impl IdleNotifierHandler for State {
 
 impl IdleInhibitHandler for State {
     fn inhibit(&mut self, surface: WlSurface) {
-        self.idle_inhibitors.insert(surface);
+        *self.idle_inhibitors.entry(surface).or_default() += 1;
         self.update_idle_inhibition();
     }
 
     fn uninhibit(&mut self, surface: WlSurface) {
-        self.idle_inhibitors.remove(&surface);
+        if let Some(count) = self.idle_inhibitors.get_mut(&surface) {
+            *count -= 1;
+            if *count == 0 {
+                self.idle_inhibitors.remove(&surface);
+            }
+        }
         self.update_idle_inhibition();
     }
 }
@@ -185,7 +190,7 @@ impl IdleInhibitHandler for State {
 impl State {
     /// Idle timers stand still while a video player (or anything else) holds an inhibitor.
     pub fn update_idle_inhibition(&mut self) {
-        self.idle_inhibitors.retain(|surface| surface.is_alive());
+        self.idle_inhibitors.retain(|surface, _| surface.is_alive());
         let inhibited = !self.idle_inhibitors.is_empty();
         self.idle_notifier_state.set_is_inhibited(inhibited);
     }

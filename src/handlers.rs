@@ -50,6 +50,13 @@ impl CompositorHandler for State {
         self.install_sync_blockers(surface);
     }
 
+    fn destroyed(&mut self, surface: &WlSurface) {
+        // A client that exits or crashes never destroys its idle inhibitors.
+        if self.idle_inhibitors.remove(surface).is_some() {
+            self.update_idle_inhibition();
+        }
+    }
+
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
         if self.layer_commit(surface) {
