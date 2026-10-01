@@ -25,12 +25,13 @@ use smithay::{
 
 use crate::State;
 
-/// Where Xwayland finds the cursor theme. libXcursor only looks in a few fixed directories unless
-/// `XCURSOR_PATH` says otherwise; on NixOS the themes live elsewhere, so X11 windows would get its
-/// plain built-in cursor. Offer the same directories the compositor itself searches.
+/// The cursor settings for Xwayland. Smithay starts it with an otherwise empty environment, so whatever
+/// is not passed here is lost: without `XCURSOR_THEME` and `XCURSOR_PATH` libXcursor finds no theme (on
+/// NixOS they live outside its fixed search directories) and every X11 window gets the built-in 10x16
+/// X cursor. The compositor draws with the same theme and size (see `cursor::export_theme`).
 fn cursor_environment() -> Vec<(String, String)> {
-    let mut env = Vec::new();
-    if std::env::var_os("XCURSOR_PATH").is_none() {
+    let current = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let path = current("XCURSOR_PATH").unwrap_or_else(|| {
         let mut dirs: Vec<String> = Vec::new();
         let home = std::env::var("HOME").unwrap_or_default();
         if !home.is_empty() {
@@ -42,11 +43,15 @@ fn cursor_environment() -> Vec<(String, String)> {
         dirs.extend(data_dirs.split(':').filter(|d| !d.is_empty()).map(|d| format!("{d}/icons")));
         dirs.extend(["/run/current-system/sw/share/icons".into(), "/usr/share/icons".into(), "/usr/share/pixmaps".into()]);
         dirs.dedup();
-        env.push(("XCURSOR_PATH".to_owned(), dirs.join(":")));
+        dirs.join(":")
+    });
+    let mut env = vec![("XCURSOR_PATH".to_owned(), path), ("XCURSOR_SIZE".to_owned(), current("XCURSOR_SIZE").unwrap_or_else(|| "24".to_owned()))];
+    if let Some(theme) = current("XCURSOR_THEME") {
+        env.push(("XCURSOR_THEME".to_owned(), theme));
     }
-    // The compositor draws with this theme and size; X11 clients should match.
-    if std::env::var_os("XCURSOR_SIZE").is_none() {
-        env.push(("XCURSOR_SIZE".to_owned(), "24".to_owned()));
+    // libXcursor also looks below $HOME, so give it the home directory too.
+    if let Some(home) = current("HOME") {
+        env.push(("HOME".to_owned(), home));
     }
     env
 }
@@ -56,10 +61,17 @@ pub fn start(state: &mut State) {
     if !state.config.xwayland {
         return;
     }
+    let environment = cursor_environment();
+    tracing::info!(
+        "Xwayland cursor: theme {:?}, size {:?}, {} search directories",
+        environment.iter().find(|(k, _)| k == "XCURSOR_THEME").map(|(_, v)| v.as_str()),
+        environment.iter().find(|(k, _)| k == "XCURSOR_SIZE").map(|(_, v)| v.as_str()),
+        environment.iter().find(|(k, _)| k == "XCURSOR_PATH").map_or(0, |(_, v)| v.split(':').count())
+    );
     let spawned = XWayland::spawn(
         &state.display_handle,
         None,
-        cursor_environment(),
+        environment,
         true,
         Stdio::null(),
         Stdio::null(),
@@ -300,5 +312,43 @@ impl State {
     /// Environment for programs we start: X11 apps find Xwayland through `DISPLAY`.
     pub fn x11_display_env(&self) -> Option<String> {
         self.xdisplay.map(|n| format!(":{n}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cursor_environment;
+
+    fn value(env: &[(String, String)], key: &str) -> Option<String> {
+        env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+
+    /// Xwayland starts with an empty environment: the compositor's own cursor settings must be passed
+    /// on, also when they are set (they used to be passed only when unset, so X11 windows lost the theme).
+    #[test]
+    fn passes_the_compositors_cursor_settings_on() {
+        // SAFETY: the only test that touches these variables.
+        unsafe {
+            std::env::set_var("XCURSOR_THEME", "Test-Theme");
+            std::env::set_var("XCURSOR_SIZE", "32");
+            std::env::set_var("XCURSOR_PATH", "/one:/two");
+            std::env::set_var("HOME", "/home/test");
+        }
+        let env = cursor_environment();
+        assert_eq!(value(&env, "XCURSOR_THEME").as_deref(), Some("Test-Theme"));
+        assert_eq!(value(&env, "XCURSOR_SIZE").as_deref(), Some("32"));
+        assert_eq!(value(&env, "XCURSOR_PATH").as_deref(), Some("/one:/two"));
+        assert_eq!(value(&env, "HOME").as_deref(), Some("/home/test"));
+
+        // SAFETY: as above.
+        unsafe {
+            std::env::remove_var("XCURSOR_THEME");
+            std::env::remove_var("XCURSOR_SIZE");
+            std::env::remove_var("XCURSOR_PATH");
+        }
+        let env = cursor_environment();
+        assert_eq!(value(&env, "XCURSOR_THEME"), None);
+        assert_eq!(value(&env, "XCURSOR_SIZE").as_deref(), Some("24"));
+        assert!(value(&env, "XCURSOR_PATH").unwrap().contains("/home/test/.icons"));
     }
 }
