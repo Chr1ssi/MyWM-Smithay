@@ -164,6 +164,9 @@ pub struct Rounded<E> {
     inner: E,
     program: GlesTexProgram,
     uniforms: Vec<Uniform<'static>>,
+    /// What the shader leaves untouched, in output pixels: the window geometry without its corners, as
+    /// three rectangles (a cross). `None`: nothing counts as opaque.
+    opaque_shape: Option<[Rectangle<i32, Physical>; 3]>,
 }
 
 impl<E> Rounded<E> {
@@ -175,7 +178,27 @@ impl<E> Rounded<E> {
             Uniform::new("geo", (geo[0], geo[1], geo[2], geo[3])),
             Uniform::new("radius", radius),
         ];
-        Self { inner, program, uniforms }
+        Self { inner, program, uniforms, opaque_shape: None }
+    }
+
+    /// Let the client's opaque region through where the shader keeps the pixels: inside `geometry` (the window
+    /// geometry in output pixels) away from the rounded corners. Everything behind those parts can then be skipped.
+    pub fn with_opaque_shape(mut self, geometry: Rectangle<f64, Physical>, radius: f64) -> Self {
+        // Whole pixels only, one pixel inside the edges: they are smoothed, and fractional scales leave
+        // the geometry between pixels.
+        let (x0, y0) = (geometry.loc.x.ceil() as i32 + 1, geometry.loc.y.ceil() as i32 + 1);
+        let (x1, y1) =
+            ((geometry.loc.x + geometry.size.w).floor() as i32 - 1, (geometry.loc.y + geometry.size.h).floor() as i32 - 1);
+        let r = radius.max(0.0).ceil() as i32 + 1;
+        let (w, h) = (x1 - x0, y1 - y0);
+        if w > 2 * r && h > 2 * r {
+            self.opaque_shape = Some([
+                Rectangle::new((x0, y0 + r).into(), (w, h - 2 * r).into()),
+                Rectangle::new((x0 + r, y0).into(), (w - 2 * r, r).into()),
+                Rectangle::new((x0 + r, y1 - r).into(), (w - 2 * r, r).into()),
+            ]);
+        }
+        self
     }
 }
 
@@ -208,9 +231,19 @@ impl<E: Element> Element for Rounded<E> {
         self.inner.damage_since(scale, commit)
     }
 
-    /// The corners are see-through, so nothing behind the element may be skipped.
-    fn opaque_regions(&self, _scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        OpaqueRegions::default()
+    /// The client's opaque region, cut to what the shader does not fade out.
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        let Some(shape) = &self.opaque_shape else { return OpaqueRegions::default() };
+        let regions = self.inner.opaque_regions(scale);
+        if regions.is_empty() {
+            return regions;
+        }
+        // Opaque regions are relative to the element.
+        let origin = self.inner.geometry(scale).loc;
+        regions
+            .iter()
+            .flat_map(|region| shape.iter().filter_map(move |part| region.intersection(Rectangle::new(part.loc - origin, part.size))))
+            .collect()
     }
 
     fn alpha(&self) -> f32 {

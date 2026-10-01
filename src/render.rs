@@ -178,13 +178,16 @@ impl State {
                                 (f64::from(geometry.size.h) * scale * factor.1) as f32,
                             ];
                             let radius = (f64::from(self.config.effects.corner_radius) * scale * factor.0) as f32;
-                            bucket.push(OutputElement::from(crate::effects::Rounded::new(
-                                cropped,
-                                shader.tex.clone(),
-                                (buf.w as f32, buf.h as f32),
-                                geo_px,
-                                radius,
-                            )));
+                            // The window geometry in output pixels: where the shader keeps the surface's pixels.
+                            let shape = Rectangle::new(
+                                render_location.to_f64() + geometry.loc.to_f64().to_physical(scale),
+                                geometry.size.to_f64().to_physical(scale),
+                            );
+                            let corner = f64::from(self.config.effects.corner_radius) * scale;
+                            bucket.push(OutputElement::from(
+                                crate::effects::Rounded::new(cropped, shader.tex.clone(), (buf.w as f32, buf.h as f32), geo_px, radius)
+                                    .with_opaque_shape(shape, corner),
+                            ));
                         }
                         None => bucket.push(OutputElement::from(cropped)),
                     }
