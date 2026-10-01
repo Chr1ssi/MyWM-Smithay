@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 use smithay::{
+    reexports::wayland_server::Resource,
     backend::{
         allocator::Fourcc,
         renderer::{
@@ -63,6 +64,16 @@ pub unsafe fn export_theme() {
             unsafe { std::env::set_var(name, value) };
         }
     }
+}
+
+/// Cursors of the X cursor font that Xwayland hands over as plain images: a client that makes its cursors
+/// with `XCreateFontCursor` (Steam does) bypasses the theme. Image size and hotspot of such a cursor, and
+/// the themed icon to draw instead. More can be added from the `cursor:` log lines.
+const CORE_CURSORS: &[((i32, i32), (i32, i32), CursorIcon)] = &[((10, 16), (1, 1), CursorIcon::Default)];
+
+/// The themed icon for an Xwayland cursor image that is one of the X cursor font's glyphs.
+pub fn core_cursor_icon(size: (i32, i32), hotspot: (i32, i32)) -> Option<CursorIcon> {
+    CORE_CURSORS.iter().find(|(s, h, _)| *s == size && *h == hotspot).map(|(_, _, icon)| *icon)
 }
 
 /// Cursor images of the configured theme, loaded on first use.
@@ -136,6 +147,32 @@ impl CursorAssets {
 }
 
 impl State {
+    /// The themed icon to draw instead of an Xwayland cursor image that is a glyph of the X cursor font.
+    pub fn core_cursor_of(&self, image: &CursorImageStatus) -> Option<CursorIcon> {
+        let CursorImageStatus::Surface(surface) = image else { return None };
+        let from_xwayland = self
+            .display_handle
+            .get_client(surface.id())
+            .ok()
+            .is_some_and(|client| client.get_data::<smithay::xwayland::XWaylandClientData>().is_some());
+        if !from_xwayland {
+            return None;
+        }
+        let size = smithay::backend::renderer::utils::with_renderer_surface_state(surface, |state| state.buffer_size()).flatten()?;
+        let hotspot = with_states(surface, |states| {
+            states.data_map.get::<std::sync::Mutex<CursorImageAttributes>>().map(|attrs| attrs.lock().unwrap().hotspot).unwrap_or_default()
+        });
+        core_cursor_icon((size.w, size.h), (hotspot.x, hotspot.y))
+    }
+
+    /// What is drawn: the cursor the client set, or the themed icon for a core X cursor.
+    fn effective_cursor(&self) -> CursorImageStatus {
+        match self.core_cursor_of(&self.cursor_status) {
+            Some(icon) => CursorImageStatus::Named(icon),
+            None => self.cursor_status.clone(),
+        }
+    }
+
     /// Cursor elements for `output`: empty when the pointer is elsewhere or hidden.
     pub fn cursor_elements(&mut self, renderer: &mut GlesRenderer, output: &Output) -> Vec<CursorElement> {
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
@@ -156,7 +193,7 @@ impl State {
         if matches!(&self.cursor_status, CursorImageStatus::Surface(surface) if !smithay::reexports::wayland_server::Resource::is_alive(surface)) {
             self.cursor_status = CursorImageStatus::default_named();
         }
-        match self.cursor_status.clone() {
+        match self.effective_cursor() {
             CursorImageStatus::Hidden => Vec::new(),
             CursorImageStatus::Surface(surface) => {
                 let hotspot = with_states(&surface, |states| {
@@ -185,5 +222,18 @@ impl State {
                 .unwrap_or_default()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_x_core_arrow_becomes_the_themed_default() {
+        assert_eq!(core_cursor_icon((10, 16), (1, 1)), Some(CursorIcon::Default));
+        // The theme's own arrow (24x24) and other sizes are left alone.
+        assert_eq!(core_cursor_icon((24, 24), (5, 1)), None);
+        assert_eq!(core_cursor_icon((10, 16), (4, 4)), None);
     }
 }

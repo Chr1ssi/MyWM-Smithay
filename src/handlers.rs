@@ -280,7 +280,8 @@ impl State {
                         .map(|attrs| attrs.lock().unwrap().hotspot)
                         .unwrap_or_default()
                 });
-                format!("surface of {owner}, {size}, hotspot {},{}", hotspot.x, hotspot.y)
+                let core = if self.core_cursor_of(image).is_some() { " (a core X cursor, drawn as the themed default)" } else { "" };
+                format!("surface of {owner}, {size}, hotspot {},{}{core}", hotspot.x, hotspot.y)
             }
         }
     }
