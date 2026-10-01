@@ -135,8 +135,9 @@ struct Surface {
     scanout: bool,
     /// Frames since a recognized game took the output (0 while none does), for the scanout report.
     game_frames: u32,
-    /// Why the game is not scanned out was logged for this game.
-    scanout_reported: bool,
+    /// What the last "not scanned out" report said about the elements, and when: reported again when it changes.
+    scanout_signature: Option<String>,
+    last_scanout_report: Option<Instant>,
     /// When the last "slow redraw" line was logged and how many were left out since.
     last_slow_log: Option<Instant>,
     slow_suppressed: u32,
@@ -699,7 +700,8 @@ impl State {
                 stats: FrameStats::new(),
                 scanout: false,
                 game_frames: 0,
-                scanout_reported: false,
+                scanout_signature: None,
+                last_scanout_report: None,
                 last_slow_log: None,
                 slow_suppressed: 0,
             },
@@ -853,8 +855,7 @@ impl State {
                 // element on the output with what became of it, and the format of the game's own buffer.
                 if policy.game {
                     surface.game_frames = surface.game_frames.saturating_add(1);
-                    if !is_empty && !direct_scanout(&states) && !surface.scanout_reported && surface.game_frames >= 120 {
-                        surface.scanout_reported = true;
+                    if !is_empty && !direct_scanout(&states) && surface.game_frames >= 120 {
                         let scale = smithay::utils::Scale::from(output.current_scale().fractional_scale());
                         let listing: Vec<String> = elements
                             .iter()
@@ -870,19 +871,44 @@ impl State {
                                 format!("{} {}x{} at {},{}: {what}", element.kind(), area.size.w, area.size.h, area.loc.x, area.loc.y)
                             })
                             .collect();
-                        tracing::info!(
-                            "{}: the game is composited, not scanned out; primary plane {}, {} overlay plane(s), cursor plane {}; front to back: [{}]; game buffer: {}",
-                            output.name(),
-                            if planes.0 { "scanout" } else { "composited" },
-                            planes.1,
-                            if planes.2 { "used" } else { "unused" },
-                            listing.join("; "),
-                            self.game_buffer_description(&output)
-                        );
+                        // Report again when the picture changes (the cursor hidden in the game, say), not more than every 5 s.
+                        let signature = format!("{}|{}|{}|{}", planes.0, planes.1, planes.2, listing.iter().map(|l| l.split(" at ").next().unwrap_or("")).collect::<Vec<_>>().join(","));
+                        let due = surface.last_scanout_report.is_none_or(|at| at.elapsed() >= Duration::from_secs(5));
+                        if due && surface.scanout_signature.as_deref() != Some(signature.as_str()) {
+                            surface.scanout_signature = Some(signature);
+                            surface.last_scanout_report = Some(Instant::now());
+                            let (buffer, buffer_format) = self.game_buffer_description(&output);
+                            let inventory = {
+                                let planes = surface.compositor.surface().planes();
+                                let primary = surface.compositor.surface().plane_info();
+                                let primary_takes_it = buffer_format.map(|format| if primary.formats.contains(&format) { "yes" } else { "no" }).unwrap_or("unknown");
+                                let overlay_takes_it = buffer_format
+                                    .map(|format| if planes.overlay.iter().any(|plane| plane.formats.contains(&format)) { "yes" } else { "no" })
+                                    .unwrap_or("unknown");
+                                format!(
+                                    "{} primary, {} cursor ({}), {} overlay plane(s); the primary plane takes the game's format and modifier: {primary_takes_it}; an overlay plane does: {overlay_takes_it}",
+                                    planes.primary.len(),
+                                    planes.cursor.len(),
+                                    planes.cursor.iter().map(|plane| format!("size hints {:?}", plane.size_hints)).collect::<Vec<_>>().join(", "),
+                                    planes.overlay.len()
+                                )
+                            };
+                            tracing::info!(
+                                "{}: the game is composited, not scanned out; primary plane {}, {} overlay plane(s), cursor plane {}; front to back: [{}]; game buffer: {}; hardware: {}",
+                                output.name(),
+                                if planes.0 { "scanout" } else { "composited" },
+                                planes.1,
+                                if planes.2 { "used" } else { "unused" },
+                                listing.join("; "),
+                                buffer,
+                                inventory
+                            );
+                        }
                     }
                 } else {
                     surface.game_frames = 0;
-                    surface.scanout_reported = false;
+                    surface.scanout_signature = None;
+                    surface.last_scanout_report = None;
                 }
                 if is_empty {
                     false
@@ -1006,20 +1032,20 @@ impl State {
         }
     }
 
-    /// The pixel format of the buffer of the game that owns `output`, for the log.
-    fn game_buffer_description(&self, output: &Output) -> String {
-        let Some(monitor) = self.outputs.iter().position(|e| &e.output == output) else { return "unknown output".into() };
-        let Some(surface) = self.fullscreen_game_on(monitor).and_then(|game| game.surface()) else { return "no game surface".into() };
+    /// The pixel format of the buffer of the game that owns `output`, for the log, and that format.
+    fn game_buffer_description(&self, output: &Output) -> (String, Option<smithay::backend::allocator::Format>) {
+        let Some(monitor) = self.outputs.iter().position(|e| &e.output == output) else { return ("unknown output".into(), None) };
+        let Some(surface) = self.fullscreen_game_on(monitor).and_then(|game| game.surface()) else { return ("no game surface".into(), None) };
         smithay::backend::renderer::utils::with_renderer_surface_state(&surface, |state| {
-            let size = state.buffer_size().map_or("?".to_string(), |size| format!("{}x{}", size.w, size.h));
             use smithay::backend::allocator::Buffer as _;
+            let size = state.buffer_size().map_or("?".to_string(), |size| format!("{}x{}", size.w, size.h));
             match state.buffer().map(|buffer| smithay::wayland::dmabuf::get_dmabuf(&**buffer).map(|dmabuf| (dmabuf.format(), dmabuf.num_planes()))) {
-                Some(Ok((format, planes))) => format!("dmabuf {:?}, modifier {:?}, {planes} plane(s), {size}", format.code, format.modifier),
-                Some(Err(_)) => format!("shared memory, {size}"),
-                None => "none attached".to_string(),
+                Some(Ok((format, planes))) => (format!("dmabuf {:?}, modifier {:?}, {planes} plane(s), {size}", format.code, format.modifier), Some(format)),
+                Some(Err(_)) => (format!("shared memory, {size}"), None),
+                None => ("none attached".to_string(), None),
             }
         })
-        .unwrap_or_else(|| "no renderer state".to_string())
+        .unwrap_or_else(|| ("no renderer state".to_string(), None))
     }
 
     /// Whether VRR and tearing should be active on `output` right now.
