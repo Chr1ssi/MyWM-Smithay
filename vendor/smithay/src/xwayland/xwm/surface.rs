@@ -580,6 +580,21 @@ impl X11Surface {
         let _ = conn.flush();
     }
 
+    /// MyWM patch: tell the client it is minimized (`true`: `WM_STATE` iconic and `_NET_WM_STATE_HIDDEN`) or
+    /// restored (`false`) without unmapping the window, so that it keeps its picture and its place.
+    ///
+    /// Wine minimizes an exclusive-fullscreen window when it loses the focus, and only follows a restore if
+    /// the window manager reports it through `WM_STATE`.
+    pub fn set_iconic(&self, iconic: bool) {
+        let Some(conn) = self.conn.upgrade() else { return };
+        let property = [if iconic { 3u32 /*IconicState*/ } else { 1u32 /*NormalState*/ }, 0 /*WINDOW_NONE*/];
+        if let Err(err) = conn.change_property32(PropMode::REPLACE, self.window, self.atoms.WM_STATE, self.atoms.WM_STATE, &property) {
+            warn!("Unable to set WM_STATE of X11Surface ({:?}): {}", self.window, err);
+        }
+        let _ = self.set_suspended(iconic);
+        let _ = conn.flush();
+    }
+
     /// Sets the window as activated or not.
     ///
     /// Allows the client to reflect this state in their UI.

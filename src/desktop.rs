@@ -49,6 +49,9 @@ pub struct Managed {
     pub shown_fullscreen: bool,
     /// Asked for attention without having the focus (`xdg-activation`).
     pub urgent: bool,
+    /// An X11 client (Wine's exclusive fullscreen on losing the focus) minimized itself and was told so; the window
+    /// stays where it is, and gets restored when it takes the focus again.
+    pub minimized: bool,
     /// Border color for the current focus state.
     pub border_color: [f32; 4],
     /// The rounded border ring and what it was built for (frame, radius, width, color).
@@ -240,6 +243,7 @@ impl State {
             foreign: None,
             commits: 0,
             urgent: false,
+            minimized: false,
             shown_fullscreen: false,
             border_color: [0.0; 4],
             ring: None,
@@ -587,6 +591,10 @@ impl State {
         // A launcher or lock prompt holds the keyboard; windows look unfocused meanwhile.
         let layer = self.keyboard_layer();
         let focused = self.desktop.focused().filter(|_| layer.is_none());
+        // A window that minimized itself while it had no focus is restored as soon as it gets the focus back.
+        if let Some(id) = focused {
+            self.restore_minimized(id);
+        }
         for m in &self.desktop.windows {
             let changed = m.window.set_activated(Some(m.id) == focused);
             if changed && let Some(toplevel) = m.window.toplevel() {
@@ -623,6 +631,17 @@ impl State {
             self.x11_focus = x11;
         }
         self.set_keyboard_focus(surface);
+    }
+
+    /// Tell an X11 window that minimized itself that it is restored. Returns whether it was minimized.
+    pub fn restore_minimized(&mut self, id: WindowId) -> bool {
+        let Some(m) = self.desktop.get_mut(id).filter(|m| m.minimized) else { return false };
+        m.minimized = false;
+        if let Some(x11) = m.window.x11_surface() {
+            tracing::info!("X11 window restored: {:?} ({})", x11.title(), x11.class());
+            x11.set_iconic(false);
+        }
+        true
     }
 
     /// The monitor a window is shown on: the scratchpad's follows the pointer, others their workspace's.

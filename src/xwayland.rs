@@ -227,14 +227,23 @@ impl XwmHandler for State {
         }
     }
 
-    // Wine minimizes an exclusive-fullscreen window when it loses the focus. Nothing is done about it yet; the
-    // requests are logged to find out whether that is what blacks the game out.
+    // Wine minimizes an exclusive-fullscreen window when it loses the focus (the pointer moved to another monitor)
+    // and takes it as minimized until the window manager says otherwise. Ignored, the game stayed black for good.
+    // The client is told it is minimized, the window stays shown (it keeps its last picture and still gets the
+    // pointer), and it is restored when it gets the focus again.
     fn minimize_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window asks to be minimized (ignored): {:?} ({})", window.title(), window.class());
+        tracing::info!("X11 window minimizes itself: {:?} ({})", window.title(), window.class());
+        if let Some(m) = self.desktop.by_x11(window.window_id()).map(|m| m.id).and_then(|id| self.desktop.get_mut(id)) {
+            m.minimized = true;
+            window.set_iconic(true);
+        }
     }
 
     fn unminimize_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::info!("X11 window asks to be restored (ignored): {:?} ({})", window.title(), window.class());
+        tracing::info!("X11 window asks to be restored: {:?} ({})", window.title(), window.class());
+        if let Some(id) = self.desktop.by_x11(window.window_id()).map(|m| m.id) {
+            self.restore_minimized(id);
+        }
     }
 
     // Moving and resizing are done with the pointer modifier, not by the client.
