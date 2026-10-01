@@ -69,6 +69,18 @@ try:
     print("pixel before lock:", before, "while locked:", locked)
     assert before != locked, "windows are still visible behind the lock"
     assert locked.upper() == "#1E1E2E", "lock screen should show the palette background"
+    # The locker redraws its ring for a key press only when it gets its frame callback: swaylock then lights
+    # up an arc of the ring (at a random place) in the bright text color, which is nowhere else around it.
+    def bright_ring_pixels(path):
+        raw = subprocess.check_output(["convert", path, "-crop", "140x125+571+335", "rgb:-"])
+        return sum(1 for i in range(0, len(raw), 3) if min(raw[i:i + 3]) > 0xB0)
+    screenshot(f"{comp.dir}/before-typing.png")
+    comp.key("a")
+    time.sleep(0.5)
+    screenshot(f"{comp.dir}/typed.png")
+    lit = bright_ring_pixels(f"{comp.dir}/typed.png") - bright_ring_pixels(f"{comp.dir}/before-typing.png")
+    print("ring pixels lit by typing:", lit)
+    assert lit > 50, "the lock screen did not react to typing"
     assert bar.send("workspace 1 1") == "v1 error invalid-command", "commands must be refused while locked"
     assert comp.stop(), "socket not removed on exit"
     print("session lock OK")

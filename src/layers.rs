@@ -4,7 +4,7 @@ use std::time::Duration;
 use mywm_layout::Rect;
 use smithay::{
     delegate_layer_shell,
-    desktop::{LayerSurface, PopupKind, WindowSurfaceType, layer_map_for_output},
+    desktop::{LayerSurface, PopupKind, WindowSurfaceType, layer_map_for_output, utils::send_frames_surface_tree},
     output::Output,
     reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface},
     utils::{Logical, Point},
@@ -170,6 +170,10 @@ impl State {
         }
         for layer in layer_map_for_output(output).layers() {
             layer.send_frame(output, elapsed, Some(Duration::ZERO), |_, _| Some(output.clone()));
+        }
+        // The locker draws its input feedback (swaylock's ring) only when its frame callback comes.
+        if let Some(lock) = self.lock_surface_for(output) {
+            send_frames_surface_tree(lock.wl_surface(), output, elapsed, None, |_, _| Some(output.clone()));
         }
     }
 }
