@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Runs the nested smoke tests against a private Xvfb, so that the real session is left alone
+# (the tests move the X pointer and type into the nested window).
+#
+#   nix develop .#smoke -c tests/run-smoke            # all tests
+#   nix develop .#smoke -c tests/run-smoke popup ipc  # some of them (names without _smoke.py)
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+cargo build --workspace || exit 1
+
+tests=("$@")
+if [ ${#tests[@]} -eq 0 ]; then
+    for file in tests/*_smoke.py; do
+        name=${file#tests/}
+        tests+=("${name%_smoke.py}")
+    done
+fi
+
+# Xvfb picks a free display number and reports it on the given descriptor.
+exec {display_fd}<> <(:)
+Xvfb -displayfd "$display_fd" -screen 0 1280x800x24 +extension GLX >/dev/null 2>&1 &
+xvfb=$!
+trap 'kill "$xvfb" 2>/dev/null' EXIT
+read -r -t 10 -u "$display_fd" display_number || { echo 'Xvfb did not start' >&2; exit 1; }
+export DISPLAY=":$display_number" PYTHONPATH=tests
+unset WAYLAND_DISPLAY
+
+failed=()
+for name in "${tests[@]}"; do
+    log=$(mktemp)
+    printf '%-18s' "$name"
+    if timeout 300 python3 "tests/${name}_smoke.py" >"$log" 2>&1; then
+        echo ok
+    else
+        echo FAILED
+        tail -n 5 "$log" | sed 's/^/    /'
+        failed+=("$name")
+    fi
+    rm -f "$log"
+done
+
+if [ ${#failed[@]} -gt 0 ]; then
+    echo "failed: ${failed[*]}" >&2
+    exit 1
+fi

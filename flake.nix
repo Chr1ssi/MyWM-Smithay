@@ -51,6 +51,32 @@
               libxi
             ]);
           };
+
+          # The default shell plus what the nested smoke tests in `tests/` drive the compositor with:
+          # `nix develop .#smoke -c tests/run-smoke`.
+          smoke = pkgs.mkShell {
+            inputsFrom = [ self.devShells.${system}.default ];
+            inherit (self.devShells.${system}.default) LD_LIBRARY_PATH LIBCLANG_PATH;
+            packages = with pkgs; [
+              python3
+              xorg-server # Xvfb
+              xdotool
+              imagemagick
+              grim
+              swaybg
+              wl-clipboard
+              xclip
+              xterm
+              xeyes
+              xev
+              swaylock
+              swayidle
+              wlopm
+              wlr-randr
+              systemd # busctl
+              procps # pkill
+            ];
+          };
         });
 
       overlays.default = final: _prev: {

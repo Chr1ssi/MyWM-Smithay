@@ -73,7 +73,20 @@ libseat-dev libgbm-dev libdrm-dev libudev-dev libegl-dev libgles-dev`; für `myw
 ```sh
 cargo run -- "kitty"      # nested (in X/Wayland); optionales Kommando nach dem Start
 cargo test --workspace    # Layout, Config, Protokoll
-PYTHONPATH=tests python3 tests/ipc_smoke.py           # Bar-Socket (braucht X + weston-simple-shm)
+```
+
+Die nested Smoke-Tests (`tests/*_smoke.py`) laufen unter NixOS alle zusammen gegen ein eigenes Xvfb, das die echte
+Sitzung in Ruhe lässt (sie bewegen den X-Zeiger und tippen ins Fenster):
+
+```sh
+nix develop .#smoke -c tests/run-smoke              # alle
+nix develop .#smoke -c tests/run-smoke popup ipc    # einzelne (Name ohne _smoke.py)
+```
+
+Einzeln, in `nix develop .#smoke` und mit gesetztem `$DISPLAY` (z. B. Xvfb):
+
+```sh
+PYTHONPATH=tests python3 tests/ipc_smoke.py           # Bar-Socket (braucht X)
 PYTHONPATH=tests python3 tests/multimonitor_smoke.py  # Multi-Monitor mit virtuellen Ausgängen
 PYTHONPATH=tests python3 tests/globals_smoke.py       # angebotene Wayland-Protokolle
 PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Power (swaylock/swayidle/wlopm)

@@ -5,7 +5,8 @@ Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/s
 import os, subprocess, tempfile, time
 from smoke_support import wait
 
-work = tempfile.mkdtemp()
+# A short path: the settings window sizes its sidebar by the config path, and the clicks below are positions.
+work = tempfile.mkdtemp(dir="/tmp")
 config = f"{work}/config.toml"
 with open(config, "w") as f:
     f.write("# my settings\n[effects]\ncorner_radius = 12 # round\n")
@@ -15,13 +16,21 @@ app = subprocess.Popen(["./target/debug/mywm-settings", "--config", config, "--p
 
 
 def xdo(*args):
+    # Keys are held for a moment: under software rendering a frame can take longer than a quick press and release.
+    if args[0] == "key":
+        args = ("key", "--delay", "100", *args[1:])
     subprocess.run(["xdotool", *args], check=True)
 
 
 try:
     assert wait(lambda: subprocess.run(["xdotool", "search", "--name", "mywm Einstellungen"], capture_output=True).stdout.strip(), 40), "no window"
     window = subprocess.check_output(["xdotool", "search", "--name", "mywm Einstellungen"]).split()[0].decode()
-    time.sleep(3)
+    # The window exists before its first frame is drawn (slow under software rendering); input sent earlier is lost.
+    def drawn():
+        picture = subprocess.run(["import", "-window", window, "png:-"], capture_output=True).stdout
+        count = subprocess.run(["convert", "png:-", "-format", "%k", "info:"], input=picture, capture_output=True).stdout
+        return count.strip().isdigit() and int(count) > 10
+    assert wait(drawn, 30), "the window was never drawn"
     xdo("windowfocus", window)
 
     # "+ Taste" of the first action (Konfiguration neu laden), then F5 with Super ticked by default.

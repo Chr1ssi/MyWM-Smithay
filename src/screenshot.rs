@@ -344,15 +344,21 @@ fn save(directory: PathBuf, width: u32, height: u32, mut pixels: Vec<u8>, waylan
             pixel[3] = 255;
         }
         let path = directory.join(format!("Screenshot_{}.png", timestamp()));
+        // Written under a hidden name and renamed, so that nobody (a file manager, a watcher) sees a half-written picture.
+        let partial = directory.join(format!(".{}.part", path.file_name().map_or_else(|| "Screenshot".into(), |name| name.to_string_lossy())));
         let written = (|| -> Result<(), Box<dyn std::error::Error>> {
             std::fs::create_dir_all(&directory)?;
-            let mut encoder = png::Encoder::new(BufWriter::new(std::fs::File::create(&path)?), width, height);
+            let mut encoder = png::Encoder::new(BufWriter::new(std::fs::File::create(&partial)?), width, height);
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
-            encoder.write_header()?.write_image_data(&pixels)?;
+            let mut writer = encoder.write_header()?;
+            writer.write_image_data(&pixels)?;
+            writer.finish()?;
+            std::fs::rename(&partial, &path)?;
             Ok(())
         })();
         if let Err(error) = written {
+            let _ = std::fs::remove_file(&partial);
             tracing::warn!("cannot save the screenshot to {}: {error}", path.display());
             return;
         }

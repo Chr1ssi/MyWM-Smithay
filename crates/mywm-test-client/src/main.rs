@@ -1,4 +1,6 @@
-//! Usage: `mywm-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts) or
+//! Usage: `mywm-test-client simple <seconds>` (a window that fills the size it is given with a color that
+//! changes all the time; stands in for `weston-simple-shm`, which nixpkgs does not ship),
+//! `mywm-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts) or
 //! `mywm-test-client urgent <seconds>` (two windows; the second asks to activate the first
 //! without any user input behind the request).
 use std::{os::fd::AsFd, time::{Duration, Instant}};
@@ -43,6 +45,8 @@ struct App {
     inhibitor_active: Option<bool>,
     token: Option<String>,
     popup: Option<(i32, i32, i32, i32)>,
+    /// The size the compositor last gave the toplevel (0x0: the client chooses).
+    toplevel_size: (i32, i32),
 }
 
 impl Dispatch<WlRegistry, GlobalListContents> for App {
@@ -67,7 +71,11 @@ impl Dispatch<XdgSurface, usize> for App {
 }
 
 impl Dispatch<XdgToplevel, ()> for App {
-    fn event(_: &mut Self, _: &XdgToplevel, _: wayland_protocols::xdg::shell::client::xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(state: &mut Self, _: &XdgToplevel, event: wayland_protocols::xdg::shell::client::xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wayland_protocols::xdg::shell::client::xdg_toplevel::Event::Configure { width, height, .. } = event {
+            state.toplevel_size = (width, height);
+        }
+    }
 }
 
 impl Dispatch<ZwpKeyboardShortcutsInhibitorV1, ()> for App {
@@ -130,6 +138,52 @@ struct Window {
     _toplevel: XdgToplevel,
 }
 
+/// A toplevel of whatever size the compositor gives it, redrawn in a new color every 50 ms.
+fn simple_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, seconds: u64) {
+    let qh = queue.handle();
+    app.configured = vec![false];
+    let surface = compositor.create_surface(&qh, ());
+    let xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
+    let toplevel = xdg.get_toplevel(&qh, ());
+    toplevel.set_app_id("mywm.test.simple".into());
+    surface.commit();
+    while !app.configured[0] {
+        queue.blocking_dispatch(app).unwrap();
+    }
+    let file = std::fs::File::options().read(true).write(true).create(true).truncate(true).open(std::env::temp_dir().join(format!("mywm-tc-{}", std::process::id()))).unwrap();
+    let end = Instant::now() + Duration::from_secs(seconds);
+    let mut frame = 0u32;
+    while Instant::now() < end {
+        // Leave with the compositor: every error here means the connection is gone.
+        if queue.dispatch_pending(app).is_err() {
+            return;
+        }
+        let (w, h) = if app.toplevel_size.0 > 0 && app.toplevel_size.1 > 0 { app.toplevel_size } else { (256, 256) };
+        let length = (w * h * 4) as usize;
+        file.set_len(length as u64).unwrap();
+        // A gradient from left to right whose phase moves, so the picture has many colors and changes every frame.
+        let phase = frame.wrapping_mul(7) as usize;
+        let row: Vec<u8> = (0..w as usize).flat_map(|x| [((x + phase) % 256) as u8, 0x40, 0xC0 - ((x * 128 / w as usize) as u8), 0xFF]).collect();
+        let pixels: Vec<u8> = row.iter().copied().cycle().take(length).collect();
+        std::os::unix::fs::FileExt::write_all_at(&file, &pixels, 0).unwrap();
+        let pool = shm.create_pool(file.as_fd(), length as i32, &qh, ());
+        let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, &qh, ());
+        surface.attach(Some(&buffer), 0, 0);
+        surface.damage_buffer(0, 0, w, h);
+        surface.commit();
+        if queue.flush().is_err() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        if queue.roundtrip(app).is_err() {
+            return;
+        }
+        buffer.destroy();
+        pool.destroy();
+        frame = frame.wrapping_add(1);
+    }
+}
+
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();
     let seconds: u64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(30);
@@ -141,6 +195,11 @@ fn main() {
     let compositor: WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
     let shm: WlShm = globals.bind(&qh, 1..=1, ()).unwrap();
     let wm_base: XdgWmBase = globals.bind(&qh, 1..=1, ()).unwrap();
+
+    if mode == "simple" {
+        simple_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds);
+        return;
+    }
 
     if mode == "layer" || mode == "fullscreen" {
         // `layer <top|overlay> <w> <h> <RRGGBB> <seconds>` or `fullscreen <RRGGBB> <seconds>`: one solid surface.

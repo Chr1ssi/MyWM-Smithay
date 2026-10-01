@@ -58,7 +58,7 @@ def brightness(path):
 comp, path = run("")
 plain = brightness(path)
 assert comp.stop()
-comp, path = run("[[rules]]\napp_id = 'org.freedesktop.weston.simple-shm'\nopacity = 0.4\n")
+comp, path = run("[[rules]]\napp_id = 'mywm.test.simple'\nopacity = 0.4\n")
 faded = brightness(path)
 assert comp.stop()
 print("brightness", plain, faded)
@@ -102,7 +102,7 @@ subprocess.run(["convert", "-size", "1280x800", "tile:/tmp/tile.png", wallpaper]
 
 
 def blurred(amount):
-    cfg = f"[effects]\nblur = {amount}\n[[rules]]\napp_id = 'org.freedesktop.weston.simple-shm'\nopacity = 0.1\n"
+    cfg = f"[effects]\nblur = {amount}\n[[rules]]\napp_id = 'mywm.test.simple'\nopacity = 0.1\n"
     comp = Compositor(config=cfg, windows=1, extra_args=f"swaybg -i {wallpaper} -m fill & sleep 1; ")
     try:
         time.sleep(4)

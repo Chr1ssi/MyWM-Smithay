@@ -5,7 +5,7 @@ Needs dbus-daemon, pipewire, wireplumber, busctl, gst-launch-1.0 with the pipewi
     PYTHONPATH=tests python3 tests/portal_smoke.py
 """
 import os, re, shutil, subprocess, sys, tempfile, time
-from smoke_support import Compositor, wait
+from smoke_support import Compositor, WINDOW_CLIENT, wait
 
 for tool in ("dbus-daemon", "pipewire", "wireplumber", "busctl", "gst-launch-1.0"):
     if not shutil.which(tool):
@@ -121,7 +121,7 @@ try:
     watcher = subprocess.Popen(["gst-launch-1.0", "-v", "pipewiresrc", "target-object=mywm-screencast", "num-buffers=200", "!", "videoconvert", "!", "fakesink"],
                                env=pw_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     time.sleep(2)
-    subprocess.Popen(["weston-simple-shm"], env=comp.env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(WINDOW_CLIENT.split(), env=comp.env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(4)
     watcher.terminate()
     caps = watcher.communicate(timeout=10)[0]
@@ -141,7 +141,7 @@ try:
     assert closed.returncode == 0, closed.stderr
 
     # A still picture keeps delivering frames (keepalive): no window is animating any more.
-    subprocess.run(["pkill", "-f", "^weston-simple-shm"])
+    subprocess.run(["pkill", "-f", "mywm-test-client simple"])
     time.sleep(1)
     session, node, size, source_type = stream(lambda: comp.key("Return"), "still")
     start = time.time()

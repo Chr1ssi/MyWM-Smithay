@@ -64,9 +64,11 @@ latency** (especially for gaming). Primary target is **NixOS**.
 
 - Run before every commit, inside `nix develop`: `cargo clippy --workspace --all-targets` (no new
   warnings), `cargo test --workspace`, and `nix build` (which also runs the unit tests).
-- Run the matching nested smoke tests from `tests/` for what you touched
-  (`PYTHONPATH=tests python3 tests/<name>_smoke.py`), and `globals_smoke.py` when
-  protocols change. Add or extend a test for new behavior where practical.
+- Run the nested smoke tests with `nix develop .#smoke -c tests/run-smoke [name ...]`: the
+  ones for what you touched, and `globals` when protocols change; the whole suite for larger
+  changes. They run against their own Xvfb and never touch the real session. Add or extend a
+  test for new behavior where practical. A test that fails only sometimes is a bug in the test
+  or the code: find the race instead of rerunning until it passes.
 - Anything that needs real hardware (DRM, libinput, VRR, tearing, scanout, gamma) cannot
   be verified nested. Say so explicitly instead of claiming it works, and point to
   `docs/hardware-test.md`. Such changes go on their own branch (see Git workflow).

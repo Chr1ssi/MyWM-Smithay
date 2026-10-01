@@ -1,10 +1,13 @@
 """Helpers for the smoke tests: run the nested compositor and talk to its bar socket.
 
-Needs an X server ($DISPLAY, e.g. Xvfb :99), weston-simple-shm and a debug build.
+Needs an X server ($DISPLAY, e.g. Xvfb :99) and a debug build of the workspace (`cargo build --workspace`:
+the compositor and mywm-test-client). `tests/run-smoke` sets all of this up.
 """
 import os, socket, subprocess, tempfile, time
 
 DEBUG_BINARY = "./target/debug/mywm-compositor"
+# An ordinary animated window (the role weston-simple-shm used to play).
+WINDOW_CLIENT = "./target/debug/mywm-test-client simple 3600"
 
 
 def wait(cond, timeout=8):
@@ -23,16 +26,24 @@ class Compositor:
         with open(f"{self.dir}/config.toml", "w") as f:
             # `top` holds top-level keys, which must precede the first table.
             f.write(top + '[keyboard]\nlayout = "us"\n' + config)
-        env = dict(os.environ, MYWM_SOCKET=self.sock, MYWM_CONFIG=f"{self.dir}/config.toml", RUST_LOG="info")
+        # Isolated from the user's session: own state directory (theme, wallpaper), no log file (the compositor
+        # would rotate the real session's log), and no environment of a running mywm session.
+        os.makedirs(f"{self.dir}/state")
+        env = dict(os.environ, MYWM_SOCKET=self.sock, MYWM_CONFIG=f"{self.dir}/config.toml", RUST_LOG="info",
+                   XDG_STATE_HOME=f"{self.dir}/state", MYWM_LOG_FILE="off")
+        for name in [name for name in env if name.startswith("MYWM_") and name not in ("MYWM_SOCKET", "MYWM_CONFIG")]:
+            del env[name]
         env.update(extra_env or {})
         env.pop("WAYLAND_DISPLAY", None)
-        clients = "sleep 1; " + extra_args + "".join("weston-simple-shm & sleep 0.3; " for _ in range(windows)) + "wait"
+        clients = "sleep 1; " + extra_args + "".join(f"{WINDOW_CLIENT} & sleep 0.3; " for _ in range(windows)) + "wait"
         # Start with the X pointer in a corner where no window will be: a pointer left over
         # from an earlier run would otherwise move focus by hovering over a new window.
         subprocess.run(["xdotool", "mousemove", "1279", "799"], check=False)
         self.log = open(f"{self.dir}/log", "w")
         self.process = subprocess.Popen([DEBUG_BINARY, clients], env=env, stdout=self.log, stderr=subprocess.STDOUT)
         assert wait(lambda: os.path.exists(self.sock)), "bar socket missing"
+        # The window clients start one after the other; tests count on all of them being there.
+        assert wait(lambda: open(f"{self.dir}/log").read().count("new window") >= windows, 30), "the windows did not appear"
 
     @property
     def display(self):
