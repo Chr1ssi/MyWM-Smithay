@@ -482,9 +482,19 @@ impl State {
         }
         let infos: Vec<_> = d.windows.iter().filter(|m| m.placed).map(Managed::info).collect();
         let mut placements: Vec<Placement<WindowId>> = Vec::new();
+        // Windows on hidden workspaces get their size as well: they are ready when their workspace is
+        // shown (no resize on the switch) and look right in the overview.
+        let mut hidden: Vec<Placement<WindowId>> = Vec::new();
         for monitor in &mut d.desk.monitors {
             let (usable, area) = (monitor.usable, monitor.area);
             placements.extend(arrange(monitor.workspaces.current_mut(), &infos, usable, area, &d.appearance));
+            let current = monitor.workspaces.current().number;
+            let others: Vec<usize> = monitor.workspaces.numbers().filter(|n| *n != current).collect();
+            for number in others {
+                if let Some(workspace) = monitor.workspaces.get_mut(number) {
+                    hidden.extend(arrange(workspace, &infos, usable, area, &d.appearance));
+                }
+            }
         }
         if d.scratchpad_visible
             && let Some(monitor) = d.desk.monitors.get(scratch_monitor)
@@ -508,21 +518,19 @@ impl State {
         let active = d.appearance.active_border.0;
         let inactive = d.appearance.inactive_border.0;
         let focused = d.focused();
+        // X11 windows are configured with their place on the screen, so only shown ones are.
+        for p in &hidden {
+            if let Some(toplevel) = d.windows.iter().find(|w| w.id == p.id).and_then(|m| m.window.toplevel()) {
+                configure_toplevel(toplevel, p);
+            }
+        }
         for p in placements {
             let Some(m) = d.windows.iter_mut().find(|w| w.id == p.id) else { continue };
             if let Some(rect) = p.floating_rect {
                 m.floating_rect = Some(rect);
             }
             if let Some(toplevel) = m.window.toplevel() {
-                toplevel.with_pending_state(|s| {
-                    s.size = Some((p.content.width, p.content.height).into());
-                    if p.fullscreen {
-                        s.states.set(xdg_toplevel::State::Fullscreen);
-                    } else {
-                        s.states.unset(xdg_toplevel::State::Fullscreen);
-                    }
-                });
-                toplevel.send_pending_configure();
+                configure_toplevel(toplevel, &p);
             } else if let Some(x11) = m.window.x11_surface() {
                 // X11 windows know their position on the (global) screen.
                 let target = Rectangle::new(
@@ -994,4 +1002,17 @@ impl State {
         }
         self.refresh();
     }
+}
+
+/// Send a toplevel its size and fullscreen state from the layout (nothing when they are unchanged).
+fn configure_toplevel(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface, p: &Placement<WindowId>) {
+    toplevel.with_pending_state(|s| {
+        s.size = Some((p.content.width, p.content.height).into());
+        if p.fullscreen {
+            s.states.set(xdg_toplevel::State::Fullscreen);
+        } else {
+            s.states.unset(xdg_toplevel::State::Fullscreen);
+        }
+    });
+    toplevel.send_pending_configure();
 }
