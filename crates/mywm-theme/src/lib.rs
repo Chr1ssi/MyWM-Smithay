@@ -14,8 +14,9 @@ use std::{
     io::Write,
     os::unix::ffi::OsStringExt,
     os::unix::net::UnixStream,
+    os::unix::process::CommandExt,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 pub use mywm_config::theme_state_path as state_path;
@@ -170,10 +171,24 @@ fn notify_consumers(directory: &Path) {
     {
         let _ = stream.write_all(b"v1 theme-reload\n");
     }
-    let _ = Command::new("kitty")
+    // Without a socket, `kitty @` talks to the controlling terminal and waits ten seconds for an
+    // answer that never comes (the console of the greeter at session start); detached from it, the
+    // call fails at once.
+    let mut kitty = Command::new("kitty");
+    kitty
         .args(["@", "set-colors", "--all"])
         .arg(directory.join("kitty.conf"))
-        .status();
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // SAFETY: `setsid` is async-signal-safe and touches nothing but the child's own session.
+    unsafe {
+        kitty.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let _ = kitty.status();
     let _ = Command::new("pkill").args(["-USR1", "nvim"]).status();
 }
 

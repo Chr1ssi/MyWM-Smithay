@@ -6,6 +6,7 @@ description = "Wallpaper helpers and Material-You theme generation for MyWM (kit
 
 [dependencies]
 mywm-config = { path = "../mywm-config" }
+libc = "0.2"
 material-colors = { version = "0.4.2", features = ["image", "serde"] }
 minijinja = "2.12.0"
 serde = { version = "1", features = ["derive"] }
