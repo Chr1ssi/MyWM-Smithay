@@ -151,6 +151,7 @@ impl XwmHandler for State {
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::info!("X11 window unmapped: {:?} ({})", window.title(), window.class());
         self.forget_x11_window(&window);
         if !window.is_override_redirect() {
             let _ = window.set_mapped(false);
@@ -158,6 +159,7 @@ impl XwmHandler for State {
     }
 
     fn destroyed_window(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::info!("X11 window destroyed: {:?} ({})", window.title(), window.class());
         self.forget_x11_window(&window);
     }
 
@@ -212,15 +214,27 @@ impl XwmHandler for State {
     }
 
     fn fullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::info!("X11 window asks for fullscreen: {:?} ({})", window.title(), window.class());
         if let Some(id) = self.desktop.by_x11(window.window_id()).map(|m| m.id) {
             self.set_fullscreen(id, true);
         }
     }
 
     fn unfullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::info!("X11 window leaves fullscreen: {:?} ({})", window.title(), window.class());
         if let Some(id) = self.desktop.by_x11(window.window_id()).map(|m| m.id) {
             self.set_fullscreen(id, false);
         }
+    }
+
+    // Wine minimizes an exclusive-fullscreen window when it loses the focus. Nothing is done about it yet; the
+    // requests are logged to find out whether that is what blacks the game out.
+    fn minimize_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::info!("X11 window asks to be minimized (ignored): {:?} ({})", window.title(), window.class());
+    }
+
+    fn unminimize_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::info!("X11 window asks to be restored (ignored): {:?} ({})", window.title(), window.class());
     }
 
     // Moving and resizing are done with the pointer modifier, not by the client.

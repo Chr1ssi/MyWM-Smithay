@@ -592,6 +592,16 @@ impl State {
             if changed && let Some(toplevel) = m.window.toplevel() {
                 toplevel.send_pending_configure();
             }
+            if changed && let Some(x11) = m.window.x11_surface() {
+                tracing::info!(
+                    "X11 window {} the focus: {:?} ({}, fullscreen {}, minimized {})",
+                    if Some(m.id) == focused { "gets" } else { "loses" },
+                    x11.title(),
+                    x11.class(),
+                    x11.is_fullscreen(),
+                    x11.is_minimized()
+                );
+            }
         }
         let surface = layer.clone().or_else(|| focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface()));
         // X11 clients also need the X11 input focus; a wl_surface focus alone leaves Wine and
