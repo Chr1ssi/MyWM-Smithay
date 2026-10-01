@@ -7,10 +7,9 @@ Idle startet der Compositor selbst (swaylock/swayidle).
 
 ## NixOS (Flake)
 
-Flake und Paket (`flake.nix`, `nix/package.nix`) sind im täglichen Gebrauch. Das NixOS-Modul
-(`nix/module.nix`) ist noch nicht in einer echten Systemkonfiguration erprobt, weil es dieselbe
-Sitzung „mywm“ wie das River-MyWM anlegt; wer beide parallel nutzt, nimmt nur die Pakete und legt
-eine eigene Sitzung an.
+Flake, Paket und NixOS-Modul (`flake.nix`, `nix/package.nix`, `nix/module.nix`) sind im
+täglichen Gebrauch. Das Modul legt die Sitzung „mywm“ an; es ersetzt das Modul des River-MyWM
+(beide definieren `programs.mywm`), parallel lassen sie sich nicht einbinden.
 
 ```nix
 # flake.nix des Systems
@@ -18,7 +17,11 @@ inputs.mywm.url = "github:Chr1ssi/MyWM-Smithay";
 # ...
 modules = [
   inputs.mywm.nixosModules.default
-  { programs.mywm.enable = true; }
+  {
+    programs.mywm.enable = true;
+    # Optional: zusätzlich die Sitzung „mywm (Dev)“ (siehe unten).
+    programs.mywm.devSession = true;
+  }
 ];
 ```
 
@@ -27,6 +30,13 @@ die Portale (Screen-Sharing über `mywm-portal`, Dateiauswahl über das GTK-Port
 Sperr-PAM für swaylock. Die Konfiguration liegt in `~/.config/mywm/config.toml`
 (Vorlage: `crates/mywm-config/example.toml`). NVIDIA: `hardware.nvidia.modesetting.enable = true`
 und der offene Kernelmodul-Treiber wie bisher.
+
+Logging: Die Sitzung „mywm“ schreibt nur Warnungen, Fehler und Abstürze nach
+`~/.local/state/mywm/compositor.log`. Mit `programs.mywm.devSession = true` gibt es zusätzlich
+„mywm (Dev)“: derselbe Compositor, aber die gesamte Ausgabe der Sitzung (auch der Helfer) landet in
+`~/.local/state/mywm/session.log`, und alle 5 s steht pro Ausgang eine Zeile mit Frames und
+Renderzeit im Log (`RUST_LOG=info,perf=debug`). Von beiden Dateien bleibt die der vorigen Sitzung
+als `*.1` erhalten.
 
 ## Andere Distributionen
 
