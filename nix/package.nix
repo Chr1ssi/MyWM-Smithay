@@ -51,8 +51,16 @@ rustPlatform.buildRustPackage {
 
   # The compositor and the screen-cast portal; the test clients are not installed.
   cargoBuildFlags = [ "-p" "mywm-compositor" "-p" "mywm-portal" ];
-  # The tests need a display and more; `cargo test` runs them in development.
-  doCheck = false;
+  # The unit tests that need neither a display nor hardware; the smoke tests in `tests/` run
+  # against a nested session in development.
+  doCheck = true;
+  cargoTestFlags = [
+    "-p" "mywm-compositor"
+    "-p" "mywm-layout"
+    "-p" "mywm-config"
+    "-p" "mywm-ipc"
+    "-p" "mywm-theme"
+  ];
 
   nativeBuildInputs = [
     pkg-config

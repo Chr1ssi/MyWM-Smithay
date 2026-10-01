@@ -62,8 +62,8 @@ latency** (especially for gaming). Primary target is **NixOS**.
 
 ## Testing
 
-- Run before every commit: `cargo build --release`, `cargo test --workspace`, and
-  `cargo clippy` when available.
+- Run before every commit, inside `nix develop`: `cargo clippy --workspace --all-targets` (no new
+  warnings), `cargo test --workspace`, and `nix build` (which also runs the unit tests).
 - Run the matching nested smoke tests from `tests/` for what you touched
   (`PYTHONPATH=tests python3 tests/<name>_smoke.py`), and `globals_smoke.py` when
   protocols change. Add or extend a test for new behavior where practical.

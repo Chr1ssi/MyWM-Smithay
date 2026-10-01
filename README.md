@@ -65,7 +65,8 @@ Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Pr
 
 ## Entwickeln
 
-Build-Abhängigkeiten (Debian/Ubuntu): `libwayland-dev libxkbcommon-dev libinput-dev
+Unter NixOS liefert `nix develop` alle Build-Abhängigkeiten (plus clippy, rustfmt, rust-analyzer); `cargo` wird
+darin aufgerufen. Ohne Nix (Debian/Ubuntu): `libwayland-dev libxkbcommon-dev libinput-dev
 libseat-dev libgbm-dev libdrm-dev libudev-dev libegl-dev libgles-dev`; für `mywm-portal` zusätzlich
 `libpipewire-0.3-dev libspa-0.2-dev clang`.
 
