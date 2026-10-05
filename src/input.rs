@@ -332,7 +332,7 @@ impl State {
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         let under = self.pointer_focus();
-        // Focus follows mouse, like MyWM on River, unless a panel holds the keyboard.
+        // Focus follows mouse, unless a panel holds the keyboard.
         if self.keyboard_layer().is_none()
             && let Some((window, _)) = self.window_at(self.pointer_location)
             && let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).map(|m| m.id)

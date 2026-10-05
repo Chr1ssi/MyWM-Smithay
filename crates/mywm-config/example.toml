@@ -32,12 +32,10 @@
 #wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
 
 # Optional: adaptive sync remains off except while a recognized game is visibly
-# fullscreen on this output. Der Smithay-Compositor schaltet VRR selbst (DRM); command
-# wird dort nicht mehr benutzt (nur das River-MyWM ruft damit wlr-randr auf).
+# fullscreen on this output. Der Compositor schaltet VRR selbst (DRM).
 #[vrr]
 #enabled = false
 #output = "DP-3"
-#command = ["wlr-randr"]
 
 # Maus und Tastatur. Nicht gesetzte Werte lassen die Einstellung des Geräts unverändert.
 #[input]

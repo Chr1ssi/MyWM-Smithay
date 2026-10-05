@@ -22,14 +22,10 @@ Spiele laufen nativ (SDL: `SDL_VIDEODRIVER=wayland`, Proton: `PROTON_ENABLE_WAYL
 
 Aufbau:
 
-- `crates/mywm-layout` – Scrolling, Workspaces, Geometrie (aus dem River-MyWM
-  portiert, ohne Compositor-Abhängigkeit, mit Tests)
-- `crates/mywm-config` – TOML-Konfiguration, **gleiches Schema wie das
-  River-MyWM** (`~/.config/mywm/config.toml` oder `$MYWM_CONFIG`); neu sind nur
-  `toggle_fullscreen`, `column_shrink`, `column_grow`. Beispiel:
-  `crates/mywm-config/example.toml`
-- `crates/mywm-ipc` – Bar-Protokoll `v1` (Befehle, Zustands-Snapshot), unverändert
-  gegenüber dem River-MyWM, damit `mywm-shell` ohne Änderung läuft
+- `crates/mywm-layout` – Scrolling, Workspaces, Geometrie (ohne Compositor-Abhängigkeit, mit Tests)
+- `crates/mywm-config` – TOML-Konfiguration (`~/.config/mywm/config.toml` oder `$MYWM_CONFIG`).
+  Beispiel: `crates/mywm-config/example.toml`
+- `crates/mywm-ipc` – Bar-Protokoll `v1` (Befehle, Zustands-Snapshot) zwischen Compositor und `mywm-shell`
 - `vendor/smithay` – smithay 0.7.0 mit kleinen Patches (Tearing, Layer-Shell-Toleranz, X11-Fokus; `vendor/README.md`)
 - `src/` – Compositor; `udev.rs` ist das Hardware-Backend (DRM/GBM/libinput/libseat),
   `winit.rs` der nested Entwicklungsmodus (`desktop.rs` bildet das Modell auf Smithays `Space` ab)

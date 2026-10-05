@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Client modes shared with the River-based MyWM, used by the session scripts and swayidle.
+    // Client modes used by the session scripts and swayidle.
     match std::env::args().nth(1).as_deref() {
         Some("--lock") => return mywm_config::session::lock_and_wait(&mywm_config::Config::load()?),
         Some("--idle") => return mywm_config::session::exec_idle(&mywm_config::Config::load()?.idle),
@@ -96,10 +96,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
         if !nested {
-            // The desktop portals pick their backends by this name. `river` is what the
-            // existing MyWM setup already configures xdg-desktop-portal-wlr for.
+            // The desktop portals pick their backends by this name (`mywm-portals.conf`,
+            // `UseIn=mywm` of mywm-portal); `mywm-session` sets the same.
             if std::env::var_os("XDG_CURRENT_DESKTOP").is_none() {
-                std::env::set_var("XDG_CURRENT_DESKTOP", "river");
+                std::env::set_var("XDG_CURRENT_DESKTOP", "mywm");
             }
             std::env::set_var("XDG_SESSION_TYPE", "wayland");
         }

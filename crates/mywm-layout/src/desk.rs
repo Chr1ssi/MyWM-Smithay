@@ -1,7 +1,7 @@
 //! Workspace ownership across monitors: one fixed workspace per monitor,
 //! dynamically created extras that live on the monitor they were created on, and
-//! a gaming workspace that exists only while a game runs. Ported from the
-//! River-based MyWM, independent of any compositor types.
+//! a gaming workspace that exists only while a game runs. Independent of any
+//! compositor types.
 use std::collections::HashSet;
 
 use crate::{GAMING, Kind, MAX_NUMBER, Rect, Workspaces};

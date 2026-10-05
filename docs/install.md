@@ -8,8 +8,7 @@ Idle startet der Compositor selbst (swaylock/swayidle).
 ## NixOS (Flake)
 
 Flake, Paket und NixOS-Modul (`flake.nix`, `nix/package.nix`, `nix/module.nix`) sind im
-täglichen Gebrauch. Das Modul legt die Sitzung „mywm“ an; es ersetzt das Modul des River-MyWM
-(beide definieren `programs.mywm`), parallel lassen sie sich nicht einbinden.
+täglichen Gebrauch. Das Modul legt die Sitzung „mywm“ an (`programs.mywm`).
 
 ```nix
 # flake.nix des Systems

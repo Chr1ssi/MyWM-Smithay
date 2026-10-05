@@ -3,7 +3,7 @@ name = "mywm-config"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "TOML configuration for MyWM (same schema as the River-based MyWM)"
+description = "TOML configuration for the MyWM compositor"
 
 [dependencies]
 mywm-layout = { path = "../mywm-layout" }

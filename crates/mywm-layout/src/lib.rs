@@ -1,4 +1,4 @@
-//! Compositor-independent layout logic, ported from the River-based MyWM.
+//! Compositor-independent layout logic.
 mod appearance;
 mod arrange;
 mod desk;

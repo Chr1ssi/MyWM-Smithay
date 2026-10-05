@@ -1,5 +1,4 @@
-//! Configuration for MyWM. The TOML schema matches the River-based MyWM, so an
-//! existing `config.toml` keeps working; a few new keys are additions.
+//! Configuration for MyWM: `~/.config/mywm/config.toml` (or `$MYWM_CONFIG`).
 mod keys;
 mod rules;
 pub mod session;
@@ -91,9 +90,9 @@ pub struct Config {
     pub input: InputConfig,
     pub effects: EffectsConfig,
     pub rules: Vec<Rule>,
-    /// Addition over the River-based MyWM: run Xwayland for legacy X11 apps (Steam, older games).
+    /// Run Xwayland for legacy X11 apps (Steam, older games).
     pub xwayland: bool,
-    /// Addition over the River-based MyWM (which used kanshi): native output setup.
+    /// Native output setup (kanshi and wlr-randr work too).
     pub outputs: Vec<OutputConfig>,
 }
 
@@ -191,7 +190,6 @@ pub struct Bindings {
     new_workspace: Vec<String>,
     move_to_new_workspace: Vec<String>,
     toggle_floating: Vec<String>,
-    // Additions over the River-based MyWM:
     toggle_fullscreen: Vec<String>,
     column_shrink: Vec<String>,
     column_grow: Vec<String>,
@@ -548,7 +546,6 @@ mod tests {
     #[test]
     fn defaults_and_partial_configuration() {
         let defaults = Config::parse("").unwrap();
-        // The River-based MyWM has 50 default bindings; seven are additions here.
         assert_eq!(defaults.keybindings().unwrap().len(), 58);
         assert!(defaults.program_bindings.is_empty());
         let config = Config::parse("terminal = ['kitty', '--single-instance']").unwrap();
@@ -603,7 +600,6 @@ mod tests {
             "[render]\nlate = true",
             "[vrr]\nenabled = true",
             "[vrr]\nenabled = true\noutput = ''",
-            "[vrr]\nenabled = true\noutput = 'DP-3'\ncommand = []",
             "[appearance]\nactive_border = 'blue'",
             "[[outputs]]\nname = ''",
             "[[outputs]]\nname = 'DP-1'\nmode = '1920'",

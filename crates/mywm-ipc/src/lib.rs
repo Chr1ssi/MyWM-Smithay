@@ -1,5 +1,5 @@
-//! The `v1` bar protocol, unchanged from the River-based MyWM so `mywm-shell`
-//! works as before. Lines of text over a Unix socket (`$MYWM_SOCKET`):
+//! The `v1` bar protocol between the compositor and `mywm-shell`. Lines of text over a
+//! Unix socket (`$MYWM_SOCKET`):
 //!
 //! * client → compositor: `v1 <command>\n`, answered by `v1 ok` or `v1 error invalid-command`
 //! * compositor → client, whenever something changed:
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn commands_parse_like_the_river_version() {
+    fn commands_parse() {
         assert_eq!(parse_command("v1 lock\n"), Some(Command::Lock));
         assert_eq!(parse_command("v1 logout"), Some(Command::Logout));
         assert_eq!(parse_command("v1 theme-reload"), Some(Command::ThemeReload));

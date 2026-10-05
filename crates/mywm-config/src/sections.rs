@@ -45,27 +45,17 @@ impl IdleConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct VrrConfig {
     pub enabled: bool,
     pub output: String,
-    pub command: Vec<String>,
-}
-
-impl Default for VrrConfig {
-    fn default() -> Self {
-        Self { enabled: false, output: String::new(), command: vec!["wlr-randr".into()] }
-    }
 }
 
 impl VrrConfig {
     pub fn validate(&self) -> Result<()> {
         if self.enabled && self.output.trim().is_empty() {
             return Err("vrr.output must name an output when VRR is enabled".into());
-        }
-        if self.enabled && self.command.first().is_none_or(|program| program.trim().is_empty()) {
-            return Err("vrr.command must contain a program when VRR is enabled".into());
         }
         Ok(())
     }

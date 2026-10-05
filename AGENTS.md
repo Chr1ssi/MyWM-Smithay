@@ -23,8 +23,8 @@ latency** (especially for gaming). Primary target is **NixOS**.
   `unwrap`/`expect` on anything that depends on clients, hardware or the environment;
   a misbehaving client must never be able to kill the compositor.
 - **Ease of use.** Sensible defaults, a small config surface, clear error messages.
-  Keep the config schema compatible with the River-MyWM and the bar protocol (`mywm-ipc`)
-  compatible with `mywm-shell` unless the user decides otherwise.
+  Keep the config schema stable (existing `config.toml` files must keep loading) and the bar
+  protocol (`mywm-ipc`) compatible with `mywm-shell` unless the user decides otherwise.
 - **Effects stay selective.** Rounded corners, transparency, shadows, animations and
   blur exist already (`docs/effects.md`). New effects need a clear benefit, must be
   switchable, and must be cheap.

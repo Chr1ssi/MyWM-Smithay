@@ -1,5 +1,5 @@
-//! Session helpers shared with the River-based MyWM: the screen locker command, the
-//! `--lock` client that asks the compositor to lock, and the idle daemon arguments.
+//! Session helpers: the screen locker command, the `--lock` client that asks the
+//! compositor to lock, and the idle daemon arguments.
 use std::{
     io::{BufRead, BufReader, Write},
     os::unix::{net::UnixStream, process::CommandExt},
@@ -101,7 +101,7 @@ pub fn idle_command(config: &IdleConfig, executable: &str) -> Option<Command> {
     })
 }
 
-/// Replace this process with `swayidle` (the `--idle` mode of the River-based MyWM).
+/// Replace this process with `swayidle` (the `--idle` mode).
 pub fn exec_idle(config: &IdleConfig) -> Result<()> {
     let executable = std::env::current_exe()?;
     let executable = executable.to_str().ok_or("executable path is not UTF-8")?;
