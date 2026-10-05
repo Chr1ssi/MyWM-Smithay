@@ -34,7 +34,7 @@ smithay = { version = "0.7", default-features = false, features = [
     "desktop",
     "wayland_frontend",
 ] }
-calloop = { version = "0.14", features = ["signals"] }
+calloop = "0.14"
 smithay-drm-extras = { version = "0.1", default-features = false }
 xcursor = "0.3"
 tracing = "0.1"

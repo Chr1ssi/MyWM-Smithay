@@ -21,16 +21,14 @@ mod render;
 mod screencopy;
 mod screenshot;
 mod session;
+mod shutdown;
 mod udev;
 mod wallpaper;
 mod xwayland;
 mod state;
 mod winit;
 
-use calloop::{
-    EventLoop,
-    signals::{Signal, Signals},
-};
+use calloop::EventLoop;
 use tracing_subscriber::EnvFilter;
 
 pub use state::State;
@@ -107,11 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("listening on WAYLAND_DISPLAY={:?}", state.socket_name);
 
     // Shut down cleanly (removing the bar socket) on SIGTERM/SIGINT.
-    let signals = Signals::new(&[Signal::SIGTERM, Signal::SIGINT])?;
-    event_loop
-        .handle()
-        .insert_source(signals, |_, _, state| state.loop_signal.stop())
-        .map_err(|e| e.error)?;
+    shutdown::install(&event_loop.handle())?;
 
     xwayland::start(&mut state);
 
