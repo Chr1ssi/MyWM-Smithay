@@ -44,6 +44,7 @@ struct ThemeState {
 }
 
 const KITTY: &str = include_str!("../assets/kitty.conf");
+const FOOT: &str = include_str!("../assets/foot.ini");
 const GTK3: &str = include_str!("../assets/gtk3.css");
 const GTK4: &str = include_str!("../assets/gtk4.css");
 const NVIM: &str = include_str!("../assets/nvim.lua");
@@ -67,6 +68,7 @@ pub fn apply(wallpaper: &Path) -> Result<()> {
     let serialized = serde_json::to_string_pretty(&state)? + "\n";
     write_atomic(&state_path, &serialized)?;
     render(directory.join("kitty.conf"), KITTY, &state)?;
+    render(directory.join("foot.ini"), FOOT, &state)?;
     render(directory.join("gtk-3.css"), GTK3, &state)?;
     render(directory.join("gtk-4.css"), GTK4, &state)?;
     render(directory.join("nvim.lua"), NVIM, &state)?;
@@ -427,6 +429,22 @@ mod tests {
         assert!(state.colors.contains_key("surface_container"));
         assert!(state.colors.contains_key("terminal_bright_white"));
         assert_eq!(state.colors["primary"].default.hex.len(), 7);
+    }
+
+    #[test]
+    fn foot_template_renders_colors_without_hash() {
+        let theme = ThemeBuilder::with_source(Argb::from_u32(0xff336699)).build();
+        let state = state_from_scheme(
+            Path::new("/wallpaper.png"),
+            theme.source,
+            &theme.schemes.dark,
+        );
+        let mut env = Environment::new();
+        env.add_template("foot", FOOT).unwrap();
+        let output = env.get_template("foot").unwrap().render(&state).unwrap();
+        let background = &state.colors["terminal_background"].default.hex[1..];
+        assert!(output.contains(&format!("background={background}\n")));
+        assert!(!output.contains("=#"));
     }
 
     #[test]

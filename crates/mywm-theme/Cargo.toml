@@ -3,7 +3,7 @@ name = "mywm-theme"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Wallpaper helpers and Material-You theme generation for MyWM (kitty, GTK, nvim, Vesktop, greeter)"
+description = "Wallpaper helpers and Material-You theme generation for MyWM (kitty, foot, GTK, nvim, Vesktop, greeter)"
 
 [dependencies]
 mywm-config = { path = "../mywm-config" }
