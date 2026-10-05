@@ -18,7 +18,7 @@ Von einer freien TTY (nicht aus einer Grafiksitzung):
 
 ```sh
 RUST_LOG=info MYWM_CONFIG=$HOME/.config/mywm/config.toml \
-  ./target/release/mywm-compositor "kitty" 2>compositor.log
+  ./target/release/mywm-compositor "foot" 2>compositor.log
 ```
 
 Mit `MYWM_BACKEND=drm` lässt sich die Backend-Wahl erzwingen. Beenden: `Super+m`

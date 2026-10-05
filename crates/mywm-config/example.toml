@@ -26,7 +26,7 @@
 #gaming_output = "DP-3"
 #game_app_id_prefixes = ["steam_app_", "gamescope"]
 # Programm und Argumente getrennt, ohne Shell-Auswertung.
-#terminal = ["kitty"]
+#terminal = ["foot"]
 # Standard: $HOME/Bilder/Wallpaper. Muss ein absoluter Pfad sein.
 #screenshot_directory = "/home/nutzer/Bilder/Screenshots"
 #wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"

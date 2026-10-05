@@ -70,7 +70,7 @@ libseat-dev libgbm-dev libdrm-dev libudev-dev libegl-dev libgles-dev`; für `myw
 `libpipewire-0.3-dev libspa-0.2-dev clang`.
 
 ```sh
-cargo run -- "kitty"      # nested (in X/Wayland); optionales Kommando nach dem Start
+cargo run -- "foot"       # nested (in X/Wayland); optionales Kommando nach dem Start
 cargo test --workspace    # Layout, Config, Protokoll
 ```
 

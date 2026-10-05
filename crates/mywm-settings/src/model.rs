@@ -102,7 +102,7 @@ pub static SETTINGS: &[Setting] = &[
     s("appearance.text", "Text", "", Appearance, Color, "\"#cdd6f4\""),
     s("appearance.muted_text", "Text (gedämpft)", "", Appearance, Color, "\"#a6adc8\""),
     // General
-    s("terminal", "Terminal", "Programm und Argumente, eine Angabe pro Zeile.", General, List, "[\"kitty\"]"),
+    s("terminal", "Terminal", "Programm und Argumente, eine Angabe pro Zeile.", General, List, "[\"foot\"]"),
     s("wallpaper_directory", "Wallpaper-Ordner", "Absoluter Pfad.", General, Text, ""),
     s("screenshot_directory", "Screenshot-Ordner", "Absoluter Pfad.", General, Text, ""),
     restart(s("async_outputs", "Monitore mit Tearing", "Namen der Monitore (z. B. DP-3), eine Angabe pro Zeile.", General, List, "[]")),

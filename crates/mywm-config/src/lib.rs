@@ -134,7 +134,7 @@ impl Default for Config {
                 .unwrap_or_else(|_| "/usr/share/backgrounds".into()),
             idle: IdleConfig::default(),
             keyboard: KeyboardConfig::default(),
-            terminal: vec!["kitty".into()],
+            terminal: vec!["foot".into()],
             program_bindings: BTreeMap::new(),
             launcher: vec![
                 "qs".into(),
@@ -339,7 +339,7 @@ impl Config {
         config.input.validate()?;
         config.effects.validate()?;
         if !non_empty(&config.terminal) {
-            return Err("terminal must contain a program, e.g. [\"kitty\"]".into());
+            return Err("terminal must contain a program, e.g. [\"foot\"]".into());
         }
         if !non_empty(&config.launcher) {
             return Err("launcher must contain a program".into());
