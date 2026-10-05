@@ -22,6 +22,7 @@ mod screencopy;
 mod screenshot;
 mod session;
 mod udev;
+mod wallpaper;
 mod xwayland;
 mod state;
 mod winit;

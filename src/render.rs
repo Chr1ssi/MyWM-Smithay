@@ -27,6 +27,8 @@ render_elements! {
     Ring=CropRenderElement<PixelShaderElement>,
     /// Screenshot selection dimming; never captured.
     Overlay=SolidColorRenderElement,
+    /// The part of the wallpaper on an output.
+    Wallpaper=smithay::backend::renderer::element::texture::TextureRenderElement<smithay::backend::renderer::gles::GlesTexture>,
     /// The blurred wallpaper behind a translucent window.
     Backdrop=crate::effects::Rounded<CropRenderElement<smithay::backend::renderer::element::texture::TextureRenderElement<smithay::backend::renderer::gles::GlesTexture>>>,
     /// A managed window with rounded corners.
@@ -47,6 +49,7 @@ impl OutputElement {
             Self::Border(_) => "border",
             Self::Ring(_) => "border ring",
             Self::Overlay(_) => "screenshot overlay",
+            Self::Wallpaper(_) => "wallpaper",
             Self::Backdrop(_) => "blurred backdrop",
             Self::Rounded(_) => "rounded window",
             Self::Surface(_) => "surface",
@@ -63,6 +66,7 @@ impl State {
         let mut elements: Vec<OutputElement> =
             self.cursor_elements(renderer, output).into_iter().map(OutputElement::from).collect();
         elements.extend(self.overlay_elements(output).into_iter().map(OutputElement::from));
+        self.wallpaper_prepare(renderer);
         if self.session_lock.is_active() {
             // A locked session shows the locker's surface (or plain black) and nothing else.
             if let Some(surface) = self.lock_surface_for(output) {
@@ -97,7 +101,7 @@ impl State {
     /// neighbouring monitor would otherwise show them.
     /// Stacking, front to back: `Overlay` layer, popups and menus of unmanaged windows, fullscreen
     /// windows, `Top` layer (the bar), the windows' borders, the other windows, `behind` (shadows,
-    /// blur), `Bottom` and `Background` layers.
+    /// blur), `Bottom` and `Background` layers, the wallpaper.
     fn scene_elements(
         &self,
         renderer: &mut GlesRenderer,
@@ -203,6 +207,7 @@ impl State {
         elements.extend(regular);
         elements.extend(behind);
         elements.extend(layer_elements(renderer, &[Layer::Bottom, Layer::Background]));
+        elements.extend(self.wallpaper_element(renderer, output));
         elements
     }
 
@@ -216,11 +221,12 @@ impl State {
         rule.unwrap_or(1.0) * focus
     }
 
-    /// The layers below the windows (wallpaper), front to back.
+    /// The layers below the windows and the wallpaper, front to back.
     pub fn background_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
         let scale = output.current_scale().fractional_scale();
         let map = layer_map_for_output(output);
-        map.layers()
+        let mut elements: Vec<OutputElement> = map
+            .layers()
             .rev()
             .filter(|surface| matches!(surface.layer(), Layer::Bottom | Layer::Background))
             .filter_map(|surface| map.layer_geometry(surface).map(|geo| (geo.loc, surface)))
@@ -234,7 +240,9 @@ impl State {
                 )
             })
             .map(OutputElement::from)
-            .collect()
+            .collect();
+        elements.extend(self.wallpaper_element(renderer, output));
+        elements
     }
 
     /// Background color: the palette's, or black while locked.

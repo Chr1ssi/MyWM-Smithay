@@ -18,7 +18,7 @@ opacity = 0.92
 ```
 
 - **Blur** ist „Xray“: Durchsichtige Fenster zeigen eine weichgezeichnete Kopie des
-  Wallpapers (Layer unter den Fenstern), nicht der Fenster dahinter. Die Kopie wird nur neu
+  Wallpapers (samt Layern unter den Fenstern), nicht der Fenster dahinter. Die Kopie wird nur neu
   berechnet, wenn sich das Wallpaper ändert. Ein Fenster ist durchsichtig, wenn eine Regel
   `opacity` setzt oder `inactive_opacity` < 1 ist und es keinen Fokus hat.
 - Die Shader wurden nested (Mesa) getestet; auf der NVIDIA-Hardware bitte kurz ansehen. Kompilieren

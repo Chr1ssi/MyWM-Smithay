@@ -2,7 +2,7 @@
 
 Der Compositor läuft als Sitzung (vom Display-Manager gestartet) oder nested in einem anderen
 Fenster zum Entwickeln (`cargo run`). Die Sitzung besteht aus `mywm-session` (Skript): es startet den
-Compositor und darin Wallpaper, Bar, einen Polkit-Agenten und die Portal-Umgebung. Sperre und
+Compositor und darin Wallpaper-Picker, Bar, einen Polkit-Agenten und die Portal-Umgebung. Sperre und
 Idle startet der Compositor selbst (swaylock/swayidle).
 
 ## NixOS (Flake)

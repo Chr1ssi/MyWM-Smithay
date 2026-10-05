@@ -78,6 +78,7 @@ pub struct State {
     pub blur: std::collections::HashMap<String, crate::blur::BlurCache>,
     pub blur_programs: Option<crate::blur::Programs>,
     pub blur_failed: bool,
+    pub wallpaper: crate::wallpaper::Wallpaper,
     pub foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState,
     pub image_capture: crate::image_capture::ImageCaptureState,
     pub output_management: crate::output_management::OutputManagement,
@@ -256,6 +257,7 @@ impl State {
             blur: Default::default(),
             blur_programs: None,
             blur_failed: false,
+            wallpaper: crate::wallpaper::Wallpaper::new(&loop_handle, &config),
             foreign_toplevels: smithay::wayland::foreign_toplevel_list::ForeignToplevelListState::new::<State>(&dh),
             image_capture: Default::default(),
             output_management: Default::default(),
@@ -377,6 +379,7 @@ impl State {
         }
         self.blur_reset();
         self.blur_failed = false;
+        self.wallpaper_reload();
         self.install_bindings();
         self.refresh();
         tracing::info!("configuration reloaded");

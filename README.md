@@ -45,7 +45,10 @@ sie braucht ein Portal/Programm, das diese Protokolle spricht), `wlr-output-mana
 Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, Helfer-Modi
 `--wallpaper`, `--wallpaper-list`, `--theme-from-wallpaper`, `--theme-from-state`, `--bar`,
 `--launcher` der Binary; `--wallpaper` muss in der Sitzung laufen, das Binding `wallpaper`
-öffnet dort den Picker).
+öffnet dort den Picker). Das Wallpaper selbst zeichnet der Compositor: Er liest die Auswahl aus
+`$XDG_STATE_HOME/mywm/wallpaper.json` (sonst das erste Bild in `wallpaper_directory`), skaliert sie
+einmal in einem eigenen Thread über alle Monitore und lädt sie beim Theme-Reload des Pickers neu. Der
+Quickshell-Picker (`mywm-shell`) sieht aus wie bisher, zeichnet aber keinen eigenen Hintergrund mehr.
 
 Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-Blur; siehe
 `docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).

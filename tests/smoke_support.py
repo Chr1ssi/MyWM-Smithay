@@ -23,6 +23,10 @@ class Compositor:
     def __init__(self, config="", extra_env=None, windows=0, extra_args="", top=""):
         self.dir = tempfile.mkdtemp()
         self.sock = f"{self.dir}/ctl.sock"
+        # An empty wallpaper directory, so the compositor does not draw one from the user's pictures.
+        os.makedirs(f"{self.dir}/wallpapers")
+        if "wallpaper_directory" not in top:
+            top = f'wallpaper_directory = "{self.dir}/wallpapers"\n' + top
         with open(f"{self.dir}/config.toml", "w") as f:
             # `top` holds top-level keys, which must precede the first table.
             f.write(top + '[keyboard]\nlayout = "us"\n' + config)

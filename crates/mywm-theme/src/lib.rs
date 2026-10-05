@@ -80,16 +80,20 @@ pub fn apply(wallpaper: &Path) -> Result<()> {
 }
 
 pub fn apply_from_wallpaper_state(state: &Path, wallpaper_directory: &Path) -> Result<()> {
+    apply(&current_wallpaper(state, wallpaper_directory)?)
+}
+
+/// The wallpaper in use: the picker's choice saved in `state`, else the first image in `wallpaper_directory`.
+pub fn current_wallpaper(state: &Path, wallpaper_directory: &Path) -> Result<PathBuf> {
     let saved = fs::read_to_string(state)
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|value| value["wallpaper"].as_str().map(str::to_owned))
         .and_then(|url| decode_file_url(&url));
-    let wallpaper = match saved.filter(|path| path.is_file()) {
-        Some(path) => path,
-        None => first_wallpaper(wallpaper_directory)?,
-    };
-    apply(&wallpaper)
+    match saved.filter(|path| path.is_file()) {
+        Some(path) => Ok(path),
+        None => first_wallpaper(wallpaper_directory),
+    }
 }
 
 fn first_wallpaper(directory: &Path) -> Result<PathBuf> {
@@ -341,18 +345,26 @@ pub fn file_url(path: &str) -> String {
     url
 }
 
-fn state_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("XDG_STATE_HOME")
+fn state_home() -> Option<PathBuf> {
+    std::env::var_os("XDG_STATE_HOME")
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
-        .ok_or("HOME or XDG_STATE_HOME is required for wallpaper persistence")?;
+}
+
+/// Where the picker saves the chosen wallpaper.
+pub fn wallpaper_state_path() -> Option<PathBuf> {
+    Some(state_home()?.join("mywm/wallpaper.json"))
+}
+
+fn state_dir() -> Result<PathBuf> {
+    let home = state_home().ok_or("HOME or XDG_STATE_HOME is required for wallpaper persistence")?;
     let dir = home.join("mywm");
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
-/// Replace this process by the Quickshell wallpaper layer (`--wallpaper`).
+/// Replace this process by the Quickshell wallpaper picker (`--wallpaper`); the compositor draws the image.
 pub fn run_wallpaper(config: &mywm_config::Config) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let exe = std::env::current_exe()?;

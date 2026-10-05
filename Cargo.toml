@@ -18,6 +18,8 @@ mywm-layout = { path = "crates/mywm-layout" }
 mywm-theme = { path = "crates/mywm-theme" }
 mywm-config = { path = "crates/mywm-config" }
 png = "0.17"
+# Already built for mywm-theme; decodes the wallpaper.
+image = "0.25"
 libc = "0.2"
 mywm-ipc = { path = "crates/mywm-ipc" }
 smithay = { version = "0.7", default-features = false, features = [
