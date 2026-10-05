@@ -5,12 +5,12 @@ activated. Needs dbus-daemon, busctl and `cargo build --workspace`. Run from the
     PYTHONPATH=tests python3 tests/portal_bus_smoke.py
 """
 import os, subprocess, tempfile
-from smoke_support import wait
+from smoke_support import private_bus, wait
 
 work = tempfile.mkdtemp()
-address = f"unix:path={work}/bus"
+bus_command, address = private_bus(work)
 env = dict(os.environ, DBUS_SESSION_BUS_ADDRESS=address)
-bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", f"--address={address}"], env=env)
+bus = subprocess.Popen(bus_command, env=env)
 portal = None
 try:
     assert wait(lambda: os.path.exists(f"{work}/bus")), "no bus"

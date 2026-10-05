@@ -75,7 +75,18 @@
               wlr-randr
               systemd # busctl
               procps # pkill
+              # portal_smoke: a private PipeWire graph that gst-launch reads the screen cast from.
+              pipewire
+              wireplumber
+              gst_all_1.gstreamer
             ];
+            # pipewiresrc, videoconvert and pngenc for the portal test.
+            GST_PLUGIN_SYSTEM_PATH_1_0 = pkgs.lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" (with pkgs; [
+              pipewire
+              gst_all_1.gstreamer
+              gst_all_1.gst-plugins-base
+              gst_all_1.gst-plugins-good
+            ]);
           };
         });
 

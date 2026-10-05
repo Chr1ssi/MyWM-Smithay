@@ -5,7 +5,7 @@ Needs dbus-daemon, pipewire, wireplumber, busctl, gst-launch-1.0 with the pipewi
     PYTHONPATH=tests python3 tests/portal_smoke.py
 """
 import os, re, shutil, subprocess, sys, tempfile, time
-from smoke_support import Compositor, WINDOW_CLIENT, wait
+from smoke_support import Compositor, WINDOW_CLIENT, private_bus, wait
 
 for tool in ("dbus-daemon", "pipewire", "wireplumber", "busctl", "gst-launch-1.0"):
     if not shutil.which(tool):
@@ -14,7 +14,7 @@ for tool in ("dbus-daemon", "pipewire", "wireplumber", "busctl", "gst-launch-1.0
 
 work = tempfile.mkdtemp()
 processes = []
-bus_address = f"unix:path={work}/bus"
+bus_command, bus_address = private_bus(work)
 pw_env = dict(os.environ, PIPEWIRE_RUNTIME_DIR=work, DBUS_SESSION_BUS_ADDRESS=bus_address)
 
 
@@ -36,7 +36,7 @@ def brightness(path):
 
 comp = None
 try:
-    spawn(["dbus-daemon", "--session", "--nofork", f"--address={bus_address}"], pw_env, "dbus")
+    spawn(bus_command, pw_env, "dbus")
     assert wait(lambda: os.path.exists(f"{work}/bus")), "no bus"
     spawn(["pipewire"], pw_env, "pipewire")
     assert wait(lambda: os.path.exists(f"{work}/pipewire-0")), "no pipewire"
@@ -141,7 +141,8 @@ try:
     assert closed.returncode == 0, closed.stderr
 
     # A still picture keeps delivering frames (keepalive): no window is animating any more.
-    subprocess.run(["pkill", "-f", "mywm-test-client simple"])
+    # Anchored: the compositor's own command line contains the client command it started.
+    subprocess.run(["pkill", "-f", "^" + re.escape(WINDOW_CLIENT)])
     time.sleep(1)
     session, node, size, source_type = stream(lambda: comp.key("Return"), "still")
     start = time.time()

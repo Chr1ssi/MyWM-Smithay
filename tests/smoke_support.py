@@ -10,6 +10,28 @@ DEBUG_BINARY = "./target/debug/mywm-compositor"
 WINDOW_CLIENT = "./target/debug/mywm-test-client simple 3600"
 
 
+def private_bus(directory):
+    """`dbus-daemon` arguments for a session bus at `<directory>/bus` that activates nothing: the
+    default session config also reads the system's service files and would start the installed
+    portals (with the real session's environment) instead of the ones under test."""
+    config = f"{directory}/bus.conf"
+    with open(config, "w") as f:
+        f.write("""<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>unix:path=%s/bus</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+""" % directory)
+    return ["dbus-daemon", "--nofork", f"--config-file={config}"], f"unix:path={directory}/bus"
+
+
 def wait(cond, timeout=8):
     end = time.time() + timeout
     while time.time() < end:

@@ -31,7 +31,13 @@ for name in "${tests[@]}"; do
     log=$(mktemp)
     printf '%-18s' "$name"
     if timeout 300 python3 "tests/${name}_smoke.py" >"$log" 2>&1; then
-        echo ok
+        # A test that cannot run (a tool is missing from this shell) did not pass either.
+        if skip=$(grep -m1 '^SKIP:' "$log"); then
+            echo "SKIPPED (${skip#SKIP: })"
+            failed+=("$name")
+        else
+            echo ok
+        fi
     else
         echo FAILED
         tail -n 5 "$log" | sed 's/^/    /'
@@ -41,6 +47,6 @@ for name in "${tests[@]}"; do
 done
 
 if [ ${#failed[@]} -gt 0 ]; then
-    echo "failed: ${failed[*]}" >&2
+    echo "failed or skipped: ${failed[*]}" >&2
     exit 1
 fi

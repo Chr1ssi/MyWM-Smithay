@@ -82,6 +82,10 @@ nix develop .#smoke -c tests/run-smoke              # alle
 nix develop .#smoke -c tests/run-smoke popup ipc    # einzelne (Name ohne _smoke.py)
 ```
 
+Die Smoke-Shell bringt alle Werkzeuge mit. Ein Test, der sich mangels Werkzeug überspringt (`SKIP:`),
+zählt in `run-smoke` als gescheitert. D-Bus-Tests laufen auf einem eigenen Bus ohne Dienst-Aktivierung,
+damit nicht die installierten Portale der echten Sitzung anspringen.
+
 Einzeln, in `nix develop .#smoke` und mit gesetztem `$DISPLAY` (z. B. Xvfb):
 
 ```sh
@@ -106,6 +110,8 @@ PYTHONPATH=tests python3 tests/attention_smoke.py     # Shortcut-Inhibit und Urg
 PYTHONPATH=tests python3 tests/pointer_focus_smoke.py # gesperrter Zeiger (Spiel) wird beim Workspace-Wechsel frei
 PYTHONPATH=tests python3 tests/settings_smoke.py      # Einstellungs-GUI: Taste aufnehmen, speichern, Duplikate
 PYTHONPATH=tests python3 tests/portal_smoke.py        # mywm-portal: D-Bus, Auswahl im Compositor, PipeWire (braucht pipewire, wireplumber, dbus-daemon, gst)
+PYTHONPATH=tests python3 tests/portal_bus_smoke.py    # mywm-portal endet mit seinem D-Bus
+PYTHONPATH=tests python3 tests/signals_smoke.py       # gestartete Programme erben keine blockierten Signale
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als
