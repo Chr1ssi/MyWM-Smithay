@@ -267,13 +267,16 @@ fn main() -> zbus::Result<()> {
         .init();
     zbus::block_on(async {
         let sessions: Sessions = Arc::default();
-        let _connection = zbus::connection::Builder::session()?
+        let connection = zbus::connection::Builder::session()?
             .name(NAME)?
             .serve_at(PATH, ScreenCast { sessions })?
             .build()
             .await?;
         tracing::info!("screen-cast portal ready as {NAME}");
-        std::future::pending::<()>().await;
+        // Without its bus nobody can reach the portal any more; staying would only leave an orphan
+        // behind (a session bus that ends without stopping its activated services).
+        connection.closed().await;
+        tracing::info!("the session bus is gone, exiting");
         Ok(())
     })
 }
