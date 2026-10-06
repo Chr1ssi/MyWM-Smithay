@@ -1,7 +1,5 @@
-//! Smaller Wayland protocols: decoration policy, fractional scale, pointer constraints,
-//! tearing control and the sync blockers that keep GPU buffers from being used too early.
-use std::sync::atomic::{AtomicBool, Ordering};
-
+//! Smaller Wayland protocols: decoration policy, fractional scale, pointer constraints
+//! and the sync blockers that keep GPU buffers from being used too early.
 use calloop::Interest;
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
@@ -10,17 +8,8 @@ use smithay::{
     delegate_relative_pointer, delegate_viewporter, delegate_xdg_decoration,
     input::pointer::PointerHandle,
     reexports::{
-        wayland_protocols::{
-            wp::tearing_control::v1::server::{
-                wp_tearing_control_manager_v1::{self, WpTearingControlManagerV1},
-                wp_tearing_control_v1::{self, PresentationHint, WpTearingControlV1},
-            },
-            xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode,
-        },
-        wayland_server::{
-            Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum,
-            protocol::wl_surface::WlSurface,
-        },
+        wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode,
+        wayland_server::{Resource, protocol::wl_surface::WlSurface},
     },
     utils::{Logical, Point},
     wayland::{
@@ -145,112 +134,6 @@ impl State {
         }
         if let Some(new) = new {
             self.activate_constraint(new);
-        }
-    }
-}
-
-// --- Tearing control ----------------------------------------------------------------------
-
-/// Per-surface tearing preference, stored in the surface's data map.
-#[derive(Default)]
-struct SurfaceTearing {
-    /// Whether the client asked for immediate (tearing) presentation.
-    wanted: AtomicBool,
-    /// Whether a `wp_tearing_control_v1` object exists for the surface.
-    constructed: AtomicBool,
-}
-
-/// The client allows tearing for this surface (`wp_tearing_control_v1.set_presentation_hint(async)`).
-pub fn surface_allows_tearing(surface: &WlSurface) -> bool {
-    with_states(surface, |states| {
-        states.data_map.get::<SurfaceTearing>().is_some_and(|t| t.wanted.load(Ordering::Relaxed))
-    })
-}
-
-pub struct TearingSurface(smithay::reexports::wayland_server::Weak<WlSurface>);
-
-impl State {
-    pub fn create_tearing_control_global(display: &DisplayHandle) -> smithay::reexports::wayland_server::backend::GlobalId {
-        display.create_global::<State, WpTearingControlManagerV1, ()>(1, ())
-    }
-}
-
-impl GlobalDispatch<WpTearingControlManagerV1, (), State> for State {
-    fn bind(
-        _state: &mut State,
-        _handle: &DisplayHandle,
-        _client: &Client,
-        resource: New<WpTearingControlManagerV1>,
-        _global_data: &(),
-        data_init: &mut DataInit<'_, State>,
-    ) {
-        data_init.init(resource, ());
-    }
-}
-
-impl Dispatch<WpTearingControlManagerV1, (), State> for State {
-    fn request(
-        _state: &mut State,
-        _client: &Client,
-        manager: &WpTearingControlManagerV1,
-        request: wp_tearing_control_manager_v1::Request,
-        _data: &(),
-        _handle: &DisplayHandle,
-        data_init: &mut DataInit<'_, State>,
-    ) {
-        if let wp_tearing_control_manager_v1::Request::GetTearingControl { id, surface } = request {
-            let taken = with_states(&surface, |states| {
-                let data = states.data_map.get_or_insert_threadsafe(SurfaceTearing::default);
-                data.constructed.swap(true, Ordering::Relaxed)
-            });
-            if taken {
-                manager.post_error(
-                    wp_tearing_control_manager_v1::Error::TearingControlExists,
-                    "the surface already has a tearing control object",
-                );
-                return;
-            }
-            data_init.init(id, TearingSurface(surface.downgrade()));
-        }
-    }
-}
-
-impl Dispatch<WpTearingControlV1, TearingSurface, State> for State {
-    fn request(
-        _state: &mut State,
-        _client: &Client,
-        _resource: &WpTearingControlV1,
-        request: wp_tearing_control_v1::Request,
-        data: &TearingSurface,
-        _handle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, State>,
-    ) {
-        if let wp_tearing_control_v1::Request::SetPresentationHint { hint } = request
-            && let Ok(surface) = data.0.upgrade()
-        {
-            let wanted = matches!(hint, WEnum::Value(PresentationHint::Async));
-            // Some clients (Xwayland) repeat the hint on every frame: report changes only.
-            let before = with_states(&surface, |states| {
-                states
-                    .data_map
-                    .get_or_insert_threadsafe(SurfaceTearing::default)
-                    .wanted
-                    .swap(wanted, Ordering::Relaxed)
-            });
-            if before != wanted {
-                tracing::info!("a client {} tearing for one of its surfaces", if wanted { "allows" } else { "no longer allows" });
-            }
-        }
-    }
-
-    fn destroyed(_state: &mut State, _client: smithay::reexports::wayland_server::backend::ClientId, _resource: &WpTearingControlV1, data: &TearingSurface) {
-        // Destroying the object returns the surface to normal presentation.
-        if let Ok(surface) = data.0.upgrade() {
-            with_states(&surface, |states| {
-                let tearing = states.data_map.get_or_insert_threadsafe(SurfaceTearing::default);
-                tearing.wanted.store(false, Ordering::Relaxed);
-                tearing.constructed.store(false, Ordering::Relaxed);
-            });
         }
     }
 }

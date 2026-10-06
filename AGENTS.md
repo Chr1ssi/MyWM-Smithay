@@ -16,7 +16,7 @@ latency** (especially for gaming). Primary target is **NixOS**.
   input and frame-pacing paths (no needless allocations, copies, redraws or blocking
   calls). Back non-trivial claims with a measurement (`RUST_LOG=info,perf=debug`) and
   never trade stability or correctness for a speculative gain.
-- **Latency first on the gaming path.** Direct scanout, tearing, VRR, explicit sync and
+- **Latency first on the gaming path.** Direct scanout, VRR, explicit sync and
   per-output redraws must not regress. Effects must never cost frames in fullscreen or
   scanout situations.
 - **Stability over features.** A crash or hang takes the whole session down. Avoid
@@ -69,7 +69,7 @@ latency** (especially for gaming). Primary target is **NixOS**.
   changes. They run against their own Xvfb and never touch the real session. Add or extend a
   test for new behavior where practical. A test that fails only sometimes is a bug in the test
   or the code: find the race instead of rerunning until it passes.
-- Anything that needs real hardware (DRM, libinput, VRR, tearing, scanout, gamma) cannot
+- Anything that needs real hardware (DRM, libinput, VRR, scanout, gamma) cannot
   be verified nested. Say so explicitly instead of claiming it works, and point to
   `docs/hardware-test.md`. Such changes go on their own branch (see Git workflow).
 

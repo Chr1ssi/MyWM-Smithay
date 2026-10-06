@@ -68,7 +68,7 @@ use Page::*;
 pub static SETTINGS: &[Setting] = &[
     // Windows
     s("float_dialogs", "Dialoge schweben", "Dialogfenster erscheinen als schwebende Fenster statt in den Spalten.", Windows, Bool, "true"),
-    s("game_app_id_prefixes", "Spiele erkennen (app_id-Anfang)", "Ein Fenster, dessen app_id so beginnt, gilt im Vollbild als Spiel (VRR, Tearing, keine Effekte). Eine Angabe pro Zeile.", Windows, List, "[]"),
+    s("game_app_id_prefixes", "Spiele erkennen (app_id-Anfang)", "Ein Fenster, dessen app_id so beginnt, gilt im Vollbild als Spiel (VRR, keine Effekte). Eine Angabe pro Zeile.", Windows, List, "[]"),
     s("appearance.gaps_inner", "Abstand zwischen Fenstern", "Pixel.", Windows, Int { min: 0, max: 128 }, "8"),
     s("appearance.gaps_outer", "Abstand zum Rand", "Pixel.", Windows, Int { min: 0, max: 128 }, "8"),
     s("appearance.border_width", "Rahmenbreite", "Pixel.", Windows, Int { min: 0, max: 32 }, "2"),
@@ -79,8 +79,7 @@ pub static SETTINGS: &[Setting] = &[
     s("effects.animation_ms", "Animationsdauer (ms)", "Fenster gleiten an ihren Platz und blenden ein; 0 = keine Animationen.", Effects, Int { min: 0, max: 1000 }, "0"),
     s("effects.shadow", "Schatten", "Ausdehnung in Pixeln; 0 = kein Schatten.", Effects, Int { min: 0, max: 64 }, "0"),
     s("effects.blur", "Unschärfe hinter durchsichtigen Fenstern", "1 (leicht) bis 16 (stark); 0 = aus. Zeigt das Wallpaper unscharf.", Effects, Int { min: 0, max: 16 }, "0"),
-    s("render.force_tearing", "Tearing erzwingen", "Auf den async_outputs auch tearen, wenn das Spiel es nicht erlaubt.", Effects, Bool, "false"),
-    s("render.late_scheduling", "Späte Frame-Planung", "Frames erst kurz vor dem Vblank rendern (weniger Latenz). Aus bei VRR und Tearing.", Effects, Bool, "false"),
+    s("render.late_scheduling", "Späte Frame-Planung", "Frames erst kurz vor dem Vblank rendern (weniger Latenz). Aus bei VRR.", Effects, Bool, "false"),
     s("render.margin_ms", "Reserve vor dem Vblank (ms)", "Zusätzlich zur gemessenen Renderzeit.", Effects, Float { min: 0.0, max: 16.0 }, "2.0"),
     // Input
     s("input.accel_profile", "Mausbeschleunigung", "„flat“ ist roh und ideal für Spiele.", Input, Choice { options: &["flat", "adaptive"], optional: true }, ""),
@@ -105,7 +104,6 @@ pub static SETTINGS: &[Setting] = &[
     s("terminal", "Terminal", "Programm und Argumente, eine Angabe pro Zeile.", General, List, "[\"foot\"]"),
     s("wallpaper_directory", "Wallpaper-Ordner", "Absoluter Pfad.", General, Text, ""),
     s("screenshot_directory", "Screenshot-Ordner", "Absoluter Pfad.", General, Text, ""),
-    restart(s("async_outputs", "Monitore mit Tearing", "Namen der Monitore (z. B. DP-3), eine Angabe pro Zeile.", General, List, "[]")),
     restart(s("workspace_outputs", "Monitor-Reihenfolge", "Monitore in Workspace-Reihenfolge, eine Angabe pro Zeile.", General, List, "[]")),
     restart(s("idle.lock_after_seconds", "Sperren nach (s)", "0 = nie.", General, Int { min: 0, max: 86400 }, "300")),
     restart(s("idle.monitor_off_after_seconds", "Monitore aus nach (s)", "0 = nie; muss später als das Sperren sein.", General, Int { min: 0, max: 86400 }, "600")),

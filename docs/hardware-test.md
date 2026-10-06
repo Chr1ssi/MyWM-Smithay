@@ -58,28 +58,22 @@ Monitor, steht dort der Grund (kein CRTC, Modus nicht angeboten, Surface-Fehler)
    `Super+Alt+Pfeil`, Fenster verschieben `Super+Shift+Pfeil`.
 4. VT-Wechsel `Ctrl+Alt+F2` und zurück: Bild und Eingabe müssen wiederkommen.
 5. Monitor aus-/einstecken: Workspaces wandern zum ersten Monitor und zurück.
-6. Ein Vollbild-Spiel/Video: läuft flüssig, kein Tearing (Tearing/VRR sind noch nicht
-   eingebaut, siehe M3).
+6. Ein Vollbild-Spiel/Video: läuft flüssig, kein Tearing.
 
-## Spiele, Tearing und VRR (M3)
+## Spiele und VRR (M3)
+
+mywm flippt immer synchron (kein Tearing): Rendert ein Spiel schneller als der Monitor,
+zeigt jeder Refresh das neueste fertige Bild.
 
 ```toml
 game_app_id_prefixes = ["steam_app_", "gamescope"]   # erkennt Spiele (auch deren Dialoge)
-async_outputs = ["DP-3"]                              # Tearing erlaubt (nur mit Spiel im Vollbild)
 
 [vrr]
 enabled = true
 output = "DP-3"
 ```
 
-Im Log steht bei jedem Wechsel, warum VRR/Tearing (nicht) aktiv sind, z. B.
-`DP-3: fullscreen game: true; tearing allowed by config: true; requested by the game: false`,
-außerdem `a client allows tearing for one of its surfaces` (das Spiel bittet um Tearing) und
-`DP-3: tearing on (immediate page flips)`. Fehlt die Zeile „allows tearing“, nutzt das Spiel oder der
-Treiber `wp_tearing_control_v1` nicht; dann tearen wir nicht, auch wenn die Config es erlaubt.
-
-Im Log erscheint beim Start des Spiels je nach Fall `DP-3: adaptive sync on` und, wenn der
-Treiber ein sofortiges Kippen ablehnt, `tearing flip rejected (...); falling back to vsync`.
+Im Log erscheint beim Start des Spiels `DP-3: adaptive sync on`.
 Beim GPU-Start steht `explicit sync (linux-drm-syncobj) available` oder der Grund, warum nicht.
 
 Prüfen:
@@ -89,10 +83,7 @@ Prüfen:
    die GPU-Last im Vollbild kaum über den Wert ohne Compositor liegt; im Log mit
    `RUST_LOG=smithay::backend::drm=debug` erscheinen Zeilen zur Plane-Zuweisung.
 2. VRR: Monitor-OSD bzw. `cat /sys/kernel/debug/dri/*/vrr_range` / Anzeige der Bildrate.
-3. Tearing: braucht ein Spiel, das `wp_tearing_control_v1` nutzt (z. B. ein Wayland-natives
-   Vulkan-Spiel mit `MESA_VK_WSI_PRESENT_MODE=immediate`; NVIDIA-Treiber setzen das je nach
-   Version selbst).
-4. Maus in Spielen: Mauszeiger sperrt sich (`pointer-constraints`) und liefert rohe Deltas
+3. Maus in Spielen: Mauszeiger sperrt sich (`pointer-constraints`) und liefert rohe Deltas
    (`relative-pointer`); Spiele unter XWayland brauchen dafür M4.
 
 ## Desktop-Integration (M4)
@@ -123,14 +114,12 @@ margin_ms = 2.0   # Reserve vor dem Vblank zusätzlich zur gemessenen Renderzeit
 ```
 
 Der Frame wird dann erst kurz vor dem Vblank gerendert (so zeigt er den neuesten Client-Inhalt)
-und die Frame-Callbacks gehen am Vblank raus. Aktiv nur bei festem Refresh (nicht bei VRR/Tearing).
+und die Frame-Callbacks gehen am Vblank raus. Aktiv nur bei festem Refresh (nicht bei VRR).
 Hilfreich: zuerst die `perf`-Zeilen ansehen; ist `worst` nahe am Refresh-Intervall, `margin_ms`
 erhöhen oder die Option auslassen. Bitte Eindruck (Latenz/Ruckler) und die `perf`-Zeilen zurückmelden.
 
 ## Bekannte Lücken
 
-- Tearing setzt einen Kernel mit atomaren Async-Flips (Linux ≥ 6.8) und Treiberunterstützung voraus;
-  die dafür nötige kleine Änderung an smithay steckt in `vendor/` (siehe `vendor/README.md`).
 - Fensteraufnahme über das Portal (nur Monitore) und der Wallpaper-Picker fehlen noch.
 - Der Cursor kommt aus dem xcursor-Theme (`XCURSOR_THEME`, `XCURSOR_SIZE`), animierte Cursor
   stehen still.
@@ -141,7 +130,7 @@ Der Compositor schreibt jetzt immer eine Logdatei: `~/.local/state/mywm/composit
 (Pfad mit `MYWM_LOG_FILE` änderbar, `MYWM_LOG_FILE=off` schaltet sie ab; die Datei der vorigen
 Sitzung bleibt als `compositor.log.1` liegen). Darin stehen Start, Config-Pfad, jeder Monitor mit
 Position und Größe, GPU und Modus, neue Fenster mit App-ID, Layer-Surfaces (Bar, Wallpaper),
-Xwayland, VRR/Tearing und jeder Client, der wegen eines Protokollfehlers rausgeworfen wurde.
+Xwayland, VRR und jeder Client, der wegen eines Protokollfehlers rausgeworfen wurde.
 Mit `RUST_LOG=debug` (oder z. B. `RUST_LOG=info,smithay::backend::drm=debug`) wird es
 ausführlicher. Panics landen ebenfalls dort.
 

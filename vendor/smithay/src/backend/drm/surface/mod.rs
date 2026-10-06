@@ -439,16 +439,6 @@ impl DrmSurface {
         }
     }
 
-    /// MyWM patch: let following page flips complete immediately instead of at vblank
-    /// (tearing). Only the atomic API supports this; the legacy one ignores the request.
-    /// The kernel may reject a flip that is not a pure framebuffer swap, so callers must be
-    /// ready for `page_flip` to fail and fall back.
-    pub fn set_async_flip(&self, value: bool) {
-        if let DrmSurfaceInternal::Atomic(surf) = &*self.internal {
-            surf.set_async_flip(value);
-        }
-    }
-
     /// Returns a set of available planes for this surface
     pub fn planes(&self) -> &Planes {
         &self.planes

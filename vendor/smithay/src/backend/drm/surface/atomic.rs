@@ -171,8 +171,6 @@ pub struct AtomicDrmSurface {
     prop_mapping: Arc<RwLock<PropMapping>>,
     state: RwLock<State>,
     pending: RwLock<State>,
-    /// MyWM patch: flip immediately instead of waiting for vblank (tearing).
-    async_flip: AtomicBool,
     pub(super) span: tracing::Span,
 }
 
@@ -217,7 +215,6 @@ impl AtomicDrmSurface {
             crtc,
             plane,
             used_planes: Mutex::new(HashSet::new()),
-            async_flip: AtomicBool::new(false),
             prop_mapping,
             state: RwLock::new(state),
             pending: RwLock::new(pending),
@@ -676,11 +673,6 @@ impl AtomicDrmSurface {
         Ok(())
     }
 
-    /// MyWM patch: make following page flips asynchronous (tearing) or synchronous again.
-    pub fn set_async_flip(&self, value: bool) {
-        self.async_flip.store(value, Ordering::SeqCst);
-    }
-
     pub fn commit_pending(&self) -> bool {
         *self.pending.read().unwrap() != *self.state.read().unwrap()
     }
@@ -889,17 +881,16 @@ impl AtomicDrmSurface {
         // If we would set anything here, that would require a modeset, this would fail,
         // indicating a problem in our assumptions.
         trace!(?planes, "Queueing page flip: {:?}", req);
-        let mut flags = if event {
-            AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
-        } else {
-            AtomicCommitFlags::NONBLOCK
-        };
-        if self.async_flip.load(Ordering::SeqCst) {
-            flags |= AtomicCommitFlags::PAGE_FLIP_ASYNC;
-        }
         let res = self
             .fd
-            .atomic_commit(flags, req.build()?)
+            .atomic_commit(
+                if event {
+                    AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
+                } else {
+                    AtomicCommitFlags::NONBLOCK
+                },
+                req.build()?,
+            )
             .map_err(|source| {
                 Error::Access(AccessError {
                     errmsg: "Page flip commit failed",

@@ -96,14 +96,12 @@ enum Redraw {
     WaitingForEstimatedVBlank { again: bool },
 }
 
-/// Whether VRR and tearing apply to an output right now, and the facts behind that.
+/// Whether VRR applies to an output right now, and the facts behind that.
 #[derive(Default)]
 struct PresentationPolicy {
     vrr: bool,
-    tearing: bool,
     /// A recognized game is fullscreen and focused on the output.
     game: bool,
-    tearing_requested: bool,
 }
 
 /// What clients are told about buffers: the default set, and one tuned for direct scanout.
@@ -157,12 +155,8 @@ struct Surface {
     feedback: Option<SurfaceFeedback>,
     /// Adaptive sync is currently on.
     vrr: bool,
-    /// Frames currently flip immediately (tearing).
-    tearing: bool,
     /// The display is on; while off nothing is drawn.
     powered: bool,
-    /// Cleared when the driver rejected an immediate flip.
-    tearing_works: bool,
     /// Adaptive sync was requested but cannot be enabled on this output.
     vrr_failed: bool,
     /// Every mode the display offers, for mode switches requested at runtime.
@@ -490,9 +484,9 @@ impl Surface {
     }
 
     /// How long to hold back the next redraw for late scheduling; `None` to render right away
-    /// (no vblank seen yet, or VRR/tearing where frames are not tied to a fixed refresh).
+    /// (no vblank seen yet, or VRR where frames are not tied to a fixed refresh).
     fn late_delay(&self, margin: Duration) -> Option<Duration> {
-        if self.vrr || self.tearing {
+        if self.vrr {
             return None;
         }
         let last = self.last_vblank?;
@@ -715,14 +709,6 @@ impl State {
             }
         };
         let feedback = surface_feedback(&gpu.renderer, &compositor, gpu.render_node);
-        // Immediate page flips through the atomic API are a driver capability; NVIDIA reports none.
-        let async_flip = {
-            use smithay::reexports::drm::{Device as BasicDevice, DriverCapability};
-            gpu.drm.get_driver_capability(DriverCapability::AtomicASyncPageFlip).unwrap_or(0) == 1
-        };
-        if !async_flip && self.config.async_outputs.contains(&name) {
-            tracing::warn!("{name}: the driver cannot flip immediately with atomic commits; tearing stays off, vsync is used");
-        }
         gpu.surfaces.insert(
             crtc,
             Surface {
@@ -732,9 +718,7 @@ impl State {
                 redraw: Redraw::Idle,
                 feedback,
                 vrr: false,
-                tearing: false,
                 powered: true,
-                tearing_works: async_flip,
                 vrr_failed: false,
                 modes: info.modes().to_vec(),
                 gamma: None,
@@ -850,20 +834,13 @@ impl State {
         let elements = self.output_elements(renderer, &output);
         let background = self.clear_color();
 
-        // Adaptive sync and tearing only while a game owns the output.
+        // Adaptive sync only while a game owns the output.
         let policy = self.presentation_policy(&output);
-        let (vrr_wanted, tearing_wanted) = (policy.vrr, policy.tearing);
-        if vrr_wanted != surface.vrr && !surface.vrr_failed {
-            surface.vrr = set_vrr(&mut surface.compositor, surface.connector, vrr_wanted, &output.name());
+        if policy.vrr != surface.vrr && !surface.vrr_failed {
+            surface.vrr = set_vrr(&mut surface.compositor, surface.connector, policy.vrr, &output.name());
             // Not supported (or refused): do not ask again every frame.
-            surface.vrr_failed = vrr_wanted && !surface.vrr;
+            surface.vrr_failed = policy.vrr && !surface.vrr;
         }
-        let tearing = tearing_wanted && surface.tearing_works;
-        if tearing != surface.tearing {
-            tracing::info!("{}: tearing {}", output.name(), if tearing { "on (immediate page flips)" } else { "off" });
-        }
-        surface.tearing = tearing;
-        surface.compositor.set_async_flip(surface.tearing);
 
         let started = Instant::now();
         let mut had_damage = false;
@@ -896,14 +873,6 @@ impl State {
                     }
                     match surface.compositor.queue_frame(Some(feedback)) {
                         Ok(()) => true,
-                        Err(error) if surface.tearing => {
-                            // The driver refused an immediate flip; do not try again on this output.
-                            tracing::warn!("{}: tearing flip rejected ({error}); falling back to vsync", output.name());
-                            surface.tearing_works = false;
-                            surface.tearing = false;
-                            surface.compositor.set_async_flip(false);
-                            false
-                        }
                         Err(error) => {
                             tracing::warn!("{}: queue_frame: {error}", output.name());
                             false
@@ -980,27 +949,22 @@ impl State {
         }
     }
 
-    /// Whether VRR and tearing should be active on `output` right now.
+    /// Whether VRR should be active on `output` right now.
     ///
-    /// VRR needs `[vrr] enabled` with this output named, tearing needs the output in
-    /// `async_outputs`; both only while a recognized game is fullscreen and focused there,
-    /// and tearing additionally needs the game to allow it (`wp_tearing_control_v1`).
+    /// VRR needs `[vrr] enabled` with this output named, and only while a recognized game is
+    /// fullscreen and focused there.
     fn presentation_policy(&self, output: &Output) -> PresentationPolicy {
-        let name = output.name();
-        let vrr_allowed = self.config.vrr.enabled && self.config.vrr.output == name;
-        let tearing_configured = self.config.async_outputs.contains(&name);
+        let vrr_allowed = self.config.vrr.enabled && self.config.vrr.output == output.name();
         let mut policy = PresentationPolicy::default();
-        if !vrr_allowed && !tearing_configured {
+        if !vrr_allowed {
             return policy;
         }
         let Some(monitor) = self.outputs.iter().position(|e| &e.output == output) else { return policy };
-        let Some(game) = self.fullscreen_game_on(monitor) else { return policy };
+        if self.fullscreen_game_on(monitor).is_none() {
+            return policy;
+        }
         policy.game = true;
-        // X11 games (Xwayland) have their surface only through the window, Wayland ones through the toplevel.
-        policy.tearing_requested = self.config.render.force_tearing
-            || game.surface().is_some_and(|s| crate::protocols::surface_allows_tearing(&s));
-        policy.vrr = vrr_allowed;
-        policy.tearing = tearing_configured && policy.tearing_requested;
+        policy.vrr = true;
         policy
     }
 

@@ -2717,11 +2717,6 @@ where
         self.surface.vrr_supported(conn).map_err(FrameError::DrmError)
     }
 
-    /// MyWM patch: see [`DrmSurface::set_async_flip`].
-    pub fn set_async_flip(&self, value: bool) {
-        self.surface.set_async_flip(value);
-    }
-
     /// Returns if Variable Refresh Rate is currently enabled for frames composed by this [`DrmCompositor`].
     pub fn vrr_enabled(&self) -> bool {
         self.surface.vrr_enabled()

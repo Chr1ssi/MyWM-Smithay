@@ -6,7 +6,7 @@ leicht, latenzarm (Gaming) und mit sauberem Screen-Capture (Streaming).
 ## Status
 
 **M0–M4** sind fertig: Skelett, Layout-Kern, Konfiguration, Multi-Monitor mit
-DRM/libinput, Gaming-Pfad (Direct Scanout mit Dmabuf-Feedback, VRR, Tearing,
+DRM/libinput, Gaming-Pfad (Direct Scanout mit Dmabuf-Feedback, VRR,
 Presentation-Time, explizite Sync, Relative Pointer/Pointer Constraints, Viewporter,
 Fractional Scale) und Desktop-Integration: Layer-Shell (Quickshell-Bar, Launcher),
 Sitzungssperre (`ext-session-lock`/swaylock), Idle (`ext-idle-notify`/swayidle,
@@ -26,7 +26,7 @@ Aufbau:
 - `crates/mywm-config` – TOML-Konfiguration (`~/.config/mywm/config.toml` oder `$MYWM_CONFIG`).
   Beispiel: `crates/mywm-config/example.toml`
 - `crates/mywm-ipc` – Bar-Protokoll `v1` (Befehle, Zustands-Snapshot) zwischen Compositor und `mywm-shell`
-- `vendor/smithay` – smithay 0.7.0 mit kleinen Patches (Tearing, Layer-Shell-Toleranz, X11-Fokus; `vendor/README.md`)
+- `vendor/smithay` – smithay 0.7.0 mit kleinen Patches (Layer-Shell-Toleranz, X11-Fokus; `vendor/README.md`)
 - `src/` – Compositor; `udev.rs` ist das Hardware-Backend (DRM/GBM/libinput/libseat),
   `winit.rs` der nested Entwicklungsmodus (`desktop.rs` bildet das Modell auf Smithays `Space` ab)
 
@@ -60,7 +60,7 @@ zurück), `xdg-activation` (Fenster mit Aufmerksamkeitswunsch bekommen einen rot
 Einstellungen und Tastenbelegung per Fenster: `mywm-settings` (`docs/settings.md`), schreibt direkt in die Config-Datei
 (auch hinter einem Dotfiles-Symlink) und lässt den Compositor neu laden.
 
-Offen: Hardware-Verifikation von Tearing, Hotplug, Late Scheduling, den neuen Protokollen, der Effekt-Shader und des Nachtlichts.
+Offen: Hardware-Verifikation von Hotplug, Late Scheduling, den neuen Protokollen, der Effekt-Shader und des Nachtlichts.
 
 ## Entwickeln
 

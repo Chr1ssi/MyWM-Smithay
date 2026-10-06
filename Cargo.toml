@@ -6,7 +6,7 @@ license = "MIT"
 description = "Smithay-based Wayland compositor for MyWM"
 
 [patch.crates-io]
-# smithay 0.7.0 plus a small patch for tearing (asynchronous page flips); see vendor/README.md.
+# smithay 0.7.0 plus a few small patches; see vendor/README.md.
 smithay = { path = "vendor/smithay" }
 
 [workspace]

@@ -159,18 +159,15 @@ impl EffectsConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct RenderConfig {
     /// Start each frame as late as possible before the vblank so it shows the newest
-    /// client content (lower latency); off while VRR or tearing is active.
+    /// client content (lower latency); off while VRR is active.
     pub late_scheduling: bool,
     /// Safety margin before the vblank, on top of the measured render time.
     pub margin_ms: f64,
-    /// Tear on `async_outputs` for every fullscreen game, whether or not it sets
-    /// `wp_tearing_control` (games under Xwayland/Proton never do).
-    pub force_tearing: bool,
 }
 
 impl Default for RenderConfig {
     fn default() -> Self {
-        Self { late_scheduling: false, margin_ms: 2.0, force_tearing: false }
+        Self { late_scheduling: false, margin_ms: 2.0 }
     }
 }
 

@@ -12,11 +12,6 @@
 # aktuellen Monitor und verschwinden wieder, sobald sie leer sind und man sie verlässt.
 # Änderungen gelten nach Neustart.
 #workspace_outputs = ["DP-3", "HDMI-A-1", "DP-1"]
-# Outputs not listed here use tear-free VSync presentation. Im Smithay-Compositor kippen
-# Frames auf gelisteten Monitoren sofort (Tearing), aber nur solange ein erkanntes Spiel
-# (game_app_id_prefixes) dort im Vollbild fokussiert ist und Tearing über
-# wp_tearing_control_v1 erlaubt.
-#async_outputs = ["DP-3"]
 # Fenster mit Elternfenster (z. B. Dateidialoge) standardmäßig frei schwebend.
 #float_dialogs = true
 # Der Gaming-Workspace entsteht auf diesem Monitor, sobald ein Spiel startet, und
@@ -61,12 +56,10 @@
 
 # Nur Smithay-Compositor (Hardware): Frames so spaet wie moeglich vor dem Vblank
 # rendern, damit sie den neuesten Client-Inhalt zeigen (weniger Latenz). Bei VRR
-# oder Tearing inaktiv. margin_ms ist die Reserve zusaetzlich zur gemessenen Renderzeit.
+# inaktiv. margin_ms ist die Reserve zusaetzlich zur gemessenen Renderzeit.
 #[render]
 #late_scheduling = false
 #margin_ms = 2.0
-# Auf async_outputs auch tearen, wenn das Spiel es nicht per wp_tearing_control erlaubt.
-#force_tearing = false
 
 # Sekunden; 0 deaktiviert den jeweiligen Inaktivitäts-Timer.
 #[idle]

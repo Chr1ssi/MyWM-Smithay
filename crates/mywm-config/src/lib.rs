@@ -72,7 +72,6 @@ pub struct Config {
     /// Monitors in workspace order: the first gets workspace 1, the next 2, ...
     pub workspace_outputs: Vec<String>,
     pub gaming_output: Option<String>,
-    pub async_outputs: Vec<String>,
     pub wallpaper_directory: String,
     /// Where screenshots are saved.
     pub screenshot_directory: String,
@@ -125,7 +124,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             workspace_outputs: Vec::new(),
-            async_outputs: Vec::new(),
             screenshot_directory: std::env::var("HOME")
                 .map(|home| format!("{home}/Bilder/Screenshots"))
                 .unwrap_or_else(|_| "/tmp".into()),
@@ -327,9 +325,6 @@ impl Config {
         }
         if config.gaming_output.as_ref().is_some_and(|output| output.trim().is_empty()) {
             return Err("gaming_output must not be empty".into());
-        }
-        if config.async_outputs.iter().any(|output| output.trim().is_empty()) {
-            return Err("async_outputs must not contain empty output names".into());
         }
         if config.game_app_id_prefixes.iter().any(|prefix| prefix.trim().is_empty()) {
             return Err("game_app_id_prefixes must not contain empty values".into());

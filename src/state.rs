@@ -305,7 +305,6 @@ impl State {
                 Box::new(RelativePointerManagerState::new::<State>(&dh)),
                 Box::new(PointerConstraintsState::new::<State>(&dh)),
                 Box::new(XdgDecorationState::new::<State>(&dh)),
-                Box::new(State::create_tearing_control_global(&dh)),
                 Box::new(IdleInhibitManagerState::new::<State>(&dh)),
                 Box::new(State::create_screencopy_global(&dh)),
                 Box::new(State::create_output_power_global(&dh)),
@@ -368,9 +367,9 @@ impl State {
             tracing::warn!("keyboard layout not applied: {error:?}");
         }
         // Monitor and session settings need a restart; everything else applies live.
-        let Config { workspace_outputs, gaming_output, async_outputs, idle, vrr, .. } =
+        let Config { workspace_outputs, gaming_output, idle, vrr, .. } =
             std::mem::take(&mut self.config);
-        self.config = Config { workspace_outputs, gaming_output, async_outputs, idle, vrr, ..new };
+        self.config = Config { workspace_outputs, gaming_output, idle, vrr, ..new };
         self.desktop.appearance = self.config.appearance.layout();
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.change_repeat_info(self.config.input.repeat_rate, self.config.input.repeat_delay);
