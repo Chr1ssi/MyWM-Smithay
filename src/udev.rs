@@ -6,6 +6,7 @@ use std::{
     collections::HashMap,
     error::Error,
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
@@ -13,7 +14,7 @@ use mywm_config::{OutputConfig, OutputMode, OutputTransform};
 use smithay::{
     backend::{
         allocator::{
-            Fourcc,
+            Buffer as _, Format, Fourcc,
             dmabuf::Dmabuf,
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         },
@@ -27,8 +28,9 @@ use smithay::{
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             ImportDma,
-            element::utils::select_dmabuf_feedback,
+            element::{RenderElementPresentationState, RenderElementStates, utils::select_dmabuf_feedback},
             gles::GlesRenderer,
+            utils::RendererSurfaceStateUserData,
         },
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::{UdevBackend, UdevEvent, primary_gpu},
@@ -52,10 +54,12 @@ use smithay::{
         drm::control::{ModeTypeFlags, connector, crtc},
         input::{DeviceCapability, Libinput},
         rustix::fs::OFlags,
+        wayland_server::protocol::wl_surface::WlSurface,
     },
     utils::{Clock, ClockSource, DeviceFd, Monotonic, Time, Transform},
     wayland::{
-        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, ImportNotifier},
+        compositor::SurfaceData,
+        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, ImportNotifier, get_dmabuf},
         drm_syncobj::{DrmSyncobjState, supports_syncobj_eventfd},
         presentation::{PresentationState, Refresh},
     },
@@ -106,6 +110,43 @@ struct PresentationPolicy {
 struct SurfaceFeedback {
     render: DmabufFeedback,
     scanout: DmabufFeedback,
+}
+
+/// The buffer format a surface was last offered the scanout feedback for.
+#[derive(Default)]
+struct ScanoutOffered(Mutex<Option<Format>>);
+
+/// `select_dmabuf_feedback`, but a surface that cannot be scanned out is offered the scanout tranche only
+/// once per buffer format.
+///
+/// NVIDIA's Vulkan driver answers every feedback change with `VK_ERROR_OUT_OF_DATE_KHR`, recreates the
+/// swapchain with the same format and drops its feedback objects, which resets the surface to the default
+/// feedback. Offering scanout again on its next frame would loop forever (and hang Wine games).
+fn select_feedback_once<'a>(
+    surface: &WlSurface,
+    data: &SurfaceData,
+    states: &RenderElementStates,
+    feedback: &'a SurfaceFeedback,
+) -> &'a DmabufFeedback {
+    let selected = select_dmabuf_feedback(surface, states, &feedback.render, &feedback.scanout);
+    let zero_copy = states
+        .element_render_state(surface)
+        .is_some_and(|state| matches!(state.presentation_state, RenderElementPresentationState::ZeroCopy));
+    if zero_copy || !std::ptr::eq(selected, &feedback.scanout) {
+        return selected;
+    }
+    let format = data.data_map.get::<RendererSurfaceStateUserData>().and_then(|state| {
+        let state = state.lock().unwrap();
+        state.buffer().and_then(|buffer| get_dmabuf(buffer).ok()).map(|dmabuf| dmabuf.format())
+    });
+    let Some(format) = format else { return selected };
+    let offered = data.data_map.get_or_insert_threadsafe(ScanoutOffered::default);
+    let mut offered = offered.0.lock().unwrap();
+    if *offered == Some(format) {
+        return &feedback.render;
+    }
+    *offered = Some(format);
+    selected
 }
 
 struct Surface {
@@ -974,8 +1015,8 @@ impl State {
         self.update_primary_outputs(output, states);
         for window in self.space.elements_for_output(output) {
             if let Some(feedback) = feedback {
-                window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
-                    select_dmabuf_feedback(surface, states, &feedback.render, &feedback.scanout)
+                window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, data| {
+                    select_feedback_once(surface, data, states, feedback)
                 });
             }
         }

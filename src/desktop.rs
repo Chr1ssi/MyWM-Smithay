@@ -434,10 +434,13 @@ impl State {
         (m.fullscreen && m.placed && self.is_game(m.app_id.as_deref(), m.parent)).then_some(m)
     }
 
-    /// Games (and their dialogs) are recognized by app id prefix.
+    /// Games (and their dialogs) are recognized by app id prefix, or as Windows programs: under Wine's
+    /// Wayland driver the app id is the executable's name (`worldofwarships64.exe`), not `steam_app_*`.
     pub(crate) fn is_game(&self, app_id: Option<&str>, parent: Option<WindowId>) -> bool {
         let prefixes = &self.config.game_app_id_prefixes;
-        let matches = |id: Option<&str>| id.is_some_and(|id| prefixes.iter().any(|p| id.starts_with(p)));
+        let matches = |id: Option<&str>| {
+            id.is_some_and(|id| prefixes.iter().any(|p| id.starts_with(p)) || is_windows_program(id))
+        };
         if matches(app_id) {
             return true;
         }
@@ -1046,4 +1049,24 @@ fn configure_toplevel(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface, 
         }
     });
     toplevel.send_pending_configure();
+}
+
+/// Wine's Wayland driver names its windows after the executable (`Game.exe`).
+fn is_windows_program(app_id: &str) -> bool {
+    app_id.len() > 4 && app_id.get(app_id.len() - 4..).is_some_and(|ext| ext.eq_ignore_ascii_case(".exe"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_windows_program;
+
+    #[test]
+    fn windows_programs_by_executable_name() {
+        assert!(is_windows_program("worldofwarships64.exe"));
+        assert!(is_windows_program("Game.EXE"));
+        assert!(!is_windows_program(".exe"));
+        assert!(!is_windows_program("firefox"));
+        assert!(!is_windows_program("org.example.exe-viewer"));
+        assert!(!is_windows_program("spiel.exé"));
+    }
 }
