@@ -37,6 +37,8 @@ enum Intercepted {
     Action(Action),
     Vt(i32),
     Modal(crate::screenshot::ModalKey),
+    /// The release of a key whose press was intercepted.
+    Release,
 }
 
 fn modifiers(state: &ModifiersState) -> Modifiers {
@@ -105,15 +107,24 @@ impl State {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
                 let keyboard = self.seat.get_keyboard().unwrap();
+                let keycode = event.key_code();
                 let action = keyboard.input::<Intercepted, _>(
                     self,
-                    event.key_code(),
+                    keycode,
                     event.state(),
                     serial,
                     time,
                     |state, mods, handle| {
                         if event.state() != KeyState::Pressed {
-                            return FilterResult::Forward;
+                            // The client never saw the press, and a lone release still acts: a browser
+                            // toggles a video on Space's release after Super+Space opened the launcher.
+                            return match state.suppressed_keys.iter().position(|k| *k == keycode) {
+                                Some(index) => {
+                                    state.suppressed_keys.swap_remove(index);
+                                    FilterResult::Intercept(Intercepted::Release)
+                                }
+                                None => FilterResult::Forward,
+                            };
                         }
                         // Ctrl+Alt+F<n> arrives as a dedicated keysym after xkb's processing.
                         let raw = handle.modified_sym().raw();
@@ -147,6 +158,14 @@ impl State {
                         }
                     },
                 );
+                // A new press settles the key either way: a release lost to a VT switch must not
+                // swallow the release of a later, forwarded press.
+                if event.state() == KeyState::Pressed {
+                    self.suppressed_keys.retain(|k| *k != keycode);
+                    if action.is_some() {
+                        self.suppressed_keys.push(keycode);
+                    }
+                }
                 match action {
                     Some(Intercepted::Action(action)) => self.run_action(action),
                     Some(Intercepted::Modal(key)) => {
@@ -163,7 +182,7 @@ impl State {
                             tracing::warn!("cannot switch to VT {vt}: {error}");
                         }
                     }
-                    None => {}
+                    Some(Intercepted::Release) | None => {}
                 }
             }
             InputEvent::PointerMotionAbsolute { event } => {

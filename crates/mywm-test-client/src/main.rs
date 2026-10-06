@@ -65,6 +65,8 @@ struct App {
     frame_done: bool,
     /// The surface the pointer entered (pointer mode), cleared on leave.
     pointer_entered: bool,
+    /// `wl_keyboard.key` events not printed yet (keys mode): key code and state.
+    keys: Vec<(u32, u32)>,
 }
 
 impl Dispatch<WlCallback, ()> for App {
@@ -133,8 +135,10 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for App {
 
 impl Dispatch<WlKeyboard, ()> for App {
     fn event(state: &mut Self, _: &WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_keyboard::Event::Enter { .. } = event {
-            state.keyboard_entered = true;
+        match event {
+            wl_keyboard::Event::Enter { .. } => state.keyboard_entered = true,
+            wl_keyboard::Event::Key { key, state: key_state, .. } => state.keys.push((key, u32::from(key_state))),
+            _ => {}
         }
     }
 }
@@ -487,6 +491,24 @@ fn main() {
             while Instant::now() < end {
                 if queue.roundtrip(&mut app).is_err() {
                     return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            return;
+        }
+        "keys" => {
+            // Prints every key the window gets: `key <code> <pressed|released>`.
+            let seat: WlSeat = globals.bind(&qh, 1..=7, ()).unwrap();
+            let _keyboard = seat.get_keyboard(&qh, ());
+            queue.roundtrip(&mut app).unwrap();
+            println!("keys client ready");
+            let end = Instant::now() + Duration::from_secs(seconds);
+            while Instant::now() < end {
+                if queue.roundtrip(&mut app).is_err() {
+                    return;
+                }
+                for (key, state) in app.keys.drain(..) {
+                    println!("key {key} {}", if state == 1 { "pressed" } else { "released" });
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }

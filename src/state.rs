@@ -132,6 +132,8 @@ pub struct State {
     /// Key bindings after the nested-modifier remapping.
     pub bindings: Vec<Binding>,
     pub pointer_modifiers: Modifiers,
+    /// Keys whose press the compositor kept for itself; their release is not the client's either.
+    pub suppressed_keys: Vec<smithay::input::keyboard::Keycode>,
     /// While nested, Super belongs to the host, so bindings use Alt instead.
     pub remap_super: bool,
 }
@@ -315,6 +317,7 @@ impl State {
             ipc: None,
             ipc_dirty: false,
             pointer_modifiers: Modifiers::default(),
+            suppressed_keys: Vec::new(),
             remap_super,
             config,
         };
