@@ -66,6 +66,9 @@ pub struct Managed {
     pub scratchpad_floating: Option<bool>,
     /// Rules and workspace are applied at the first commit, once the app id is known.
     pub placed: bool,
+    /// A floating window placed before its first buffer: it stays out of the layout until the client has picked
+    /// its size (see `place_pending`).
+    pub awaiting_size: bool,
     /// Frame (content plus border) in global coordinates, while placed.
     pub frame: Option<(Rect, i32)>,
     /// Top, bottom, left, right border strips. Buffers persist so damage tracking stays exact.
@@ -254,6 +257,7 @@ impl State {
             shadow: None,
             scratchpad_floating: None,
             placed: false,
+            awaiting_size: false,
             frame: None,
             borders: Default::default(),
         });
@@ -262,11 +266,37 @@ impl State {
     }
 
     /// Apply window rules and pick the workspace once the app id is known.
+    ///
+    /// A floating window's first commit carries no buffer, so its size is unknown yet. Laid out right away it would
+    /// get the layout's default and be configured to it; a fixed-size dialog ignores that and draws its small content
+    /// in a corner of a huge frame. It waits instead, configured only with the initial size-less configure that lets
+    /// the client choose, and takes the size of its first buffer.
     pub fn place_pending(&mut self, surface: &WlSurface) {
-        let Some(id) = self.desktop.by_surface(surface).filter(|m| !m.placed).map(|m| m.id) else {
+        let Some(m) = self.desktop.by_surface(surface).filter(|m| !m.placed || m.awaiting_size) else {
             return;
         };
-        self.place(id);
+        let id = m.id;
+        if m.placed {
+            // Not in the space yet, so the commit handler does not update its size.
+            m.window.on_commit();
+            let size = m.window.geometry().size;
+            if size.w <= 0 || size.h <= 0 {
+                return;
+            }
+            if let Some(m) = self.desktop.get_mut(id) {
+                m.awaiting_size = false;
+            }
+        } else {
+            self.place(id);
+            if let Some(m) = self.desktop.get_mut(id)
+                && m.placed
+                && m.floating
+                && m.floating_rect.is_none()
+            {
+                let size = m.window.geometry().size;
+                m.awaiting_size = size.w <= 0 || size.h <= 0;
+            }
+        }
         self.size_floating_to_client(id);
         self.refresh();
     }
@@ -481,7 +511,7 @@ impl State {
         if d.desk.monitors.is_empty() {
             return;
         }
-        let infos: Vec<_> = d.windows.iter().filter(|m| m.placed).map(Managed::info).collect();
+        let infos: Vec<_> = d.windows.iter().filter(|m| m.placed && !m.awaiting_size).map(Managed::info).collect();
         let mut placements: Vec<Placement<WindowId>> = Vec::new();
         // Windows on hidden workspaces get their size as well: they are ready when their workspace is
         // shown (no resize on the switch) and look right in the overview.

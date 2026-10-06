@@ -171,7 +171,7 @@ impl State {
         let current = monitor.workspaces.current().number;
         let appearance = &self.desktop.appearance;
 
-        let infos: Vec<_> = self.desktop.windows.iter().filter(|m| m.placed).map(|m| m.info()).collect();
+        let infos: Vec<_> = self.desktop.windows.iter().filter(|m| m.placed && !m.awaiting_size).map(|m| m.info()).collect();
         let mut frames = Vec::new();
         let mut windows = Vec::new();
         let mut backgrounds = Vec::new();
