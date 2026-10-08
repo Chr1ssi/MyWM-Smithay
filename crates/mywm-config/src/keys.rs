@@ -58,6 +58,15 @@ pub fn parse_key(key: &str) -> Result<(u32, Modifiers)> {
         "end" => 0xff57,
         "pageup" => 0xff55,
         "pagedown" => 0xff56,
+        "xf86audiolowervolume" => 0x1008ff11,
+        "xf86audiomute" => 0x1008ff12,
+        "xf86audioraisevolume" => 0x1008ff13,
+        "xf86audioplay" => 0x1008ff14,
+        "xf86audiostop" => 0x1008ff15,
+        "xf86audioprev" => 0x1008ff16,
+        "xf86audionext" => 0x1008ff17,
+        "xf86audiopause" => 0x1008ff31,
+        "xf86audiomicmute" => 0x1008ffb2,
         function if function.strip_prefix('f').and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (1..=12).contains(&n)) => {
             0xffbd + function[1..].parse::<u32>().unwrap()
         }
@@ -80,6 +89,13 @@ mod tests {
         assert!(parse_key("F13").is_err());
         assert_eq!(parse_key("Super+PageUp").unwrap().0, 0xff55);
         assert_eq!(parse_key("Shift+Delete").unwrap().0, 0xffff);
+    }
+
+    #[test]
+    fn media_keys() {
+        assert_eq!(parse_key("XF86AudioRaiseVolume").unwrap(), (0x1008ff13, Modifiers::default()));
+        assert_eq!(parse_key("Shift+XF86AudioMute").unwrap().0, 0x1008ff12);
+        assert_eq!(parse_key("XF86AudioMicMute").unwrap().0, 0x1008ffb2);
     }
 
     #[test]

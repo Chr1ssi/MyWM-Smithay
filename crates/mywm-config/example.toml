@@ -148,6 +148,13 @@
 #keys = ["Super+e"]
 #command = ["thunar"]
 
+# Medientasten (XF86AudioRaiseVolume, XF86AudioLowerVolume, XF86AudioMute,
+# XF86AudioMicMute, XF86AudioPlay, XF86AudioPause, XF86AudioNext, XF86AudioPrev,
+# XF86AudioStop) gehen auch ohne Modifier.
+#[program_bindings.volume_up]
+#keys = ["XF86AudioRaiseVolume"]
+#command = ["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"]
+
 # Regeln gelten beim ersten Einordnen eines Fensters, nicht bei späteren Änderungen.
 # App-IDs werden beim Start einer Anwendung im mywm-Log ausgegeben.
 # Alle angegebenen Selektoren müssen exakt passen; letzte Angabe je Eigenschaft gewinnt.
