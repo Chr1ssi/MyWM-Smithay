@@ -41,6 +41,7 @@ use smithay::{
             surface_primary_scanout_output,
         },
     },
+    input::keyboard::LedState,
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::{
         wayland_protocols::wp::{
@@ -273,6 +274,12 @@ pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Re
             InputEvent::DeviceAdded { mut device } => {
                 if let Some(udev) = &mut state.udev {
                     apply_input_config(&mut device, &state.config.input);
+                    // Also after a VT switch, which re-adds every device: show the lock state again.
+                    if device.has_capability(DeviceCapability::Keyboard)
+                        && let Some(keyboard) = state.seat.get_keyboard()
+                    {
+                        device.led_update(keyboard.led_state().into());
+                    }
                     udev.devices.push(device);
                 }
             }
@@ -428,6 +435,13 @@ impl UdevData {
     pub fn apply_input_config(&mut self, config: &mywm_config::InputConfig) {
         for device in &mut self.devices {
             apply_input_config(device, config);
+        }
+    }
+
+    /// Show Caps/Num/Scroll Lock on the keyboards: libinput leaves the LEDs to the compositor.
+    pub fn set_keyboard_leds(&mut self, leds: LedState) {
+        for device in self.devices.iter_mut().filter(|d| d.has_capability(DeviceCapability::Keyboard)) {
+            device.led_update(leds.into());
         }
     }
 

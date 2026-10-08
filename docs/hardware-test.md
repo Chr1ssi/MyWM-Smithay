@@ -54,6 +54,7 @@ Monitor, steht dort der Grund (kein CRTC, Modus nicht angeboten, Surface-Fehler)
 
 1. Bild auf allen Monitoren, Position und Drehung wie konfiguriert.
 2. Maus (Bewegung über Monitorgrenzen, Fokus folgt der Maus), Tastatur, Layout `de`.
+   Die LEDs der Tastatur zeigen Caps/Num Lock, auch nach VT-Wechsel und Ab-/Anstecken.
 3. Fenster starten (`Super+Return`), Workspaces `Super+1..9`, Monitorwechsel
    `Super+Alt+Pfeil`, Fenster verschieben `Super+Shift+Pfeil`.
 4. VT-Wechsel `Ctrl+Alt+F2` und zurück: Bild und Eingabe müssen wiederkommen.

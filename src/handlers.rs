@@ -5,7 +5,7 @@ use smithay::{
     delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat, delegate_shm,
     delegate_xdg_shell,
     desktop::{PopupKind, Window},
-    input::{pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
+    input::{keyboard::LedState, pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
     reexports::wayland_server::{
         protocol::{wl_buffer, wl_output::WlOutput, wl_seat, wl_surface::WlSurface},
         Client,
@@ -215,6 +215,11 @@ impl SeatHandler for State {
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.cursor_status = image;
         self.queue_redraw_all();
+    }
+    fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: LedState) {
+        if let Some(udev) = &mut self.udev {
+            udev.set_keyboard_leds(led_state);
+        }
     }
 }
 
