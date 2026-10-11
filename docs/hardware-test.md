@@ -22,7 +22,7 @@ RUST_LOG=info MYWM_CONFIG=$HOME/.config/mywm/config.toml \
 ```
 
 Mit `MYWM_BACKEND=drm` lässt sich die Backend-Wahl erzwingen. Beenden: `Super+m`
-(Standard-Binding `exit`), oder per SSH `pkill -TERM mywm-compositor`.
+(Standard-Binding `exit`; mit laufender Bar danach Enter), oder per SSH `pkill -TERM mywm-compositor`.
 
 ## Monitore
 

@@ -4,6 +4,8 @@
 //! * client → compositor: `v1 <command>\n`, answered by `v1 ok` or `v1 error invalid-command`
 //! * compositor → client, whenever something changed:
 //!   `v1 state <output>;<output>...`, `v1 scratchpad <visible> <occupied>`, `v1 locked <0|1>`
+//! * compositor → the client that sent `handle-logout`, when the exit binding is pressed:
+//!   `v1 confirm-logout <output id>` (it asks the user and answers with `logout`)
 //!
 //! An output is `id,x,y,width,height,active,left,right,number:occupied|number:occupied...`.
 //! Workspace number 0 is the gaming workspace; `left`/`right` tell whether tiled
@@ -61,7 +63,11 @@ pub enum Command {
     /// Ask the user what to share; answered by `v1 ok` and later `v1 chosen ...`.
     ChooseSource(SourceKinds),
     Lock,
+    /// End the session now.
     Logout,
+    /// The sender confirms logouts: the exit binding asks it with `v1 confirm-logout <output>`
+    /// instead of ending the session (which it still does while no such client is connected).
+    HandleLogout,
     ThemeReload,
     Scratchpad,
     NewWorkspace { output: u32 },
@@ -80,6 +86,7 @@ pub fn parse_command(line: &str) -> Option<Command> {
             _ => return None,
         })),
         ["v1", "logout"] => Some(Command::Logout),
+        ["v1", "handle-logout"] => Some(Command::HandleLogout),
         ["v1", "theme-reload"] => Some(Command::ThemeReload),
         ["v1", "scratchpad"] => Some(Command::Scratchpad),
         ["v1", "new-workspace", output] => Some(Command::NewWorkspace { output: output.parse().ok()? }),
@@ -89,6 +96,11 @@ pub fn parse_command(line: &str) -> Option<Command> {
         }),
         _ => None,
     }
+}
+
+/// Ask the `handle-logout` client to confirm a logout on the output with this id.
+pub fn confirm_logout(output: u32) -> String {
+    format!("v1 confirm-logout {output}\n")
 }
 
 pub const OK: &str = "v1 ok\n";
@@ -222,6 +234,8 @@ mod tests {
     fn commands_parse() {
         assert_eq!(parse_command("v1 lock\n"), Some(Command::Lock));
         assert_eq!(parse_command("v1 logout"), Some(Command::Logout));
+        assert_eq!(parse_command("v1 handle-logout\n"), Some(Command::HandleLogout));
+        assert_eq!(confirm_logout(7), "v1 confirm-logout 7\n");
         assert_eq!(parse_command("v1 theme-reload"), Some(Command::ThemeReload));
         assert_eq!(parse_command("v1 choose-source both"), Some(Command::ChooseSource(SourceKinds::Both)));
         assert_eq!(parse_command("v1 choose-source tab"), None);

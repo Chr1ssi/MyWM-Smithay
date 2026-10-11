@@ -81,7 +81,7 @@ impl State {
                     m.close();
                 }
             }
-            Action::Exit => self.loop_signal.stop(),
+            Action::Exit => self.request_exit(),
             Action::Focus(d) => self.focus_step(d),
             Action::Move(d) => self.move_column(d),
             Action::Workspace(n) => self.select_workspace(n),

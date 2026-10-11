@@ -100,6 +100,7 @@
 #terminal = ["Super+Return"]
 #launcher = ["Super+Space"]
 #close = ["Super+q"]
+# Mit laufender Bar fragt sie erst nach (Enter bestätigt, Esc bricht ab); ohne Bar endet die Sitzung sofort.
 #exit = ["Super+m"]
 #toggle_floating = ["Super+v"]
 # Neu im Smithay-Compositor: Vollbild umschalten, Spaltenbreite ändern.

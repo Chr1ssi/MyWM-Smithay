@@ -10,7 +10,7 @@ use std::{
 };
 
 use mywm_config::Action;
-use mywm_ipc::{Chosen, Command, INVALID, OK, parse_command};
+use mywm_ipc::{Chosen, Command, INVALID, OK, confirm_logout, parse_command};
 use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction, generic::Generic};
 
 use crate::State;
@@ -181,13 +181,16 @@ impl State {
 
     /// Whether the command was valid; valid ones have been carried out.
     fn run_ipc_command(&mut self, command: Command, client: u64) -> bool {
-        if self.session_lock.is_active() && command != Command::Lock {
+        // Registering does nothing by itself; a bar that restarts behind the lock must not lose it.
+        if self.session_lock.is_active() && !matches!(command, Command::Lock | Command::HandleLogout) {
             return false;
         }
         match command {
             Command::ChooseSource(kinds) => return self.start_share_chooser(client, kinds),
             Command::Lock => self.run_action(Action::Lock),
-            Command::Logout => self.run_action(Action::Exit),
+            // The bar sends this once the user confirmed; the exit binding would ask again.
+            Command::Logout => self.loop_signal.stop(),
+            Command::HandleLogout => self.logout_handler = Some(client),
             Command::ThemeReload => self.run_action(Action::Reload),
             Command::Scratchpad => self.run_action(Action::ToggleScratchpad),
             Command::NewWorkspace { output } => {
@@ -211,6 +214,28 @@ impl State {
         if let Some(c) = ipc.clients.iter_mut().find(|c| c.id == client) {
             c.output.extend_from_slice(chosen.encode().as_bytes());
             c.broken = !c.write_pending();
+        }
+    }
+
+    /// The exit binding: the `handle-logout` client asks the user on the monitor under the
+    /// pointer. Without one (no bar, or it went away) the session ends at once, so the binding
+    /// never leaves the user stuck.
+    pub fn request_exit(&mut self) {
+        let monitor = self.pointer_monitor().unwrap_or(self.desktop.focused_monitor);
+        let output = self.outputs.get(monitor).map(|e| e.id);
+        let handler = self.logout_handler;
+        let asked = output.is_some_and(|output| {
+            self.ipc
+                .as_mut()
+                .and_then(|ipc| ipc.clients.iter_mut().find(|c| Some(c.id) == handler && !c.broken))
+                .is_some_and(|client| {
+                    client.output.extend_from_slice(confirm_logout(output).as_bytes());
+                    client.broken = !client.write_pending();
+                    !client.broken
+                })
+        });
+        if !asked {
+            self.loop_signal.stop();
         }
     }
 

@@ -104,6 +104,7 @@ class Bar:
         self.state = None
         self.locked = False
         self.replies = []
+        self.confirm_logouts = []
 
     def poll(self):
         try:
@@ -117,6 +118,8 @@ class Bar:
                 self.state = parse_state(text)
             elif text.startswith("v1 locked"):
                 self.locked = text.endswith("1")
+            elif text.startswith("v1 confirm-logout "):
+                self.confirm_logouts.append(int(text.split()[2]))
             elif text.startswith("v1 ok") or text.startswith("v1 error"):
                 self.replies.append(text)
 

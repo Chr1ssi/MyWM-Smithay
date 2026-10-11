@@ -129,6 +129,8 @@ pub struct State {
     pub ipc: Option<crate::ipc::Ipc>,
     /// The desktop changed since the last broadcast to bar clients.
     pub ipc_dirty: bool,
+    /// The bar client that confirms logouts (`handle-logout`), if one registered.
+    pub logout_handler: Option<u64>,
     /// Key bindings after the nested-modifier remapping.
     pub bindings: Vec<Binding>,
     pub pointer_modifiers: Modifiers,
@@ -315,6 +317,7 @@ impl State {
             dmabuf_global: None,
             ipc: None,
             ipc_dirty: false,
+            logout_handler: None,
             pointer_modifiers: Modifiers::default(),
             suppressed_keys: Vec::new(),
             remap_super,
