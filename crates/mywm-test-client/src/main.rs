@@ -2,8 +2,9 @@
 //! changes all the time; stands in for `weston-simple-shm`, which nixpkgs does not ship),
 //! `mywm-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts),
 //! `mywm-test-client idle-inhibit <seconds>` (a window that keeps the session from going idle),
-//! `mywm-test-client frames <seconds> [fullscreen]` (a window that draws on every frame callback and prints
-//! `frames <n>` each second; `fullscreen` makes it fullscreen and opaque) or
+//! `mywm-test-client frames <seconds> [fullscreen] [game]` (a window that draws on every frame callback and prints
+//! `frames <n>` each second; `fullscreen` makes it fullscreen and opaque, `game` marks it with the `game`
+//! content type) or
 //! `mywm-test-client urgent <seconds>` (two windows; the second asks to activate the first
 //! without any user input behind the request) or `mywm-test-client pointer <seconds> [lock]` (a window
 //! that prints `pointer enter`/`pointer leave`; with `lock` it locks the pointer on enter like a game and
@@ -26,6 +27,10 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_surface_v1::{self, KeyboardInteractivity, ZwlrLayerSurfaceV1},
 };
 use wayland_protocols::{
+    wp::content_type::v1::client::{
+        wp_content_type_manager_v1::WpContentTypeManagerV1,
+        wp_content_type_v1::{self, WpContentTypeV1},
+    },
     wp::idle_inhibit::zv1::client::{
         zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1, zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1,
     },
@@ -177,6 +182,8 @@ delegate_noop!(App: ignore WlShmPool);
 delegate_noop!(App: ignore WlBuffer);
 delegate_noop!(App: ignore WlSurface);
 delegate_noop!(App: ignore WlRegion);
+delegate_noop!(App: ignore WpContentTypeManagerV1);
+delegate_noop!(App: ignore WpContentTypeV1);
 delegate_noop!(App: ignore WlSeat);
 delegate_noop!(App: ignore ZwpKeyboardShortcutsInhibitManagerV1);
 delegate_noop!(App: ignore ZwpIdleInhibitManagerV1);
@@ -245,15 +252,25 @@ fn simple_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, com
 }
 
 /// A window that commits a new frame whenever the compositor says it may, counting the frame callbacks.
-fn frames_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, seconds: u64, fullscreen: bool) {
+/// How the `frames` window presents itself: fullscreen, and marked as a game through this content type manager.
+struct FramesStyle {
+    fullscreen: bool,
+    game: Option<WpContentTypeManagerV1>,
+}
+
+fn frames_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, seconds: u64, style: FramesStyle) {
     let qh = queue.handle();
     app.configured = vec![false];
     let surface = compositor.create_surface(&qh, ());
     let xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
     let toplevel = xdg.get_toplevel(&qh, ());
     toplevel.set_app_id("mywm.test.frames".into());
-    if fullscreen {
+    if style.fullscreen {
         toplevel.set_fullscreen(None);
+    }
+    // Like SDL3: the content type is set before the first commit.
+    if let Some(manager) = &style.game {
+        manager.get_surface_content_type(&surface, &qh, ()).set_content_type(wp_content_type_v1::Type::Game);
     }
     surface.commit();
     while !app.configured[0] {
@@ -324,8 +341,14 @@ fn main() {
     }
 
     if mode == "frames" {
-        let fullscreen = std::env::args().nth(3).is_some_and(|a| a == "fullscreen");
-        frames_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds, fullscreen);
+        let style = FramesStyle {
+            fullscreen: std::env::args().skip(3).any(|a| a == "fullscreen"),
+            game: std::env::args()
+                .skip(3)
+                .any(|a| a == "game")
+                .then(|| globals.bind(&qh, 1..=1, ()).expect("content type manager")),
+        };
+        frames_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds, style);
         return;
     }
 

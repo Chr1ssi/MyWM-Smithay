@@ -15,13 +15,14 @@ use smithay::{
     desktop::Window,
     output::Output,
     reexports::{
-        wayland_protocols::xdg::shell::server::xdg_toplevel,
+        wayland_protocols::{wp::content_type::v1::server::wp_content_type_v1, xdg::shell::server::xdg_toplevel},
         wayland_server::protocol::wl_surface::WlSurface,
     },
     utils::{Logical, Physical, Point, Rectangle},
     xwayland::{X11Surface, xwm::WmWindowType},
     wayland::{
-        compositor::with_states, fractional_scale::with_fractional_scale, shell::xdg::XdgToplevelSurfaceData,
+        compositor::with_states, content_type::ContentTypeSurfaceCachedState,
+        fractional_scale::with_fractional_scale, shell::xdg::XdgToplevelSurfaceData,
     },
 };
 
@@ -385,7 +386,8 @@ impl State {
             parent.is_some() || x11_float,
             self.config.float_dialogs,
         );
-        let game = self.is_game(app_id.as_deref(), parent);
+        let surface = self.desktop.get(id).and_then(|m| m.surface());
+        let game = self.is_game(app_id.as_deref(), surface.as_ref(), parent);
         let d = &mut self.desktop;
         // Dialogs join their parent's workspace, everything else the focused monitor's shown one.
         let focused = d.focused_monitor.min(d.desk.monitors.len() - 1);
@@ -431,23 +433,30 @@ impl State {
     pub fn fullscreen_game_on(&self, monitor: usize) -> Option<&Managed> {
         let focused = self.desktop.desk.monitors.get(monitor)?.workspaces.current().focused?;
         let m = self.desktop.get(focused)?;
-        (m.fullscreen && m.placed && self.is_game(m.app_id.as_deref(), m.parent)).then_some(m)
+        (m.fullscreen && m.placed && self.is_game(m.app_id.as_deref(), m.surface().as_ref(), m.parent)).then_some(m)
     }
 
-    /// Games (and their dialogs) are recognized by app id prefix, or as Windows programs: under Wine's
-    /// Wayland driver the app id is the executable's name (`worldofwarships64.exe`), not `steam_app_*`.
-    pub(crate) fn is_game(&self, app_id: Option<&str>, parent: Option<WindowId>) -> bool {
+    /// A game is shown fullscreen on some monitor: no idle lock or blanking, and the bar holds back.
+    pub fn game_shown(&self) -> bool {
+        (0..self.desktop.desk.monitors.len()).any(|monitor| self.fullscreen_game_on(monitor).is_some())
+    }
+
+    /// Games (and their dialogs) are recognized by app id prefix, as Windows programs (under Wine's
+    /// Wayland driver the app id is the executable's name, `worldofwarships64.exe`, not `steam_app_*`),
+    /// or by the `game` content type they give their surface (`wp-content-type-v1`, e.g. SDL3).
+    pub(crate) fn is_game(&self, app_id: Option<&str>, surface: Option<&WlSurface>, parent: Option<WindowId>) -> bool {
         let prefixes = &self.config.game_app_id_prefixes;
-        let matches = |id: Option<&str>| {
+        let matches = |id: Option<&str>, surface: Option<&WlSurface>| {
             id.is_some_and(|id| prefixes.iter().any(|p| id.starts_with(p)) || is_windows_program(id))
+                || surface.is_some_and(shows_game)
         };
-        if matches(app_id) {
+        if matches(app_id, surface) {
             return true;
         }
         let mut current = parent;
         for _ in 0..=self.desktop.windows.len() {
             let Some(m) = current.and_then(|id| self.desktop.get(id)) else { return false };
-            if matches(m.app_id.as_deref()) {
+            if matches(m.app_id.as_deref(), m.surface().as_ref()) {
                 return true;
             }
             current = m.parent;
@@ -500,6 +509,7 @@ impl State {
         self.sync_focus();
         self.refresh_pointer_focus();
         self.update_fractional_scales();
+        self.update_idle_inhibition();
         self.ipc_dirty = true;
         self.queue_redraw_all();
     }
@@ -1049,6 +1059,14 @@ fn configure_toplevel(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface, 
         }
     });
     toplevel.send_pending_configure();
+}
+
+/// The client marks what `surface` shows as a game (`wp-content-type-v1`).
+fn shows_game(surface: &WlSurface) -> bool {
+    with_states(surface, |states| {
+        *states.cached_state.get::<ContentTypeSurfaceCachedState>().current().content_type()
+            == wp_content_type_v1::Type::Game
+    })
 }
 
 /// Wine's Wayland driver names its windows after the executable (`Game.exe`).

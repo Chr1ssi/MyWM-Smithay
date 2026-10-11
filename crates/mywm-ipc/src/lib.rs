@@ -3,7 +3,8 @@
 //!
 //! * client → compositor: `v1 <command>\n`, answered by `v1 ok` or `v1 error invalid-command`
 //! * compositor → client, whenever something changed:
-//!   `v1 state <output>;<output>...`, `v1 scratchpad <visible> <occupied>`, `v1 locked <0|1>`
+//!   `v1 state <output>;<output>...`, `v1 scratchpad <visible> <occupied>`, `v1 locked <0|1>`,
+//!   `v1 gaming <0|1>` (a game is shown fullscreen on some monitor)
 //! * compositor → the client that sent `handle-logout`, when the exit binding is pressed:
 //!   `v1 confirm-logout <output id>` (it asks the user and answers with `logout`)
 //!
@@ -126,6 +127,7 @@ pub struct Snapshot {
     pub scratchpad_visible: bool,
     pub scratchpad_occupied: bool,
     pub locked: bool,
+    pub gaming: bool,
 }
 
 impl Snapshot {
@@ -151,11 +153,12 @@ impl Snapshot {
             })
             .collect();
         format!(
-            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\n",
+            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\nv1 gaming {}\n",
             outputs.join(";"),
             u8::from(self.scratchpad_visible),
             u8::from(self.scratchpad_occupied),
-            u8::from(self.locked)
+            u8::from(self.locked),
+            u8::from(self.gaming)
         )
     }
 
@@ -197,6 +200,7 @@ impl Snapshot {
                     snapshot.scratchpad_occupied = *occupied == "1";
                 }
                 ["v1", "locked", locked] => snapshot.locked = *locked == "1",
+                ["v1", "gaming", gaming] => snapshot.gaming = *gaming == "1",
                 _ => return None,
             }
         }
@@ -270,11 +274,12 @@ mod tests {
             scratchpad_visible: true,
             scratchpad_occupied: true,
             locked: false,
+            gaming: true,
         };
         let text = snapshot.encode();
         assert_eq!(
             text,
-            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\n"
+            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\nv1 gaming 1\n"
         );
         assert_eq!(Snapshot::decode(&text), Some(snapshot));
         assert_eq!(Snapshot::decode("v1 state \nv1 scratchpad 0 0\nv1 locked 0\n"), Some(Snapshot::default()));

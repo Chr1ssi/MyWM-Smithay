@@ -272,6 +272,7 @@ impl State {
             scratchpad_visible: d.scratchpad_visible,
             scratchpad_occupied: !d.scratchpad.windows.is_empty(),
             locked: self.session_lock.is_locked(),
+            gaming: self.game_shown(),
             ..Default::default()
         };
         for (entry, monitor) in self.outputs.iter().zip(&d.desk.monitors) {

@@ -17,7 +17,8 @@
 # Der Gaming-Workspace entsteht auf diesem Monitor, sobald ein Spiel startet, und
 # verschwindet mit dem letzten Spielfenster wieder (Standard: Monitor mit Workspace 1).
 # Er ist ausschließlich für Spiele reserviert: andere Fenster können weder dort
-# starten noch dorthin verschoben werden. Ohne Präfixe gibt es keinen Gaming-Workspace.
+# starten noch dorthin verschoben werden. Als Spiel gilt ein Fenster mit einem dieser
+# Präfixe, ein Windows-Programm (`*.exe`) oder eins mit dem Content-Type `game` (z. B. SDL3).
 #gaming_output = "DP-3"
 #game_app_id_prefixes = ["steam_app_", "gamescope"]
 # Programm und Argumente getrennt, ohne Shell-Auswertung.
@@ -61,7 +62,8 @@
 #late_scheduling = false
 #margin_ms = 2.0
 
-# Sekunden; 0 deaktiviert den jeweiligen Inaktivitäts-Timer.
+# Sekunden; 0 deaktiviert den jeweiligen Inaktivitäts-Timer. Solange ein Spiel im
+# Vollbild zu sehen ist, laufen beide nicht (ein Controller ist für mywm keine Eingabe).
 #[idle]
 #lock_after_seconds = 300
 #monitor_off_after_seconds = 600
