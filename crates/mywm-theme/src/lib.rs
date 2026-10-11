@@ -1,9 +1,8 @@
 use material_colors::{
     color::Argb,
-    dynamic_color::Variant,
+    dynamic_color::{DynamicScheme, Variant},
     image::{FilterType, ImageReader},
     scheme::Scheme,
-    theme::ThemeBuilder,
 };
 use minijinja::Environment;
 use serde::Serialize;
@@ -51,14 +50,20 @@ const NVIM: &str = include_str!("../assets/nvim.lua");
 const VESKTOP: &str = include_str!("../assets/vesktop.css");
 const GREETER: &str = include_str!("../assets/greeter.css");
 
+/// Material's medium contrast: borders reach about 3:1 or more against the surface and text gets
+/// brighter, while muted text and outlines stay distinct (at 1.0 they collapse into the text color).
+const CONTRAST_LEVEL: f64 = 0.5;
+
+/// The dark scheme every consumer is themed with. `ThemeBuilder` cannot set a contrast level.
+fn dark_scheme(source: Argb) -> Scheme {
+    DynamicScheme::by_variant(source, &Variant::Content, true, Some(CONTRAST_LEVEL)).into()
+}
+
 pub fn apply(wallpaper: &Path) -> Result<()> {
     let mut image = ImageReader::open(wallpaper)?;
     image.resize(112, 112, FilterType::Triangle);
     let source = ImageReader::extract_color(&image);
-    let generated = ThemeBuilder::with_source(source)
-        .variant(Variant::Content)
-        .build();
-    let state = state_from_scheme(wallpaper, source, &generated.schemes.dark);
+    let state = state_from_scheme(wallpaper, source, &dark_scheme(source));
     let state_path = state_path().ok_or("HOME or XDG_STATE_HOME is required for theme persistence")?;
     let directory = state_path
         .parent()
@@ -429,6 +434,7 @@ pub fn client_mode(args: &[String], config: &mywm_config::Config) -> Option<Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use material_colors::theme::ThemeBuilder;
     #[test]
     fn generated_state_has_noctalia_compatible_tokens() {
         let theme = ThemeBuilder::with_source(Argb::from_u32(0xff336699)).build();
@@ -441,6 +447,27 @@ mod tests {
         assert!(state.colors.contains_key("surface_container"));
         assert!(state.colors.contains_key("terminal_bright_white"));
         assert_eq!(state.colors["primary"].default.hex.len(), 7);
+    }
+
+    #[test]
+    fn borders_and_text_stand_out_from_the_surface() {
+        fn luminance(color: Argb) -> f64 {
+            let channel = |value: u8| {
+                let c = f64::from(value) / 255.0;
+                if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * channel(color.red) + 0.7152 * channel(color.green) + 0.0722 * channel(color.blue)
+        }
+        fn ratio(a: Argb, b: Argb) -> f64 {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        }
+        for source in [0xff295d54, 0xff336699, 0xffd4a017, 0xff808080] {
+            let scheme = dark_scheme(Argb::from_u32(source));
+            assert!(ratio(scheme.outline_variant, scheme.surface) >= 3.0, "{source:x}");
+            assert!(ratio(scheme.on_surface_variant, scheme.surface) >= 7.0, "{source:x}");
+            assert!(ratio(scheme.on_surface, scheme.surface) > ratio(scheme.on_surface_variant, scheme.surface), "{source:x}");
+        }
     }
 
     #[test]
