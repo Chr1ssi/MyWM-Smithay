@@ -19,7 +19,7 @@ use smithay::{
     },
     xwayland::{
         X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler,
-        xwm::{Reorder, ResizeEdge, XwmId},
+        xwm::{Reorder, ResizeEdge, WmWindowProperty, XwmId},
     },
 };
 
@@ -204,6 +204,14 @@ impl XwmHandler for State {
         if let Some(element) = self.override_redirect.iter().find(|w| w.x11_surface() == Some(&window)).cloned() {
             self.space.map_element(element, geometry.loc, false);
             self.queue_redraw_all();
+        }
+    }
+
+    fn property_notify(&mut self, _xwm: XwmId, window: X11Surface, property: WmWindowProperty) {
+        if property == WmWindowProperty::Title
+            && let Some(id) = self.desktop.by_x11(window.window_id()).map(|m| m.id)
+        {
+            self.update_title(id);
         }
     }
 

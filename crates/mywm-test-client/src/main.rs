@@ -13,7 +13,9 @@
 //! `fifo <updates> <frames> <applied>` each second: how many updates were shown, in how many distinct
 //! frames, and how many were applied, shown or not) or `mywm-test-client timed <milliseconds>` (a window
 //! whose second update targets that much later with `wp_commit_timer_v1`; prints `timed <ms>` when it
-//! was applied).
+//! was applied) or `mywm-test-client named <seconds> <app_id> <title|-> [fullscreen]` (a window with that
+//! app id and title, asking for fullscreen before it is mapped, that prints `size <w> <h>` whenever the
+//! compositor gives it another size).
 use std::{os::fd::AsFd, time::{Duration, Instant}};
 
 use wayland_client::{
@@ -373,6 +375,43 @@ fn shm_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compos
     (surface, buffers)
 }
 
+/// A window with the given app id and title, for window rules; prints every size it is given.
+fn named_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, seconds: u64, (app_id, title, fullscreen): (String, Option<String>, bool)) {
+    let qh = queue.handle();
+    app.configured = vec![false];
+    let surface = compositor.create_surface(&qh, ());
+    let xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
+    let toplevel = xdg.get_toplevel(&qh, ());
+    toplevel.set_app_id(app_id);
+    if let Some(title) = title {
+        toplevel.set_title(title);
+    }
+    if fullscreen {
+        toplevel.set_fullscreen(None);
+    }
+    surface.commit();
+    while !app.configured[0] {
+        queue.blocking_dispatch(app).unwrap();
+    }
+    let file = std::fs::File::options().read(true).write(true).create(true).truncate(true).open(std::env::temp_dir().join(format!("mywm-tc-{}", std::process::id()))).unwrap();
+    file.set_len(100 * 100 * 4).unwrap();
+    let pool = shm.create_pool(file.as_fd(), 100 * 100 * 4, &qh, ());
+    let buffer = pool.create_buffer(0, 100, 100, 400, wl_shm::Format::Xrgb8888, &qh, ());
+    surface.attach(Some(&buffer), 0, 0);
+    surface.commit();
+    let mut printed = (-1, -1);
+    let end = Instant::now() + Duration::from_secs(seconds);
+    while Instant::now() < end {
+        if app.toplevel_size != printed {
+            printed = app.toplevel_size;
+            println!("size {} {}", printed.0, printed.1);
+        }
+        if !pump(app, queue, 50) {
+            return;
+        }
+    }
+}
+
 /// Read what arrives within `timeout` milliseconds and dispatch it; false once the connection is gone.
 fn pump(app: &mut App, queue: &mut wayland_client::EventQueue<App>, timeout: i32) -> bool {
     if queue.flush().is_err() {
@@ -464,6 +503,15 @@ fn main() {
 
     if mode == "simple" {
         simple_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds);
+        return;
+    }
+
+    if mode == "named" {
+        let mut names = std::env::args().skip(3);
+        let app_id = names.next().expect("named: app id");
+        let title = names.next().filter(|t| t != "-");
+        let fullscreen = names.next().is_some_and(|a| a == "fullscreen");
+        named_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds, (app_id, title, fullscreen));
         return;
     }
 

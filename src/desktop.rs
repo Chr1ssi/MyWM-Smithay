@@ -42,6 +42,8 @@ pub struct Managed {
     pub floating_rect: Option<Rect>,
     pub parent: Option<WindowId>,
     pub app_id: Option<String>,
+    /// Kept current for title rules (see `update_title`).
+    pub title: Option<String>,
     /// The window in `ext-foreign-toplevel-list`, which capture sources refer to.
     pub foreign: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
     /// Commits of the main surface, to tell capture sessions when the window changed.
@@ -245,6 +247,7 @@ impl State {
             floating_rect: None,
             parent: None,
             app_id: None,
+            title: None,
             foreign: None,
             commits: 0,
             urgent: false,
@@ -337,6 +340,7 @@ impl State {
         if m.placed || self.desktop.desk.monitors.is_empty() {
             return;
         }
+        let title = current_title(&m.window);
         let (app_id, parent, x11_float) = match m.window.x11_surface() {
             Some(x11) => {
                 // Steam and friends: dialogs and popups float above their owner, fixed-size windows too.
@@ -378,27 +382,32 @@ impl State {
         if let Some(parent) = parent {
             self.place(parent);
         }
-        tracing::info!("new window: app_id={app_id:?} dialog={}", parent.is_some() || x11_float);
+        let dialog = parent.is_some() || x11_float;
+        // No title: it may say more about the user than the log should.
+        tracing::info!("new window: app_id={app_id:?} dialog={dialog}");
 
-        let placement = mywm_config::resolve(
-            &self.config.rules,
-            app_id.as_deref(),
-            parent.is_some() || x11_float,
-            self.config.float_dialogs,
-        );
+        let subject = mywm_config::Subject { app_id: app_id.as_deref(), title: title.as_deref(), dialog };
+        let placement = mywm_config::resolve(&self.config.rules, subject, self.config.float_dialogs);
         let surface = self.desktop.get(id).and_then(|m| m.surface());
         let game = self.is_game(app_id.as_deref(), surface.as_ref(), parent);
         let d = &mut self.desktop;
         // Dialogs join their parent's workspace, everything else the focused monitor's shown one.
         let focused = d.focused_monitor.min(d.desk.monitors.len() - 1);
-        let (mut monitor, active) = parent
+        let (mut monitor, mut active) = parent
             .and_then(|p| d.desk.locate(&p))
             .unwrap_or((focused, d.desk.monitors[focused].workspaces.active));
-        // Rules only apply while their workspace exists.
-        let mut number = placement
-            .workspace
-            .filter(|n| d.desk.owner(*n).is_some())
-            .unwrap_or(active);
+        // Rules only apply while their workspace or monitor exists; a workspace belongs to its monitor.
+        let rule_workspace = placement.workspace.filter(|n| d.desk.owner(*n).is_some());
+        if rule_workspace.is_none()
+            && let Some(index) = placement
+                .output
+                .as_deref()
+                .and_then(|name| d.desk.monitors.iter().position(|m| m.name.as_deref() == Some(name)))
+        {
+            monitor = index;
+            active = d.desk.monitors[index].workspaces.active;
+        }
+        let mut number = rule_workspace.unwrap_or(active);
         if let Some(owner) = d.desk.owner(number) {
             monitor = owner;
         }
@@ -426,6 +435,18 @@ impl State {
             m.floating = placement.floating || x11_float;
             m.parent = parent;
             m.app_id = app_id;
+            m.title = title;
+            // Overrides what the client asked for before it was placed.
+            if let Some(fullscreen) = placement.fullscreen {
+                m.fullscreen = fullscreen;
+            }
+        }
+    }
+
+    /// The window's title changed: rules that select by title see the new one.
+    pub fn update_title(&mut self, id: WindowId) {
+        if let Some(m) = self.desktop.get_mut(id) {
+            m.title = current_title(&m.window);
         }
     }
 
@@ -1059,6 +1080,19 @@ fn configure_toplevel(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface, 
         }
     });
     toplevel.send_pending_configure();
+}
+
+/// The title the client last set (`None` while it has none).
+fn current_title(window: &Window) -> Option<String> {
+    let title = match window.x11_surface() {
+        Some(x11) => x11.title(),
+        None => window.toplevel().and_then(|toplevel| {
+            with_states(toplevel.wl_surface(), |states| {
+                states.data_map.get::<XdgToplevelSurfaceData>().and_then(|data| data.lock().ok()?.title.clone())
+            })
+        })?,
+    };
+    (!title.is_empty()).then_some(title)
 }
 
 /// The client marks what `surface` shows as a game (`wp-content-type-v1`).

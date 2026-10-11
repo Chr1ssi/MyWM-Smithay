@@ -428,7 +428,7 @@ impl App {
     // --- Rules and programs -------------------------------------------------------------------
 
     fn rules_page(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Regeln gelten für Fenster, auf die alle angegebenen Merkmale passen. Die app_id steht beim Öffnen eines Fensters im Log (new window: app_id=…).").small().weak());
+        ui.label(RichText::new("Regeln gelten für Fenster, auf die alle angegebenen Merkmale passen; * steht für beliebig viele Zeichen. Die app_id steht beim Öffnen eines Fensters im Log (new window: app_id=…).").small().weak());
         ui.add_space(6.0);
         let count = self.doc.table_array("rules").len();
         let mut remove = None;
@@ -451,9 +451,12 @@ impl App {
                         remove = Some(index);
                     }
                 });
+                dirty |= optional_text(ui, table, "title", "Titel");
                 dirty |= tri_state(ui, table, "dialog", "Dialog");
                 dirty |= tri_state(ui, table, "floating", "Schwebend");
+                dirty |= tri_state(ui, table, "fullscreen", "Vollbild");
                 dirty |= optional_int(ui, table, "workspace", "Workspace", 1, 9);
+                dirty |= optional_text(ui, table, "output", "Monitor");
                 dirty |= optional_float(ui, table, "opacity", "Deckkraft", 0.1, 1.0);
             });
         }
@@ -588,6 +591,24 @@ fn tri_state(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str) -> bo
                 }
             }
         });
+    });
+    changed
+}
+
+/// A text field for `key`; emptying it removes the key.
+fn optional_text(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let mut text = table.get(key).and_then(|v| v.as_str()).unwrap_or("").to_owned();
+        if ui.add(egui::TextEdit::singleline(&mut text).desired_width(260.0)).changed() {
+            if text.is_empty() {
+                table.remove(key);
+            } else {
+                table.insert(key, toml_edit::value(text));
+            }
+            changed = true;
+        }
     });
     changed
 }

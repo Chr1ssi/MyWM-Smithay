@@ -160,7 +160,10 @@
 
 # Regeln gelten beim ersten Einordnen eines Fensters, nicht bei späteren Änderungen.
 # App-IDs werden beim Start einer Anwendung im mywm-Log ausgegeben.
-# Alle angegebenen Selektoren müssen exakt passen; letzte Angabe je Eigenschaft gewinnt.
+# Selektoren: app_id, title, dialog. Alle angegebenen müssen passen; Texte passen als Ganzes
+# und mit Groß-/Kleinschreibung, `*` steht für beliebig viele Zeichen. Letzte Angabe je
+# Eigenschaft gewinnt. workspace, output, floating und fullscreen gelten beim Öffnen,
+# opacity laufend (auch wenn sich der Titel ändert).
 #
 #[[rules]]
 #app_id = "firefox"
@@ -172,6 +175,15 @@
 #
 #[[rules]]
 #dialog = true
+#floating = true
+#
+#[[rules]]
+#app_id = "steam_app_*"
+#output = "DP-3"     # Monitor, auf dem das Fenster öffnet (workspace hat Vorrang)
+#fullscreen = true   # false: bleibt im Fenster, auch wenn das Programm Vollbild will
+#
+#[[rules]]
+#title = "*Bitwarden*"
 #floating = true
 
 # Neu im Smithay-Compositor (ersetzt kanshi): Monitore einrichten. Position in

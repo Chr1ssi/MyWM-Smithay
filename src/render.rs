@@ -216,7 +216,9 @@ impl State {
         if m.fullscreen {
             return 1.0;
         }
-        let rule = mywm_config::opacity(&self.config.rules, m.app_id.as_deref(), m.parent.is_some());
+        let subject =
+            mywm_config::Subject { app_id: m.app_id.as_deref(), title: m.title.as_deref(), dialog: m.parent.is_some() };
+        let rule = mywm_config::opacity(&self.config.rules, subject);
         let focus = if self.desktop.focused() == Some(m.id) { 1.0 } else { self.config.effects.inactive_opacity };
         rule.unwrap_or(1.0) * focus
     }
