@@ -11,7 +11,7 @@ EXPECTED = {
     "wl_compositor", "wl_shm", "wl_seat", "xdg_wm_base", "wl_output", "zxdg_output_manager_v1",
     "wl_data_device_manager", "zwp_primary_selection_device_manager_v1",
     "wp_viewporter", "wp_fractional_scale_manager_v1", "wp_cursor_shape_manager_v1",
-    "wp_content_type_manager_v1", "zwp_relative_pointer_manager_v1", "zwp_pointer_constraints_v1",
+    "wp_content_type_manager_v1", "wp_fifo_manager_v1", "wp_commit_timing_manager_v1", "zwp_relative_pointer_manager_v1", "zwp_pointer_constraints_v1",
     "zxdg_decoration_manager_v1",
     "zwlr_layer_shell_v1", "ext_session_lock_manager_v1", "ext_idle_notifier_v1",
     "zwp_idle_inhibit_manager_v1", "zwlr_output_power_manager_v1", "zwlr_screencopy_manager_v1", "zwlr_data_control_manager_v1",

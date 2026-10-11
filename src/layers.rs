@@ -13,7 +13,7 @@ use smithay::{
     reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface},
     utils::{Logical, Point},
     wayland::{
-        compositor::with_states,
+        compositor::{SurfaceData, with_states},
         shell::wlr_layer::{
             KeyboardInteractivity, Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
             WlrLayerShellState,
@@ -21,7 +21,10 @@ use smithay::{
     },
 };
 
-use crate::State;
+use crate::{
+    State,
+    barriers::{self, Released},
+};
 
 /// How often a surface nobody sees (covered by a fullscreen window, scrolled out of view) may draw.
 /// Just under the fallback timer's second, so the timer always finds it due.
@@ -177,56 +180,107 @@ impl State {
     /// every frame; hidden ones get one per `HIDDEN_FRAME_THROTTLE`, so a browser or a video behind a game
     /// or scrolled out of view does not keep drawing at the full refresh rate. A window that is being
     /// captured draws for the capture even where nobody sees it.
-    pub fn send_frames(&self, output: &Output) {
+    ///
+    /// The fifo and commit-timing barriers of what the frame showed are released along with them.
+    pub fn send_frames(&mut self, output: &Output) {
         let elapsed = self.start_time.elapsed();
+        let deadline = barriers::next_frame_deadline(output);
+        let released = Released::default();
+        let released = &released;
+        let shown = |surface: &WlSurface, states: &SurfaceData| {
+            let primary = surface_primary_scanout_output(surface, states);
+            if primary.as_ref() == Some(output) {
+                barriers::release(surface, states, deadline, elapsed, released);
+            }
+            primary
+        };
+        let drawn = |surface: &WlSurface, states: &SurfaceData| {
+            barriers::release(surface, states, deadline, elapsed, released);
+            Some(output.clone())
+        };
         for window in self.space.elements() {
             if self.window_captured(window) {
                 if self.capture_output(window).as_ref() == Some(output) {
-                    window.send_frame(output, elapsed, None, |_, _| Some(output.clone()));
+                    window.send_frame(output, elapsed, None, drawn);
                 }
                 continue;
             }
-            window.send_frame(output, elapsed, Some(HIDDEN_FRAME_THROTTLE), surface_primary_scanout_output);
+            window.send_frame(output, elapsed, Some(HIDDEN_FRAME_THROTTLE), shown);
         }
         for layer in layer_map_for_output(output).layers() {
-            layer.send_frame(output, elapsed, Some(HIDDEN_FRAME_THROTTLE), surface_primary_scanout_output);
+            layer.send_frame(output, elapsed, Some(HIDDEN_FRAME_THROTTLE), shown);
         }
-        self.send_lock_frame(output, elapsed);
+        self.send_lock_frame(output, elapsed, drawn);
+        let released = released.take();
+        self.apply_released(released);
     }
 
     /// Like `send_frames`, for an output that is never presented (the nested backend's virtual outputs):
     /// without a frame there is nothing to tell what is visible, so everything on it may draw.
-    pub fn send_frames_unpresented(&self, output: &Output) {
+    pub fn send_frames_unpresented(&mut self, output: &Output) {
         let elapsed = self.start_time.elapsed();
+        let deadline = barriers::next_frame_deadline(output);
+        let released = Released::default();
+        let released = &released;
+        let drawn = |surface: &WlSurface, states: &SurfaceData| {
+            barriers::release(surface, states, deadline, elapsed, released);
+            Some(output.clone())
+        };
         for window in self.space.elements_for_output(output) {
-            window.send_frame(output, elapsed, None, |_, _| Some(output.clone()));
+            window.send_frame(output, elapsed, None, drawn);
         }
         for layer in layer_map_for_output(output).layers() {
-            layer.send_frame(output, elapsed, None, |_, _| Some(output.clone()));
+            layer.send_frame(output, elapsed, None, drawn);
         }
-        self.send_lock_frame(output, elapsed);
+        self.send_lock_frame(output, elapsed, drawn);
+        let released = released.take();
+        self.apply_released(released);
     }
 
     /// The locker draws its input feedback (swaylock's ring) only when its frame callback comes.
-    fn send_lock_frame(&self, output: &Output, elapsed: Duration) {
+    fn send_lock_frame(
+        &self,
+        output: &Output,
+        elapsed: Duration,
+        drawn: impl FnMut(&WlSurface, &SurfaceData) -> Option<Output>,
+    ) {
         if let Some(lock) = self.lock_surface_for(output) {
-            send_frames_surface_tree(lock.wl_surface(), output, elapsed, None, |_, _| Some(output.clone()));
+            send_frames_surface_tree(lock.wl_surface(), output, elapsed, None, drawn);
         }
     }
 
     /// The fallback timer: hidden surfaces whose throttled frame is due get it even while no output redraws.
-    pub fn send_overdue_frames(&self) {
+    ///
+    /// It also releases the barriers nobody released for that long: of surfaces shown on no output or on one
+    /// that does not redraw, and of windows on hidden workspaces, which are not in the space and get no frames.
+    pub fn send_overdue_frames(&mut self) {
         let elapsed = self.start_time.elapsed();
+        let deadline = barriers::now();
+        let released = Released::default();
+        let released = &released;
+        let overdue = |surface: &WlSurface, states: &SurfaceData| {
+            barriers::release_overdue(surface, states, deadline, elapsed, HIDDEN_FRAME_THROTTLE, released);
+            None
+        };
         if let Some(entry) = self.outputs.first() {
             for window in self.space.elements() {
-                window.send_frame(&entry.output, elapsed, Some(HIDDEN_FRAME_THROTTLE), |_, _| None);
+                window.send_frame(&entry.output, elapsed, Some(HIDDEN_FRAME_THROTTLE), overdue);
             }
         }
         for entry in &self.outputs {
             for layer in layer_map_for_output(&entry.output).layers() {
-                layer.send_frame(&entry.output, elapsed, Some(HIDDEN_FRAME_THROTTLE), |_, _| None);
+                layer.send_frame(&entry.output, elapsed, Some(HIDDEN_FRAME_THROTTLE), overdue);
             }
         }
+        for m in &self.desktop.windows {
+            if self.space.elements().all(|w| w != &m.window) {
+                m.window.with_surfaces(|surface, states| {
+                    overdue(surface, states);
+                });
+            }
+        }
+        let released = released.take();
+        self.apply_released(released);
     }
 
     /// Remember for every surface whether the frame just rendered for `output` showed it (its primary scanout

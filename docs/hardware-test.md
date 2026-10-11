@@ -119,6 +119,28 @@ und die Frame-Callbacks gehen am Vblank raus. Aktiv nur bei festem Refresh (nich
 Hilfreich: zuerst die `perf`-Zeilen ansehen; ist `worst` nahe am Refresh-Intervall, `margin_ms`
 erhöhen oder die Option auslassen. Bitte Eindruck (Latenz/Ruckler) und die `perf`-Zeilen zurückmelden.
 
+## fifo und commit-timing
+
+mywm bietet `wp-fifo-v1` und `wp-commit-timing-v1` an. Der Compositor gibt die Sperren mit den
+Frames frei: sichtbare Oberflächen mit jedem Bild ihres Ausgangs, unsichtbare (verdeckt, versteckter
+Workspace, Monitor aus) höchstens einmal pro Sekunde. Ein Commit mit Zeitstempel wird frühestens ein
+Refresh-Intervall vor seinem Termin freigegeben; ist der Ausgang sonst ruhig, plant mywm dafür einen
+Frame ein. Nested lässt sich nur die Logik prüfen (`tests/pacing_smoke.py`), nicht das Timing.
+
+Prüfen:
+
+1. `wayland-info | grep -E 'wp_fifo_manager_v1|wp_commit_timing_manager_v1'` listet beide.
+2. `vkcube --wsi wayland --present_mode 2` (FIFO) läuft gleichmäßig mit der Bildwiederholrate;
+   mit `WAYLAND_DEBUG=client` erscheinen `wp_fifo_v1`-Aufrufe, sofern der Vulkan-Treiber fifo-v1 nutzt.
+3. Natives Spiel (Proton mit `PROTON_ENABLE_WAYLAND=1`, Vsync an): läuft flüssig, keine Hänger.
+   Mit `[vrr]` zusätzlich prüfen, dass VRR weiter greift.
+4. Den Workspace des Spiels für ~10 s wegschalten, Monitor per `wlopm --off` aus- und wieder
+   einschalten, Bildschirm sperren und entsperren: das Spiel läuft danach normal weiter und ist
+   nie eingefroren (im Hintergrund darf es langsam laufen).
+5. Ein SDL3-Spiel ohne `SDL_VIDEODRIVER=wayland` starten: nutzt es jetzt von selbst Wayland
+   (`WAYLAND_DEBUG=client` zeigt seine Fenster), kann die Variable weg.
+6. `perf`-Zeilen (siehe oben) mit und ohne Spiel vergleichen: keine zusätzlichen langsamen Frames.
+
 ## Bekannte Lücken
 
 - Fensteraufnahme über das Portal (nur Monitore) und der Wallpaper-Picker fehlen noch.

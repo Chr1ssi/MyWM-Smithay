@@ -8,7 +8,12 @@
 //! `mywm-test-client urgent <seconds>` (two windows; the second asks to activate the first
 //! without any user input behind the request) or `mywm-test-client pointer <seconds> [lock]` (a window
 //! that prints `pointer enter`/`pointer leave`; with `lock` it locks the pointer on enter like a game and
-//! prints `pointer locked`/`pointer unlocked`).
+//! prints `pointer locked`/`pointer unlocked`), `mywm-test-client fifo <seconds>` (a window that queues
+//! updates ahead like a game, each waiting on the previous one's `wp_fifo_v1` barrier, and prints
+//! `fifo <updates> <frames> <applied>` each second: how many updates were shown, in how many distinct
+//! frames, and how many were applied, shown or not) or `mywm-test-client timed <milliseconds>` (a window
+//! whose second update targets that much later with `wp_commit_timer_v1`; prints `timed <ms>` when it
+//! was applied).
 use std::{os::fd::AsFd, time::{Duration, Instant}};
 
 use wayland_client::{
@@ -17,7 +22,7 @@ use wayland_client::{
     protocol::{
         wl_keyboard::{self, WlKeyboard},
         wl_pointer::{self, WlPointer},
-        wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::{self, WlShm},
+        wl_buffer::{self, WlBuffer}, wl_compositor::WlCompositor, wl_registry::WlRegistry, wl_seat::WlSeat, wl_shm::{self, WlShm},
         wl_shm_pool::WlShmPool, wl_surface::WlSurface, wl_region::WlRegion,
         wl_callback::{self, WlCallback},
     },
@@ -27,6 +32,8 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_surface_v1::{self, KeyboardInteractivity, ZwlrLayerSurfaceV1},
 };
 use wayland_protocols::{
+    wp::commit_timing::v1::client::{wp_commit_timer_v1::WpCommitTimerV1, wp_commit_timing_manager_v1::WpCommitTimingManagerV1},
+    wp::fifo::v1::client::{wp_fifo_manager_v1::WpFifoManagerV1, wp_fifo_v1::WpFifoV1},
     wp::content_type::v1::client::{
         wp_content_type_manager_v1::WpContentTypeManagerV1,
         wp_content_type_v1::{self, WpContentTypeV1},
@@ -68,6 +75,12 @@ struct App {
     toplevel_size: (i32, i32),
     /// The last frame callback fired.
     frame_done: bool,
+    /// Frame callbacks fired so far.
+    frames_done: u32,
+    /// The frame time of each fired frame callback (`fifo` mode).
+    frame_times: Vec<u32>,
+    /// `wl_buffer.release` events so far: an update replacing a buffer was applied, shown or not.
+    buffers_released: u32,
     /// The surface the pointer entered (pointer mode), cleared on leave.
     pointer_entered: bool,
     /// `wl_keyboard.key` events not printed yet (keys mode): key code and state.
@@ -76,8 +89,10 @@ struct App {
 
 impl Dispatch<WlCallback, ()> for App {
     fn event(state: &mut Self, _: &WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_callback::Event::Done { .. } = event {
+        if let wl_callback::Event::Done { callback_data } = event {
             state.frame_done = true;
+            state.frames_done += 1;
+            state.frame_times.push(callback_data);
         }
     }
 }
@@ -179,11 +194,22 @@ delegate_noop!(App: ignore ZwlrLayerShellV1);
 delegate_noop!(App: ignore WlCompositor);
 delegate_noop!(App: ignore WlShm);
 delegate_noop!(App: ignore WlShmPool);
-delegate_noop!(App: ignore WlBuffer);
+
+impl Dispatch<WlBuffer, ()> for App {
+    fn event(state: &mut Self, _: &WlBuffer, event: wl_buffer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_buffer::Event::Release = event {
+            state.buffers_released += 1;
+        }
+    }
+}
 delegate_noop!(App: ignore WlSurface);
 delegate_noop!(App: ignore WlRegion);
 delegate_noop!(App: ignore WpContentTypeManagerV1);
 delegate_noop!(App: ignore WpContentTypeV1);
+delegate_noop!(App: ignore WpFifoManagerV1);
+delegate_noop!(App: ignore WpFifoV1);
+delegate_noop!(App: ignore WpCommitTimingManagerV1);
+delegate_noop!(App: ignore WpCommitTimerV1);
 delegate_noop!(App: ignore WlSeat);
 delegate_noop!(App: ignore ZwpKeyboardShortcutsInhibitManagerV1);
 delegate_noop!(App: ignore ZwpIdleInhibitManagerV1);
@@ -323,6 +349,107 @@ fn frames_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, com
     }
 }
 
+/// A mapped window showing the first of two buffers to commit in turn (`fifo` and `timed` modes).
+fn shm_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase) -> (WlSurface, [WlBuffer; 2]) {
+    let qh = queue.handle();
+    app.configured = vec![false];
+    let surface = compositor.create_surface(&qh, ());
+    let xdg = wm_base.get_xdg_surface(&surface, &qh, 0);
+    let toplevel = xdg.get_toplevel(&qh, ());
+    toplevel.set_app_id("mywm.test.pacing".into());
+    surface.commit();
+    while !app.configured[0] {
+        queue.blocking_dispatch(app).unwrap();
+    }
+    let (w, h) = if app.toplevel_size.0 > 0 && app.toplevel_size.1 > 0 { app.toplevel_size } else { (200, 150) };
+    let file = std::fs::File::options().read(true).write(true).create(true).truncate(true).open(std::env::temp_dir().join(format!("mywm-tc-{}", std::process::id()))).unwrap();
+    file.set_len((w * h * 8) as u64).unwrap();
+    std::os::unix::fs::FileExt::write_all_at(&file, &vec![0x60u8; (w * h * 8) as usize], 0).unwrap();
+    let pool = shm.create_pool(file.as_fd(), w * h * 8, &qh, ());
+    let buffers = [0, w * h * 4].map(|offset| pool.create_buffer(offset, w, h, w * 4, wl_shm::Format::Xrgb8888, &qh, ()));
+    surface.attach(Some(&buffers[0]), 0, 0);
+    surface.damage_buffer(0, 0, w, h);
+    surface.commit();
+    (surface, buffers)
+}
+
+/// Read what arrives within `timeout` milliseconds and dispatch it; false once the connection is gone.
+fn pump(app: &mut App, queue: &mut wayland_client::EventQueue<App>, timeout: i32) -> bool {
+    if queue.flush().is_err() {
+        return false;
+    }
+    if let Some(guard) = queue.prepare_read() {
+        let mut pfd = libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(&guard.connection_fd()), events: libc::POLLIN, revents: 0 };
+        // SAFETY: a valid pollfd for a single descriptor.
+        if unsafe { libc::poll(&mut pfd, 1, timeout) } > 0 {
+            let _ = guard.read();
+        }
+    }
+    queue.dispatch_pending(app).is_ok()
+}
+
+/// Like a game with fifo presentation: a few updates queued ahead, each waiting on the barrier the one
+/// before it set. Each update asks for a frame callback, which fires once the update was applied and shown.
+fn fifo_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, manager: &WpFifoManagerV1, seconds: u64) {
+    let qh = queue.handle();
+    let (surface, buffers) = shm_window(app, queue, compositor, shm, wm_base);
+    let fifo = manager.get_fifo(&surface, &qh, ());
+    // Each applied update releases the buffer it replaced (or the compositor released it once it was
+    // drawn), so releases count applied updates also where nothing is drawn.
+    let mut committed = app.buffers_released;
+    let mut applied_before = app.buffers_released;
+    app.frame_times.clear();
+    let end = Instant::now() + Duration::from_secs(seconds);
+    let mut second = Instant::now();
+    while Instant::now() < end {
+        while committed.saturating_sub(app.buffers_released) < 3 {
+            surface.frame(&qh, ());
+            fifo.wait_barrier();
+            fifo.set_barrier();
+            surface.attach(Some(&buffers[(committed % 2) as usize ^ 1]), 0, 0);
+            surface.damage_buffer(0, 0, 1, 1);
+            surface.commit();
+            committed += 1;
+        }
+        if !pump(app, queue, 20) {
+            return;
+        }
+        if second.elapsed() >= Duration::from_secs(1) {
+            // Updates applied together share their frame callback's time.
+            let mut frames = std::mem::take(&mut app.frame_times);
+            let updates = frames.len();
+            frames.dedup();
+            println!("fifo {updates} {} {}", frames.len(), app.buffers_released - applied_before);
+            applied_before = app.buffers_released;
+            second += Duration::from_secs(1);
+        }
+    }
+}
+
+/// Map the window, then commit an update meant for `delay` later and report when it was applied.
+fn timed_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, manager: &WpCommitTimingManagerV1, delay: Duration) {
+    let qh = queue.handle();
+    let (surface, buffers) = shm_window(app, queue, compositor, shm, wm_base);
+    let timer = manager.get_timer(&surface, &qh, ());
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: clock_gettime only writes the timespec it is given.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
+    let target = Duration::new(now.tv_sec as u64, now.tv_nsec as u32) + delay;
+    let start = Instant::now();
+    timer.set_timestamp((target.as_secs() >> 32) as u32, target.as_secs() as u32, target.subsec_nanos());
+    let done_before = app.frames_done;
+    surface.frame(&qh, ());
+    surface.attach(Some(&buffers[1]), 0, 0);
+    surface.damage_buffer(0, 0, 1, 1);
+    surface.commit();
+    while app.frames_done == done_before {
+        if !pump(app, queue, 20) {
+            return;
+        }
+    }
+    println!("timed {}", start.elapsed().as_millis());
+}
+
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();
     let seconds: u64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(30);
@@ -337,6 +464,18 @@ fn main() {
 
     if mode == "simple" {
         simple_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds);
+        return;
+    }
+
+    if mode == "fifo" {
+        let manager: WpFifoManagerV1 = globals.bind(&qh, 1..=1, ()).expect("fifo manager");
+        fifo_window(&mut app, &mut queue, &compositor, &shm, &wm_base, &manager, seconds);
+        return;
+    }
+
+    if mode == "timed" {
+        let manager: WpCommitTimingManagerV1 = globals.bind(&qh, 1..=1, ()).expect("commit timing manager");
+        timed_window(&mut app, &mut queue, &compositor, &shm, &wm_base, &manager, Duration::from_millis(seconds));
         return;
     }
 

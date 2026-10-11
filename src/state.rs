@@ -24,7 +24,9 @@ use smithay::{
     xwayland::{X11Surface, X11Wm},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
+        commit_timing::CommitTimingManagerState,
         content_type::ContentTypeState,
+        fifo::FifoManagerState,
         idle_inhibit::IdleInhibitManagerState,
         idle_notify::IdleNotifierState,
         session_lock::SessionLockManagerState,
@@ -304,6 +306,8 @@ impl State {
                 Box::new(FractionalScaleManagerState::new::<State>(&dh)),
                 Box::new(CursorShapeManagerState::new::<State>(&dh)),
                 Box::new(ContentTypeState::new::<State>(&dh)),
+                Box::new(FifoManagerState::new::<State>(&dh)),
+                Box::new(CommitTimingManagerState::new::<State>(&dh)),
                 Box::new(RelativePointerManagerState::new::<State>(&dh)),
                 Box::new(PointerConstraintsState::new::<State>(&dh)),
                 Box::new(XdgDecorationState::new::<State>(&dh)),

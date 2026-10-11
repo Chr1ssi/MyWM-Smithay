@@ -3,7 +3,8 @@
 use calloop::Interest;
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
-    delegate_content_type, delegate_cursor_shape, delegate_drm_syncobj, delegate_fractional_scale,
+    delegate_commit_timing, delegate_content_type, delegate_cursor_shape, delegate_drm_syncobj, delegate_fifo,
+    delegate_fractional_scale,
     delegate_pointer_constraints, delegate_presentation, delegate_primary_selection,
     delegate_relative_pointer, delegate_viewporter, delegate_xdg_decoration,
     input::pointer::PointerHandle,
@@ -205,6 +206,9 @@ delegate_viewporter!(State);
 delegate_fractional_scale!(State);
 delegate_cursor_shape!(State);
 delegate_content_type!(State);
+// Released with the frames that show the surface (see `barriers`).
+delegate_fifo!(State);
+delegate_commit_timing!(State);
 delegate_xdg_decoration!(State);
 delegate_primary_selection!(State);
 delegate_relative_pointer!(State);

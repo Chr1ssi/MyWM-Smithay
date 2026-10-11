@@ -48,6 +48,7 @@ impl CompositorHandler for State {
 
     fn new_surface(&mut self, surface: &WlSurface) {
         self.install_sync_blockers(surface);
+        self.wake_for_timed_commits(surface);
     }
 
     fn destroyed(&mut self, surface: &WlSurface) {
