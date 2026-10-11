@@ -15,6 +15,8 @@ pub struct OutputEntry {
     pub id: u32,
     /// The display is on (`false` while switched off for idle).
     pub powered: bool,
+    /// Windows kept out of captures as last drawn here (see `State::capture_view`).
+    pub capture_blanks: Vec<crate::render::Blank>,
 }
 
 impl State {
@@ -67,7 +69,7 @@ impl State {
         );
         let monitor = self.desktop.desk.add_monitor(Some(output.name()), area);
         debug_assert_eq!(monitor, self.outputs.len());
-        self.outputs.push(OutputEntry { output, id, powered: true });
+        self.outputs.push(OutputEntry { output, id, powered: true, capture_blanks: Vec::new() });
         self.place_all_pending();
         self.end_drag();
         self.refresh();

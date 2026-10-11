@@ -145,7 +145,12 @@ impl State {
     }
 
     /// The overview of `output`, front to back: frames, windows, thumbnail backgrounds, dimming.
-    pub fn overview_elements(&mut self, renderer: &mut GlesRenderer, output: &Output) -> Option<Vec<OutputElement>> {
+    pub fn overview_elements(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        output: &Output,
+        blanks: &mut Vec<crate::render::Blank>,
+    ) -> Option<Vec<OutputElement>> {
         let overview = self.overview.as_ref().filter(|o| &o.output == output)?;
         let monitor = self.desktop.desk.monitors.get(overview.monitor)?;
         let area = monitor.area;
@@ -220,6 +225,7 @@ impl State {
                     ((f64::from(placement.content.width) * k).round() as i32, (f64::from(placement.content.height) * k).round() as i32).into(),
                 ));
                 let Some(clip) = cell_phys.intersection(slot) else { continue };
+                let start = windows.len();
                 for element in AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
                     &managed.window,
                     renderer,
@@ -232,6 +238,7 @@ impl State {
                         windows.push(OutputElement::from(cropped));
                     }
                 }
+                self.note_blank(managed, &windows[start..], scale, blanks);
             }
         }
         let mut elements = frames;

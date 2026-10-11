@@ -127,8 +127,10 @@ impl State {
         let scale = pending.output.current_scale().fractional_scale();
         let mut tracker = OutputDamageTracker::new(mode_size, scale, transform);
         // Without the cursor overlay, leave the cursor elements out.
-        let visible: Vec<&OutputElement> = elements
-            .iter()
+        let blanks = self.capture_blanks(&pending.output);
+        let visible: Vec<&OutputElement> = self
+            .capture_view(&pending.output, elements, &blanks)
+            .into_iter()
             .filter(|e| !matches!(e, OutputElement::Overlay(_)))
             .filter(|e| pending.overlay_cursor || !matches!(e, OutputElement::Cursor(_)))
             .collect();

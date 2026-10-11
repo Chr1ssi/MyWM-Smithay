@@ -8,6 +8,7 @@ use smithay::{
             utils::CropRenderElement,
         },
         gles::{GlesRenderer, element::PixelShaderElement},
+        utils::CommitCounter,
     },
     desktop::layer_map_for_output,
     output::Output,
@@ -17,7 +18,15 @@ use smithay::{
 
 use smithay::wayland::seat::WaylandFocus;
 
-use crate::{State, cursor::CursorElement};
+use crate::{State, cursor::CursorElement, desktop::Managed};
+
+/// A window kept out of captures, as just drawn on an output: its elements, the area they cover (with
+/// popups and menus), and the id of the black area that stands in for it.
+pub struct Blank {
+    ids: Vec<Id>,
+    area: Rectangle<i32, Physical>,
+    id: Id,
+}
 
 render_elements! {
     pub OutputElement<=GlesRenderer>;
@@ -61,8 +70,72 @@ impl OutputElement {
 }
 
 impl State {
-    /// The elements to draw on `output`, front to back.
+    /// The elements to draw on `output`, front to back. Notes which of them captures must not show.
     pub fn output_elements(&mut self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
+        let mut blanks = Vec::new();
+        let elements = self.draw_output(renderer, output, &mut blanks);
+        if let Some(entry) = self.outputs.iter_mut().find(|e| &e.output == output) {
+            entry.capture_blanks = blanks;
+        }
+        elements
+    }
+
+    /// Note the elements just `drawn` for `m` if a rule keeps it out of captures.
+    pub fn note_blank(&self, m: &Managed, drawn: &[OutputElement], scale: f64, blanks: &mut Vec<Blank>) {
+        if !self.blocks_capture(m) {
+            return;
+        }
+        let Some(area) = drawn.iter().map(|e| e.geometry(Scale::from(scale))).reduce(|a, b| a.merge(b)) else { return };
+        blanks.push(Blank { ids: drawn.iter().map(|e| e.id().clone()).collect(), area, id: m.capture_blank.clone() });
+    }
+
+    /// The black areas for the windows kept out of captures of `output`, in the order `capture_view` takes.
+    pub fn capture_blanks(&self, output: &Output) -> Vec<Option<OutputElement>> {
+        let Some(entry) = self.outputs.iter().find(|e| &e.output == output) else { return Vec::new() };
+        let Some(geometry) = self.capture_geometry(output) else { return Vec::new() };
+        let full = Rectangle::<i32, Physical>::from_size(geometry.size);
+        let scale = output.current_scale().fractional_scale();
+        entry
+            .capture_blanks
+            .iter()
+            .map(|blank| {
+                let color = [0.0, 0.0, 0.0, 1.0];
+                // A stable id: a capture's damage tracking sees the area change only when it moves.
+                let element = SolidColorRenderElement::new(blank.id.clone(), blank.area, CommitCounter::default(), color, Kind::Unspecified);
+                CropRenderElement::from_element(element, scale, full).map(OutputElement::from)
+            })
+            .collect()
+    }
+
+    /// What a capture of `output` shows: `elements` with every window kept out of captures replaced, where its
+    /// frontmost element was, by its black area (so windows in front of it still cover it).
+    pub fn capture_view<'a>(
+        &self,
+        output: &Output,
+        elements: &'a [OutputElement],
+        blanks: &'a [Option<OutputElement>],
+    ) -> Vec<&'a OutputElement> {
+        let noted = self.outputs.iter().find(|e| &e.output == output).map_or(&[][..], |e| &e.capture_blanks[..]);
+        if noted.is_empty() {
+            return elements.iter().collect();
+        }
+        let mut placed = vec![false; noted.len()];
+        let mut view = Vec::with_capacity(elements.len());
+        for element in elements {
+            match noted.iter().position(|blank| blank.ids.contains(element.id())) {
+                Some(index) => {
+                    if !placed[index] {
+                        placed[index] = true;
+                        view.extend(blanks.get(index).and_then(Option::as_ref));
+                    }
+                }
+                None => view.push(element),
+            }
+        }
+        view
+    }
+
+    fn draw_output(&mut self, renderer: &mut GlesRenderer, output: &Output, blanks: &mut Vec<Blank>) -> Vec<OutputElement> {
         let mut elements: Vec<OutputElement> =
             self.cursor_elements(renderer, output).into_iter().map(OutputElement::from).collect();
         elements.extend(self.overlay_elements(output).into_iter().map(OutputElement::from));
@@ -82,15 +155,15 @@ impl State {
             }
             return elements;
         }
-        if let Some(overview) = self.overview_elements(renderer, output) {
+        if let Some(overview) = self.overview_elements(renderer, output, blanks) {
             elements.extend(overview);
-            elements.extend(self.scene_elements(renderer, output, false, Vec::new(), Vec::new()));
+            elements.extend(self.scene_elements(renderer, output, false, Vec::new(), Vec::new(), blanks));
             return elements;
         }
         let borders = self.border_elements(renderer, output);
         let mut shadows = self.blur_elements(renderer, output);
         shadows.extend(self.shadow_elements(renderer, output));
-        elements.extend(self.scene_elements(renderer, output, true, shadows, borders));
+        elements.extend(self.scene_elements(renderer, output, true, shadows, borders, blanks));
         elements
     }
 
@@ -109,6 +182,7 @@ impl State {
         with_windows: bool,
         behind: Vec<OutputElement>,
         borders: Vec<OutputElement>,
+        blanks: &mut Vec<Blank>,
     ) -> Vec<OutputElement> {
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
@@ -163,6 +237,7 @@ impl State {
                 Some(m) if m.shown_fullscreen => &mut fullscreen,
                 Some(_) => &mut regular,
             };
+            let start = bucket.len();
             if owner.is_some() {
                 let rounded = managed.is_some_and(|m| !m.fullscreen) && self.config.effects.corner_radius > 0;
                 let main = window.wl_surface().map(|s| Id::from_wayland_resource(&*s));
@@ -199,6 +274,9 @@ impl State {
             } else {
                 bucket.extend(surfaces.into_iter().map(OutputElement::from));
             }
+            if let Some(m) = managed {
+                self.note_blank(m, &bucket[start..], scale, blanks);
+            }
         }
         elements.extend(unmanaged);
         elements.extend(fullscreen);
@@ -216,9 +294,7 @@ impl State {
         if m.fullscreen {
             return 1.0;
         }
-        let subject =
-            mywm_config::Subject { app_id: m.app_id.as_deref(), title: m.title.as_deref(), dialog: m.parent.is_some() };
-        let rule = mywm_config::opacity(&self.config.rules, subject);
+        let rule = mywm_config::opacity(&self.config.rules, m.subject());
         let focus = if self.desktop.focused() == Some(m.id) { 1.0 } else { self.config.effects.inactive_opacity };
         rule.unwrap_or(1.0) * focus
     }

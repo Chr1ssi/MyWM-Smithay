@@ -163,7 +163,7 @@
 # Selektoren: app_id, title, dialog. Alle angegebenen müssen passen; Texte passen als Ganzes
 # und mit Groß-/Kleinschreibung, `*` steht für beliebig viele Zeichen. Letzte Angabe je
 # Eigenschaft gewinnt. workspace, output, floating und fullscreen gelten beim Öffnen,
-# opacity laufend (auch wenn sich der Titel ändert).
+# opacity und block_from_capture laufend (auch wenn sich der Titel ändert).
 #
 #[[rules]]
 #app_id = "firefox"
@@ -185,6 +185,7 @@
 #[[rules]]
 #title = "*Bitwarden*"
 #floating = true
+#block_from_capture = true  # in Screenshots, Aufnahmen und Streams eine schwarze Fläche
 
 # Neu im Smithay-Compositor (ersetzt kanshi): Monitore einrichten. Position in
 # logischen Pixeln (links oben); ohne Angabe folgt der Monitor rechts vom vorigen.

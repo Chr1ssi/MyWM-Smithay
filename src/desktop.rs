@@ -44,6 +44,8 @@ pub struct Managed {
     pub app_id: Option<String>,
     /// Kept current for title rules (see `update_title`).
     pub title: Option<String>,
+    /// The black area standing in for the window in captures, if a rule keeps it out of them.
+    pub capture_blank: smithay::backend::renderer::element::Id,
     /// The window in `ext-foreign-toplevel-list`, which capture sources refer to.
     pub foreign: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
     /// Commits of the main surface, to tell capture sessions when the window changed.
@@ -76,6 +78,13 @@ pub struct Managed {
     pub frame: Option<(Rect, i32)>,
     /// Top, bottom, left, right border strips. Buffers persist so damage tracking stays exact.
     borders: [SolidColorBuffer; 4],
+}
+
+impl Managed {
+    /// What window rules select it by.
+    pub fn subject(&self) -> mywm_config::Subject<'_> {
+        mywm_config::Subject { app_id: self.app_id.as_deref(), title: self.title.as_deref(), dialog: self.parent.is_some() }
+    }
 }
 
 fn ease_out(t: f64) -> f64 {
@@ -248,6 +257,7 @@ impl State {
             parent: None,
             app_id: None,
             title: None,
+            capture_blank: smithay::backend::renderer::element::Id::new(),
             foreign: None,
             commits: 0,
             urgent: false,
@@ -441,6 +451,11 @@ impl State {
                 m.fullscreen = fullscreen;
             }
         }
+    }
+
+    /// Whether a rule keeps `m` out of screenshots, recordings and streams.
+    pub fn blocks_capture(&self, m: &Managed) -> bool {
+        mywm_config::any_blocks_capture(&self.config.rules) && mywm_config::blocks_capture(&self.config.rules, m.subject())
     }
 
     /// The window's title changed: rules that select by title see the new one.

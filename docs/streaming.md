@@ -11,6 +11,20 @@ GPU-Puffer (dmabuf) werden direkt beschrieben, ohne Umweg über die CPU; Shared-
 brauchen einmal Auslesen der GPU. Auf der Hardware verwendet der Portal-Dienst automatisch den
 dmabuf-Weg, wenn OBS/der Browser ihn versteht.
 
+## Fenster aus Aufnahmen heraushalten
+
+Eine Fensterregel mit `block_from_capture = true` zeigt das Fenster in jeder Aufnahme als schwarze
+Fläche: in Streams und Aufnahmen über das Portal oder `wlr-screencopy` (OBS, Discord, Browser,
+`grim`), beim Teilen genau dieses Fensters, in der Workspace-Übersicht und in den eingebauten
+Screenshots. Auf dem Bildschirm bleibt es sichtbar. Popups und Menüs des Fensters sind mit
+abgedeckt, Fenster davor bleiben sichtbar. Beispiel (Passwortmanager im Browser):
+
+```toml
+[[rules]]
+title = "*Bitwarden*"
+block_from_capture = true
+```
+
 ## Eigenes Portal: `mywm-portal` (empfohlen)
 
 `mywm-portal` ersetzt `xdg-desktop-portal-wlr`. Es ist das ScreenCast-Backend von

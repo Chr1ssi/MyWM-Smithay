@@ -12,8 +12,9 @@ use smithay::{
         allocator::Fourcc,
         renderer::{
             damage::OutputDamageTracker,
-            element::{AsRenderElements, RenderElement, surface::WaylandSurfaceRenderElement},
+            element::{AsRenderElements, Kind, RenderElement, solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement},
             gles::{GlesRenderer, GlesTexture},
+            utils::CommitCounter,
         },
     },
     output::Output,
@@ -358,8 +359,10 @@ impl State {
                 let transform = if self.udev.is_some() { output.current_transform() } else { Transform::Normal };
                 let scale = output.current_scale().fractional_scale();
                 let mut tracker = OutputDamageTracker::new(mode_size, scale, transform);
-                let visible: Vec<&OutputElement> = elements
-                    .iter()
+                let blanks = self.capture_blanks(output);
+                let visible: Vec<&OutputElement> = self
+                    .capture_view(output, elements, &blanks)
+                    .into_iter()
                     .filter(|e| !matches!(e, OutputElement::Overlay(_)))
                     .filter(|e| frame.session.paint_cursors || !matches!(e, OutputElement::Cursor(_)))
                     .collect();
@@ -370,6 +373,21 @@ impl State {
             }
             Source::Toplevel(handle) => {
                 let managed = self.managed_for_handle(handle).ok_or("the window is gone")?;
+                if self.blocks_capture(managed) {
+                    // The whole frame black, as the window would be in a capture of its monitor.
+                    let black = [SolidColorRenderElement::new(
+                        managed.capture_blank.clone(),
+                        Rectangle::from_size(size),
+                        CommitCounter::default(),
+                        [0.0, 0.0, 0.0, 1.0],
+                        Kind::Unspecified,
+                    )];
+                    let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+                    return match texture.as_mut() {
+                        Some(texture) => start_readback(renderer, &mut tracker, &black, [0.0, 0.0, 0.0, 1.0], texture, region).map(Some),
+                        None => render_elements_to_buffer(renderer, &mut tracker, &black, &frame.buffer, size, region).map(|()| None),
+                    };
+                }
                 let scale = managed.surface().map_or(1.0, |s| self.scale_for_surface(&s));
                 let geometry = managed.window.geometry();
                 // Put the window's geometry (without client-side shadows) at the origin.

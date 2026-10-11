@@ -12,7 +12,7 @@ use std::{
 pub use keys::{Modifiers, parse_key};
 use keys::Result;
 use mywm_layout::MAX_NUMBER;
-pub use rules::{Placement, Rule, Subject, opacity, resolve};
+pub use rules::{Placement, Rule, Subject, any_blocks_capture, blocks_capture, opacity, resolve};
 use serde::Deserialize;
 pub use sections::{
     AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig, InputConfig, AccelProfile,

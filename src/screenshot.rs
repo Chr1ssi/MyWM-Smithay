@@ -228,8 +228,12 @@ impl State {
         self.pending_shots = waiting;
         let Some(geometry) = self.capture_geometry(output) else { return };
         let scale = output.current_scale().fractional_scale();
-        let visible: Vec<&OutputElement> =
-            elements.iter().filter(|e| !matches!(e, OutputElement::Cursor(_) | OutputElement::Overlay(_))).collect();
+        let blanks = self.capture_blanks(output);
+        let visible: Vec<&OutputElement> = self
+            .capture_view(output, elements, &blanks)
+            .into_iter()
+            .filter(|e| !matches!(e, OutputElement::Cursor(_) | OutputElement::Overlay(_)))
+            .collect();
         for shot in ready {
             let mut tracker = OutputDamageTracker::new(geometry.mode_size, scale, geometry.transform);
             match render_to_pixels(renderer, &mut tracker, &visible, self.clear_color(), geometry.size, shot.region) {

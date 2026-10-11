@@ -458,6 +458,7 @@ impl App {
                 dirty |= optional_int(ui, table, "workspace", "Workspace", 1, 9);
                 dirty |= optional_text(ui, table, "output", "Monitor");
                 dirty |= optional_float(ui, table, "opacity", "Deckkraft", 0.1, 1.0);
+                dirty |= tri_state(ui, table, "block_from_capture", "In Aufnahmen schwarz");
             });
         }
         if let Some(index) = remove {

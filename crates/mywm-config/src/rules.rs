@@ -17,6 +17,8 @@ pub struct Rule {
     pub fullscreen: Option<bool>,
     /// Window opacity (0.1 to 1.0), see `[effects]`.
     pub opacity: Option<f32>,
+    /// Shown as a black area in screenshots, recordings and streams.
+    pub block_from_capture: Option<bool>,
 }
 
 /// What rules select a window by.
@@ -51,8 +53,12 @@ impl Rule {
             && self.floating.is_none()
             && self.fullscreen.is_none()
             && self.opacity.is_none()
+            && self.block_from_capture.is_none()
         {
-            return Err("at least one action (workspace, output, floating, fullscreen or opacity) is required".into());
+            return Err(
+                "at least one action (workspace, output, floating, fullscreen, opacity or block_from_capture) is required"
+                    .into(),
+            );
         }
         if self.opacity.is_some_and(|o| !(0.1..=1.0).contains(&o)) {
             return Err("opacity must be between 0.1 and 1.0".into());
@@ -93,6 +99,16 @@ fn glob(pattern: &str, text: &str) -> bool {
 /// The opacity the last matching rule asks for.
 pub fn opacity(rules: &[Rule], window: Subject) -> Option<f32> {
     rules.iter().filter(|rule| rule.matches(window)).filter_map(|rule| rule.opacity).next_back()
+}
+
+/// Whether the last matching rule keeps the window out of captures.
+pub fn blocks_capture(rules: &[Rule], window: Subject) -> bool {
+    rules.iter().filter(|rule| rule.matches(window)).filter_map(|rule| rule.block_from_capture).next_back() == Some(true)
+}
+
+/// Whether any rule keeps windows out of captures (otherwise captures need no second look).
+pub fn any_blocks_capture(rules: &[Rule]) -> bool {
+    rules.iter().any(|rule| rule.block_from_capture == Some(true))
 }
 
 pub fn resolve(rules: &[Rule], window: Subject, float_dialogs: bool) -> Placement {
@@ -206,6 +222,20 @@ mod tests {
         for (pattern, text) in [("steam_app_*", "steam_ap"), ("exact", "exactly"), ("a*a", "a"), ("*.exe", "game.exe.bak")] {
             assert!(!glob(pattern, text), "{pattern} should not match {text}");
         }
+    }
+
+    #[test]
+    fn block_from_capture_follows_the_last_matching_rule() {
+        let config = Config::parse(
+            "[[rules]]\ntitle = '*Bitwarden*'\nblock_from_capture = true\n[[rules]]\ntitle = 'Bitwarden Hilfe*'\nblock_from_capture = false",
+        )
+        .unwrap();
+        let titled = |title| Subject { app_id: Some("firefox"), title: Some(title), dialog: false };
+        assert!(any_blocks_capture(&config.rules));
+        assert!(blocks_capture(&config.rules, titled("Tresor - Bitwarden")));
+        assert!(!blocks_capture(&config.rules, titled("Bitwarden Hilfe - Bitwarden")));
+        assert!(!blocks_capture(&config.rules, titled("Nachrichten")));
+        assert!(!any_blocks_capture(&[]));
     }
 
     #[test]
