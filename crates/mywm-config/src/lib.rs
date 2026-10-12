@@ -391,6 +391,19 @@ impl Config {
         Ok(config)
     }
 
+    /// Like `load`, but a file that cannot be read or parsed gives the defaults (with the theme) and
+    /// the reason, on one line: a typo must not keep the session, the lock screen or the bar from starting.
+    pub fn load_or_default() -> (Self, Option<String>) {
+        match Self::load() {
+            Ok(config) => (config, None),
+            Err(error) => {
+                let mut config = Self::default();
+                config.apply_theme_state();
+                (config, Some(one_line(&error.to_string())))
+            }
+        }
+    }
+
     fn load_file() -> Result<Self> {
         let explicit = std::env::var_os("MYWM_CONFIG").is_some();
         let Some(path) = Self::path() else { return Ok(Self::default()) };
@@ -510,8 +523,20 @@ impl Config {
     }
 }
 
+/// A parse error's lines (location, the offending line, the reason) joined into one.
+pub fn one_line(text: &str) -> String {
+    text.lines().map(str::trim).filter(|line| !line.is_empty() && *line != "|").collect::<Vec<_>>().join(" · ")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn errors_fit_on_one_line() {
+        let error = Config::parse("[appearance]\ngaps_inner = \"x\"\n").unwrap_err().to_string();
+        let line = super::one_line(&error);
+        assert!(!line.contains('\n') && line.contains("gaps_inner"), "{line}");
+    }
+
     use super::*;
 
     #[test]

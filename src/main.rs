@@ -59,19 +59,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Client modes used by the session scripts and swayidle.
     match std::env::args().nth(1).as_deref() {
-        Some("--lock") => return mywm_config::session::lock_and_wait(&mywm_config::Config::load()?),
-        Some("--idle") => return mywm_config::session::exec_idle(&mywm_config::Config::load()?.idle),
+        Some("--lock") => return mywm_config::session::lock_and_wait(&config_or_default()),
+        Some("--idle") => return mywm_config::session::exec_idle(&config_or_default().idle),
         _ => {}
     }
     let args: Vec<String> = std::env::args().collect();
-    if let Some(result) = mywm_theme::client_mode(&args, &mywm_config::Config::load()?) {
+    let (config, config_error) = mywm_config::Config::load_or_default();
+    if let Some(result) = mywm_theme::client_mode(&args, &config) {
+        if let Some(error) = &config_error {
+            tracing::warn!("configuration not loaded, using the defaults: {error}");
+        }
         return result;
     }
 
     let mut event_loop: EventLoop<State> = EventLoop::try_new()?;
     let display = smithay::reexports::wayland_server::Display::new()?;
-    let config = mywm_config::Config::load()?;
     tracing::info!("configuration: {}", mywm_config::Config::path().map_or("defaults".into(), |p| p.display().to_string()));
+    if let Some(error) = &config_error {
+        tracing::error!("configuration not loaded, using the defaults: {error}");
+    }
     // Inside another compositor or X server we run nested; on a bare seat we drive the hardware.
     // MYWM_BACKEND=winit|drm overrides the guess.
     let nested = match std::env::var("MYWM_BACKEND").as_deref() {
@@ -84,6 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: nothing else runs yet.
     unsafe { cursor::export_theme() };
     let mut state = State::new(&mut event_loop, display, config, remap_super);
+    state.config_error = config_error;
 
     if nested {
         winit::init(&mut event_loop, &mut state)?;
@@ -141,4 +148,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = state.display_handle.flush_clients();
     })?;
     Ok(())
+}
+
+/// The configuration for the client modes (lock screen, idle): its defaults if the file is broken.
+fn config_or_default() -> mywm_config::Config {
+    let (config, error) = mywm_config::Config::load_or_default();
+    if let Some(error) = error {
+        tracing::warn!("configuration not loaded, using the defaults: {error}");
+    }
+    config
 }

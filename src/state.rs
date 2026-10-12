@@ -133,6 +133,8 @@ pub struct State {
     pub ipc_dirty: bool,
     /// The bar client that confirms logouts (`handle-logout`), if one registered.
     pub logout_handler: Option<u64>,
+    /// Why the configuration file could not be loaded (the running configuration stays), for the bar.
+    pub config_error: Option<String>,
     /// Bar-socket clients keeping the session from going idle (`inhibit-idle`) until they disconnect.
     pub ipc_idle_inhibitors: std::collections::HashSet<u64>,
     /// Key bindings after the nested-modifier remapping.
@@ -325,6 +327,7 @@ impl State {
             ipc_dirty: false,
             logout_handler: None,
             ipc_idle_inhibitors: Default::default(),
+            config_error: None,
             pointer_modifiers: Modifiers::default(),
             suppressed_keys: Vec::new(),
             remap_super,
@@ -362,9 +365,13 @@ impl State {
             Ok(new) => new,
             Err(error) => {
                 tracing::error!("config reload failed: {error}");
+                self.config_error = Some(mywm_config::one_line(&error.to_string()));
+                self.ipc_dirty = true;
                 return;
             }
         };
+        self.config_error = None;
+        self.ipc_dirty = true;
         let xkb = XkbConfig {
             layout: &new.keyboard.layout,
             variant: &new.keyboard.variant,
