@@ -46,6 +46,8 @@ pub enum Action {
     MoveToScratchpad,
     /// Show and focus a window that asked for attention.
     FocusUrgent,
+    /// Keep the focused window (floating) on every workspace of its monitor, or stop.
+    ToggleSticky,
     FocusOutput(OutputDirection),
     MoveToOutput(OutputDirection),
     Focus(isize),
@@ -208,6 +210,7 @@ pub struct Bindings {
     release_shortcuts: Vec<String>,
     move_to_scratchpad: Vec<String>,
     focus_urgent: Vec<String>,
+    toggle_sticky: Vec<String>,
     focus_output_left: Vec<String>,
     focus_output_right: Vec<String>,
     focus_output_up: Vec<String>,
@@ -254,6 +257,7 @@ impl Bindings {
             ("move_to_scratchpad", &self.move_to_scratchpad),
             ("release_shortcuts", &self.release_shortcuts),
             ("focus_urgent", &self.focus_urgent),
+            ("toggle_sticky", &self.toggle_sticky),
             ("focus_output_left", &self.focus_output_left),
             ("focus_output_right", &self.focus_output_right),
             ("focus_output_up", &self.focus_output_up),
@@ -295,6 +299,7 @@ impl Default for Bindings {
             move_to_scratchpad: keys(&["Super+Shift+grave"]),
             // New actions start unbound: a default key could clash with one an existing file already uses.
             focus_urgent: Vec::new(),
+            toggle_sticky: Vec::new(),
             focus_output_left: keys(&["Super+Alt+Left"]),
             focus_output_right: keys(&["Super+Alt+Right"]),
             focus_output_up: keys(&["Super+Alt+Up"]),
@@ -480,6 +485,7 @@ impl Config {
             (&b.toggle_scratchpad, Action::ToggleScratchpad),
             (&b.move_to_scratchpad, Action::MoveToScratchpad),
             (&b.focus_urgent, Action::FocusUrgent),
+            (&b.toggle_sticky, Action::ToggleSticky),
             (&b.focus_output_left, Action::FocusOutput(Left)),
             (&b.focus_output_right, Action::FocusOutput(Right)),
             (&b.focus_output_up, Action::FocusOutput(Up)),

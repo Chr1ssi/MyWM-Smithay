@@ -15,6 +15,8 @@ pub struct Rule {
     pub floating: Option<bool>,
     /// Open fullscreen (`true`) or not even if the client asks to (`false`).
     pub fullscreen: Option<bool>,
+    /// Float on every workspace of its monitor (picture in picture).
+    pub sticky: Option<bool>,
     /// Window opacity (0.1 to 1.0), see `[effects]`.
     pub opacity: Option<f32>,
     /// Shown as a black area in screenshots, recordings and streams.
@@ -36,6 +38,7 @@ pub struct Placement {
     pub output: Option<String>,
     pub floating: bool,
     pub fullscreen: Option<bool>,
+    pub sticky: bool,
 }
 
 impl Rule {
@@ -52,11 +55,12 @@ impl Rule {
             && self.output.is_none()
             && self.floating.is_none()
             && self.fullscreen.is_none()
+            && self.sticky.is_none()
             && self.opacity.is_none()
             && self.block_from_capture.is_none()
         {
             return Err(
-                "at least one action (workspace, output, floating, fullscreen, opacity or block_from_capture) is required"
+                "at least one action (workspace, output, floating, fullscreen, sticky, opacity or block_from_capture) is required"
                     .into(),
             );
         }
@@ -125,6 +129,9 @@ pub fn resolve(rules: &[Rule], window: Subject, float_dialogs: bool) -> Placemen
         }
         if let Some(fullscreen) = rule.fullscreen {
             placement.fullscreen = Some(fullscreen);
+        }
+        if let Some(sticky) = rule.sticky {
+            placement.sticky = sticky;
         }
     }
     placement

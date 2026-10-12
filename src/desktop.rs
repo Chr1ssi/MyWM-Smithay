@@ -46,6 +46,8 @@ pub struct Managed {
     pub title: Option<String>,
     /// Placed as a dialog: it has a parent, or it is an X11 transient, popup or fixed-size window.
     pub dialog: bool,
+    /// Floats on every workspace of its monitor: `refresh` brings it onto the shown one.
+    pub sticky: bool,
     /// The black area standing in for the window in captures, if a rule keeps it out of them.
     pub capture_blank: smithay::backend::renderer::element::Id,
     /// The window in `ext-foreign-toplevel-list`, which capture sources refer to.
@@ -260,6 +262,7 @@ impl State {
             app_id: None,
             title: None,
             dialog: false,
+            sticky: false,
             capture_blank: smithay::backend::renderer::element::Id::new(),
             foreign: None,
             commits: 0,
@@ -446,7 +449,9 @@ impl State {
         }
         if let Some(m) = d.get_mut(id) {
             m.placed = true;
-            m.floating = placement.floating || x11_float;
+            // Sticky windows float: a column cannot be on every workspace.
+            m.floating = placement.floating || x11_float || placement.sticky;
+            m.sticky = placement.sticky;
             m.parent = parent;
             m.app_id = app_id;
             m.title = title;
@@ -577,6 +582,7 @@ impl State {
 
     /// Recompute the layout and push it to the clients, then sync keyboard focus.
     pub fn refresh(&mut self) {
+        self.carry_sticky();
         self.sync_monitor_areas();
         self.apply_layout();
         self.sync_focus();
@@ -1013,8 +1019,37 @@ impl State {
             }
             m.floating = !m.floating;
             m.fullscreen = false;
+            // Tiled again, it belongs to one workspace.
+            m.sticky &= m.floating;
         }
         self.refresh();
+    }
+
+    /// Keep the focused window on every workspace of its monitor, or stop; a tiled window floats first.
+    pub fn toggle_sticky(&mut self) {
+        let Some(id) = self.desktop.focused().filter(|id| !self.desktop.in_scratchpad(*id)) else { return };
+        if self.desktop.get(id).is_some_and(|m| !m.floating) {
+            self.toggle_floating();
+        }
+        if let Some(m) = self.desktop.get_mut(id) {
+            m.sticky = !m.sticky;
+        }
+        self.refresh();
+    }
+
+    /// Bring sticky windows onto the workspace their monitor shows now, however it came to show it.
+    fn carry_sticky(&mut self) {
+        let d = &mut self.desktop;
+        let mut moved = false;
+        for id in d.windows.iter().filter(|m| m.sticky && m.placed).map(|m| m.id) {
+            if let Some((monitor, _)) = d.desk.locate(&id) {
+                moved |= d.desk.monitors[monitor].workspaces.carry_to_active(&id);
+            }
+        }
+        // The workspace it left may be an extra that is empty now.
+        if moved {
+            d.desk.prune();
+        }
     }
 
     pub fn set_fullscreen(&mut self, id: WindowId, fullscreen: bool) {

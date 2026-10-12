@@ -74,6 +74,7 @@ impl State {
                     None => self.spawn_command(&binding.command.clone(), false),
                 }
             }
+            Action::ToggleSticky => self.toggle_sticky(),
             Action::FocusUrgent => {
                 if let Some(id) = self.next_window_where(|m| m.urgent) {
                     self.show_window(id);

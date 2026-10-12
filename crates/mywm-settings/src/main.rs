@@ -89,6 +89,7 @@ fn action_label(name: &str) -> &'static str {
         "move_to_scratchpad" => "Fenster ins Scratchpad",
         "release_shortcuts" => "Tastenkürzel von Spiel/VM zurückholen",
         "focus_urgent" => "Zum Fenster, das Aufmerksamkeit will",
+        "toggle_sticky" => "Fenster auf allen Workspaces",
         "focus_output_left" => "Fokus Monitor links",
         "focus_output_right" => "Fokus Monitor rechts",
         "focus_output_up" => "Fokus Monitor oben",
@@ -456,6 +457,7 @@ impl App {
                 dirty |= tri_state(ui, table, "dialog", "Dialog");
                 dirty |= tri_state(ui, table, "floating", "Schwebend");
                 dirty |= tri_state(ui, table, "fullscreen", "Vollbild");
+                dirty |= tri_state(ui, table, "sticky", "Auf allen Workspaces");
                 dirty |= optional_int(ui, table, "workspace", "Workspace", 1, 9);
                 dirty |= optional_text(ui, table, "output", "Monitor");
                 dirty |= optional_float(ui, table, "opacity", "Deckkraft", 0.1, 1.0);

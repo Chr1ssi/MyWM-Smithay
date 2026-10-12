@@ -282,6 +282,20 @@ impl<T: Clone + Eq> Workspaces<T> {
             .is_some_and(|slot| slot < indices.len())
     }
 
+    /// Bring `window` onto the shown workspace (a sticky window) without taking the focus there, unless the
+    /// workspace has no other window. Not onto the gaming workspace, which is the game's. Whether it moved.
+    pub fn carry_to_active(&mut self, window: &T) -> bool {
+        let Some(from) = self.location(window) else { return false };
+        if from == self.active || self.current().kind == Kind::Gaming {
+            return false;
+        }
+        self.remove(window);
+        let current = self.current_mut();
+        current.focused.get_or_insert_with(|| window.clone());
+        current.windows.push(window.clone());
+        true
+    }
+
     pub fn remove(&mut self, window: &T) {
         for workspace in &mut self.entries {
             if workspace.windows.contains(window) {
@@ -362,6 +376,27 @@ mod tests {
             desktop.add(*window);
         }
         desktop
+    }
+
+    #[test]
+    fn sticky_windows_come_along_without_the_focus() {
+        let mut desktop = with_extra(&[1, 2]);
+        desktop.select(4);
+        desktop.add(7);
+        assert!(desktop.carry_to_active(&2));
+        assert_eq!(desktop.current().windows, [7, 2]);
+        assert_eq!(desktop.current().focused, Some(7));
+        assert_eq!(desktop.get(1).unwrap().windows, [1]);
+        assert!(!desktop.carry_to_active(&2), "already there");
+        // An empty workspace has nothing else to focus.
+        desktop.ensure(5, Kind::Extra);
+        desktop.select(5);
+        assert!(desktop.carry_to_active(&2));
+        assert_eq!(desktop.current().focused, Some(2));
+        // The gaming workspace is the game's.
+        desktop.add_to(GAMING, 9);
+        desktop.select(GAMING);
+        assert!(!desktop.carry_to_active(&2));
     }
 
     #[test]
