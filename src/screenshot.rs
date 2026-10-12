@@ -49,6 +49,10 @@ pub enum ModalKey {
     Down,
     /// `d` while picking what to share: a dynamic cast.
     Dynamic,
+    /// A digit key in the overview: that workspace.
+    Digit(usize),
+    /// `q` in the overview: close the window under the pointer.
+    Close,
     Ignore,
 }
 
@@ -69,7 +73,7 @@ impl State {
 
     /// `choose-source` from the screen-sharing portal: the overview opens on every monitor to pick from.
     pub fn start_share_chooser(&mut self, client: u64, kinds: mywm_ipc::SourceKinds) -> bool {
-        if self.selecting.is_some() || self.overview.is_some() || self.session_lock.is_active() {
+        if self.selecting.is_some() || self.overview_open() || self.session_lock.is_active() {
             return false;
         }
         self.open_overview(Some((client, kinds)))
@@ -92,7 +96,14 @@ impl State {
                 self.queue_redraw_all();
                 self.shoot_output_under_pointer();
             }
-            ModalKey::Ignore | ModalKey::Left | ModalKey::Right | ModalKey::Up | ModalKey::Down | ModalKey::Dynamic => {}
+            ModalKey::Ignore
+            | ModalKey::Left
+            | ModalKey::Right
+            | ModalKey::Up
+            | ModalKey::Down
+            | ModalKey::Dynamic
+            | ModalKey::Digit(_)
+            | ModalKey::Close => {}
         }
     }
 

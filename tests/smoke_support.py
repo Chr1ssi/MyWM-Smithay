@@ -106,6 +106,7 @@ class Bar:
         self.gaming = False
         self.config_error = None
         self.capturing = False
+        self.scratchpad = (False, False)  # visible, occupied
         self.replies = []
         self.confirm_logouts = []
 
@@ -119,6 +120,8 @@ class Bar:
             text = line.decode()
             if text.startswith("v1 state"):
                 self.state = parse_state(text)
+            elif text.startswith("v1 scratchpad "):
+                self.scratchpad = tuple(flag == "1" for flag in text.split()[2:4])
             elif text.startswith("v1 locked"):
                 self.locked = text.endswith("1")
             elif text.startswith("v1 gaming"):

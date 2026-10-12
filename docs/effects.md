@@ -38,10 +38,24 @@ Das PNG landet in `screenshot_directory` (Standard `~/Bilder/Screenshots`, Name
 
 ## Workspace-Übersicht
 
-`Super+Tab` zeigt alle Workspaces des Monitors unter dem Mauszeiger als Vorschau mit den echten
-Fenstern. Klick auf eine Vorschau (oder Pfeiltasten + Enter) wechselt dorthin, Esc oder ein Klick
-daneben schließt. Die Tasten ändert man in `[bindings]` (`overview`, `screenshot`,
-`screenshot_screen`, `screenshot_window`).
+`Super+Tab` zeigt auf **jedem Monitor** alle seine Workspaces als Vorschau mit den echten Fenstern,
+dahinter eine Kachel `+` für einen neuen Workspace und eine für das Scratchpad (grau umrandet).
+Beim Öffnen zoomt die Übersicht aus dem gezeigten Workspace heraus, beim Schließen wieder hinein
+(Dauer `animation_ms`, ohne Animation sofort). Tasten und Klicks wirken auf den Monitor unter dem
+Mauszeiger; dort ist die gewählte Kachel weiß umrandet.
+
+| Eingabe | Wirkung |
+|---|---|
+| Klick auf eine Kachel, Pfeiltasten + Enter | dorthin wechseln (`+`: neuer Workspace, Scratchpad: einblenden) |
+| `1` … `9` | direkt zu diesem Workspace, egal auf welchem Monitor |
+| Klick auf ein Fenster | Fenster zeigen und fokussieren |
+| Fenster ziehen | auf einen anderen Workspace verschieben, auch auf einen anderen Monitor; auf `+` in einen neuen Workspace, auf das Scratchpad dorthin. Die Übersicht bleibt offen. |
+| `q` oder Mittelklick auf ein Fenster | Fenster schließen |
+| Esc, Klick neben die Kacheln | schließen |
+
+Kachelrahmen: weiß die gewählte, rot eine mit einem Fenster, das Aufmerksamkeit will
+(`urgent_border`), in der Akzentfarbe der gerade gezeigte Workspace. Die Tasten ändert man in
+`[bindings]` (`overview`, `screenshot`, `screenshot_screen`, `screenshot_window`).
 
 Standard-Tastenbelegungen rechnen mit einer 80-%-Tastatur (ohne Nummernblock und ohne
 Druck-Taste); alles lässt sich in `[bindings]` ändern.

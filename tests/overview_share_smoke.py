@@ -7,8 +7,10 @@ Needs `cargo build --workspace`. Run from the repository root with $DISPLAY set:
 import socket, subprocess, time
 from smoke_support import Bar, Compositor, wait
 
-# Two workspaces on 1280x800: the overview's cells are centered at (346, 400) and (934, 400) (see overview_cells).
+# Two workspaces on 1280x800, picking what to share: the overview's cells are centered at (346, 400) and (934, 400)
+# (see overview_cells). Otherwise `+` and the scratchpad follow, and the first cell is centered at (248, 273).
 FIRST_CELL, SECOND_CELL = (346, 400), (934, 400)
+FIRST_CELL_WITH_EXTRAS = (248, 273)
 
 
 def click(at):
@@ -46,7 +48,7 @@ try:
     # A click on the window's thumbnail: its workspace is shown again.
     comp.key("alt+Tab")
     time.sleep(0.5)
-    click(FIRST_CELL)
+    click(FIRST_CELL_WITH_EXTRAS)
     bar.until(lambda s: s[0]["active"] == 1)
     print("a thumbnail click shows the window OK")
 

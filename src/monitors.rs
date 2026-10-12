@@ -6,7 +6,7 @@ use smithay::{
     utils::{Logical, Point},
 };
 
-use crate::State;
+use crate::{State, desktop::WindowId};
 
 /// An output known to the compositor; its index equals its monitor's index in the `Desk`.
 pub struct OutputEntry {
@@ -233,9 +233,20 @@ impl State {
     /// Move the focused window to workspace `number` (wherever it lives); focus stays put.
     pub fn move_to_workspace(&mut self, number: usize) {
         let Some(id) = self.desktop.focused().filter(|id| !self.desktop.in_scratchpad(*id)) else { return };
+        self.move_window_to_workspace(id, number);
+    }
+
+    /// Move `id` to workspace `number` (wherever it lives), also out of the scratchpad.
+    pub fn move_window_to_workspace(&mut self, id: WindowId, number: usize) {
         // The gaming workspace is reserved for games.
         if number == GAMING {
             return;
+        }
+        if self.desktop.in_scratchpad(id) {
+            let Some(target) = self.desktop.desk.owner(number) else { return };
+            self.take_from_scratchpad(id);
+            self.desktop.desk.monitors[target].workspaces.add_to(number, id);
+            return self.refresh();
         }
         let Some((source, _)) = self.desktop.desk.locate(&id) else { return };
         self.end_drag();

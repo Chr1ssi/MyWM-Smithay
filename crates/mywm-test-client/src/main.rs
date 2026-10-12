@@ -17,7 +17,8 @@
 //! app id and title, asking for fullscreen before it is mapped, that prints `size <w> <h>` whenever the
 //! compositor gives it another size) or `mywm-test-client foreign <seconds> [late]` (a window that exports
 //! itself with `xdg-foreign` and a second one, its dialog, that imports it as its parent before its first
-//! commit, or with `late` after it was placed; prints the dialog's `size <w> <h>` like `named`).
+//! commit, or with `late` after it was placed; prints the dialog's `size <w> <h>` like `named`). Every mode exits
+//! when the compositor asks a window to close.
 use std::{os::fd::AsFd, time::{Duration, Instant}};
 
 use wayland_client::{
@@ -134,9 +135,15 @@ impl Dispatch<XdgSurface, usize> for App {
 
 impl Dispatch<XdgToplevel, ()> for App {
     fn event(state: &mut Self, toplevel: &XdgToplevel, event: wayland_protocols::xdg::shell::client::xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wayland_protocols::xdg::shell::client::xdg_toplevel::Event::Configure { width, height, .. } = event {
-            state.toplevel_size = (width, height);
-            state.sizes.insert(wayland_client::Proxy::id(toplevel), (width, height));
+        use wayland_protocols::xdg::shell::client::xdg_toplevel::Event;
+        match event {
+            Event::Configure { width, height, .. } => {
+                state.toplevel_size = (width, height);
+                state.sizes.insert(wayland_client::Proxy::id(toplevel), (width, height));
+            }
+            // Like a real app: asked to close, it goes.
+            Event::Close => std::process::exit(0),
+            _ => {}
         }
     }
 }

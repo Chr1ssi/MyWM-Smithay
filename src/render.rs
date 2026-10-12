@@ -72,6 +72,7 @@ impl OutputElement {
 impl State {
     /// The elements to draw on `output`, front to back. Notes which of them captures must not show.
     pub fn output_elements(&mut self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
+        self.overview_tick();
         let mut blanks = Vec::new();
         let elements = self.draw_output(renderer, output, &mut blanks);
         if let Some(entry) = self.outputs.iter_mut().find(|e| &e.output == output) {

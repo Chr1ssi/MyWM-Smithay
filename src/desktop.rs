@@ -91,7 +91,7 @@ impl Managed {
     }
 }
 
-fn ease_out(t: f64) -> f64 {
+pub(crate) fn ease_out(t: f64) -> f64 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
@@ -967,7 +967,7 @@ impl State {
     /// Some window is still animating: keep redrawing.
     pub fn animations_active(&self) -> bool {
         let ms = self.config.effects.animation_ms;
-        ms > 0 && self.desktop.windows.iter().any(|m| m.animating(ms))
+        ms > 0 && (self.desktop.windows.iter().any(|m| m.animating(ms)) || self.overview.as_ref().is_some_and(|o| o.animating(ms)))
     }
 
     pub fn focus_window(&mut self, id: WindowId) {
@@ -1169,32 +1169,48 @@ impl State {
 
     pub fn move_to_scratchpad(&mut self) {
         let Some(id) = self.desktop.focused() else { return };
-        let d = &mut self.desktop;
-        if d.in_scratchpad(id) {
-            d.scratchpad.remove(&id);
-            d.scratchpad_visible = !d.scratchpad.windows.is_empty();
-            d.focus_scratch = d.scratchpad_visible;
+        if self.desktop.in_scratchpad(id) {
+            self.take_from_scratchpad(id);
+            let d = &mut self.desktop;
             if let Some(monitor) = d.desk.monitors.get_mut(d.focused_monitor) {
                 monitor.workspaces.add(id);
             }
-            if let Some(m) = d.get_mut(id) {
-                m.floating = m.scratchpad_floating.take().unwrap_or(true);
-                m.floating_rect = None;
-            }
         } else {
-            d.desk.remove_window(&id);
-            d.desk.prune();
-            d.scratchpad.windows.push(id);
-            d.scratchpad.focused = Some(id);
-            d.scratchpad_visible = true;
-            d.focus_scratch = true;
-            if let Some(m) = d.get_mut(id) {
-                m.scratchpad_floating = Some(m.floating);
-                m.floating = true;
-                m.fullscreen = false;
-            }
+            self.put_in_scratchpad(id, true);
         }
         self.refresh();
+    }
+
+    /// Take `id` out of the scratchpad, floating or not as before it went in; the caller gives it a workspace.
+    pub fn take_from_scratchpad(&mut self, id: WindowId) {
+        let d = &mut self.desktop;
+        d.scratchpad.remove(&id);
+        if d.scratchpad.windows.is_empty() {
+            d.scratchpad_visible = false;
+        }
+        d.focus_scratch &= d.scratchpad_visible;
+        if let Some(m) = d.get_mut(id) {
+            m.floating = m.scratchpad_floating.take().unwrap_or(true);
+            m.floating_rect = None;
+        }
+    }
+
+    /// Move `id` from its workspace into the scratchpad, shown (and focused) or kept out of sight.
+    pub fn put_in_scratchpad(&mut self, id: WindowId, show: bool) {
+        let d = &mut self.desktop;
+        d.desk.remove_window(&id);
+        d.desk.prune();
+        d.scratchpad.windows.push(id);
+        d.scratchpad.focused = Some(id);
+        if show {
+            d.scratchpad_visible = true;
+            d.focus_scratch = true;
+        }
+        if let Some(m) = d.get_mut(id) {
+            m.scratchpad_floating = Some(m.floating);
+            m.floating = true;
+            m.fullscreen = false;
+        }
     }
 }
 

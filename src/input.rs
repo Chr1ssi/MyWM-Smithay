@@ -157,7 +157,7 @@ impl State {
                             return FilterResult::Intercept(Intercepted::Vt((raw - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
                         }
                         // While picking a screenshot region the keyboard belongs to the picker.
-                        if state.selecting.is_some() || state.overview.is_some() {
+                        if state.selecting.is_some() || state.overview_open() {
                             use crate::screenshot::ModalKey;
                             return FilterResult::Intercept(Intercepted::Modal(match raw {
                                 keysyms::KEY_Escape => ModalKey::Cancel,
@@ -167,6 +167,8 @@ impl State {
                                 keysyms::KEY_Up => ModalKey::Up,
                                 keysyms::KEY_Down => ModalKey::Down,
                                 keysyms::KEY_d | keysyms::KEY_D => ModalKey::Dynamic,
+                                keysyms::KEY_1..=keysyms::KEY_9 => ModalKey::Digit((raw - keysyms::KEY_1 + 1) as usize),
+                                keysyms::KEY_q | keysyms::KEY_Q => ModalKey::Close,
                                 _ => ModalKey::Ignore,
                             }));
                         }
@@ -199,7 +201,7 @@ impl State {
                 match action {
                     Some(Intercepted::Action(action)) => self.run_action(action),
                     Some(Intercepted::Modal(key)) => {
-                        if self.overview.is_some() {
+                        if self.overview_open() {
                             self.overview_key(key);
                         } else {
                             self.selection_key(key);
@@ -280,7 +282,7 @@ impl State {
     }
 
     fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
-        if self.overview.is_some() {
+        if self.overview_open() {
             return self.overview_button(button, state);
         }
         if self.selecting.is_some() {
@@ -332,7 +334,7 @@ impl State {
             self.queue_redraw_output(output);
         }
         self.cursor_output = current;
-        if self.overview.is_some() {
+        if self.overview_open() {
             self.overview_moved();
             return self.queue_redraw_all();
         }
@@ -402,7 +404,7 @@ impl State {
     /// motion, and a locked pointer (games) produces none: the hidden game would keep the
     /// pointer and its lock.
     pub fn refresh_pointer_focus(&mut self) {
-        if self.overview.is_some() || self.selecting.is_some() || self.desktop.drag.is_some() {
+        if self.overview_open() || self.selecting.is_some() || self.desktop.drag.is_some() {
             return;
         }
         let Some(pointer) = self.seat.get_pointer() else { return };

@@ -43,7 +43,8 @@ block_from_capture = true
 Browser, OBS) öffnet sich auf allen Monitoren die Workspace-Übersicht (Rahmen in der Aufnahme-Farbe).
 Ein Klick auf ein **Fenster** teilt dieses Fenster, auch eines auf einem gerade nicht gezeigten
 Workspace; ein Klick in eine Kachel daneben (oder Enter) teilt den **Monitor** dieser Übersicht, `D`
-einen dynamischen Stream, Esc oder ein Klick neben die Kacheln bricht ab. Anders als beim wlr-Portal funktionieren damit auch einzelne Fenster, und es läuft
+einen dynamischen Stream, Esc oder ein Klick neben die Kacheln bricht ab. Die Kacheln `+` und
+Scratchpad gibt es dabei nicht. Anders als beim wlr-Portal funktionieren damit auch einzelne Fenster, und es läuft
 ohne `slurp`/Chooser-Programm. Die Fenstergröße wird live nachgeführt, der Cursor kann mitgemalt werden.
 
 Außerdem ist es das Inhibit-Backend: Firefox (und Flatpak-Apps) verhindern Sperre und Monitor-Aus beim
