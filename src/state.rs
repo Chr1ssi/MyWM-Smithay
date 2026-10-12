@@ -135,6 +135,8 @@ pub struct State {
     pub ipc_dirty: bool,
     /// The bar client that confirms logouts (`handle-logout`), if one registered.
     pub logout_handler: Option<u64>,
+    /// Where each app's floating window was last (see `floating_memory`).
+    pub floating_memory: HashMap<String, mywm_layout::Rect>,
     /// Why the configuration file could not be loaded (the running configuration stays), for the bar.
     pub config_error: Option<String>,
     /// Bar-socket clients keeping the session from going idle (`inhibit-idle`) until they disconnect.
@@ -331,6 +333,7 @@ impl State {
             logout_handler: None,
             ipc_idle_inhibitors: Default::default(),
             config_error: None,
+            floating_memory: crate::floating_memory::load(),
             pointer_modifiers: Modifiers::default(),
             suppressed_keys: Vec::new(),
             remap_super,

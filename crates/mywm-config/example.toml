@@ -14,6 +14,8 @@
 #workspace_outputs = ["DP-3", "HDMI-A-1", "DP-1"]
 # Fenster mit Elternfenster (z. B. Dateidialoge) standardmäßig frei schwebend.
 #float_dialogs = true
+# Ein schwebendes Fenster öffnet dort (und so groß), wo das letzte Fenster derselben App war,
+# auch nach einem Neustart (gemerkt in ~/.local/state/mywm/floating). Dialoge öffnen mittig.
 # Der Gaming-Workspace entsteht auf diesem Monitor, sobald ein Spiel startet, und
 # verschwindet mit dem letzten Spielfenster wieder (Standard: Monitor mit Workspace 1).
 # Er ist ausschließlich für Spiele reserviert: andere Fenster können weder dort

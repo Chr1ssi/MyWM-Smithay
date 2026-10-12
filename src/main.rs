@@ -2,6 +2,7 @@
 
 mod attention;
 mod barriers;
+mod floating_memory;
 mod blur;
 mod cursor;
 mod desktop;

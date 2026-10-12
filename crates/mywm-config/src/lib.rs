@@ -102,11 +102,16 @@ pub fn theme_state_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("MYWM_THEME_STATE").filter(|p| !p.is_empty()) {
         return Some(path.into());
     }
+    Some(state_dir()?.join("theme.json"))
+}
+
+/// mywm's directory for what it keeps between sessions: `$XDG_STATE_HOME/mywm` (or `~/.local/state/mywm`).
+pub fn state_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_STATE_HOME")
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/state")))?;
-    Some(base.join("mywm/theme.json"))
+    Some(base.join("mywm"))
 }
 
 /// Resolve the independently versioned shell at runtime.

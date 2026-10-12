@@ -44,6 +44,8 @@ pub struct Managed {
     pub app_id: Option<String>,
     /// Kept current for title rules (see `update_title`).
     pub title: Option<String>,
+    /// Placed as a dialog: it has a parent, or it is an X11 transient, popup or fixed-size window.
+    pub dialog: bool,
     /// The black area standing in for the window in captures, if a rule keeps it out of them.
     pub capture_blank: smithay::backend::renderer::element::Id,
     /// The window in `ext-foreign-toplevel-list`, which capture sources refer to.
@@ -257,6 +259,7 @@ impl State {
             parent: None,
             app_id: None,
             title: None,
+            dialog: false,
             capture_blank: smithay::backend::renderer::element::Id::new(),
             foreign: None,
             commits: 0,
@@ -398,6 +401,7 @@ impl State {
 
         let subject = mywm_config::Subject { app_id: app_id.as_deref(), title: title.as_deref(), dialog };
         let placement = mywm_config::resolve(&self.config.rules, subject, self.config.float_dialogs);
+        let remembered = (!dialog).then(|| self.recall_floating(app_id.as_deref())).flatten();
         let surface = self.desktop.get(id).and_then(|m| m.surface());
         let game = self.is_game(app_id.as_deref(), surface.as_ref(), parent);
         let d = &mut self.desktop;
@@ -446,6 +450,10 @@ impl State {
             m.parent = parent;
             m.app_id = app_id;
             m.title = title;
+            m.dialog = dialog;
+            if m.floating && m.floating_rect.is_none() {
+                m.floating_rect = remembered;
+            }
             // Overrides what the client asked for before it was placed.
             if let Some(fullscreen) = placement.fullscreen {
                 m.fullscreen = fullscreen;
@@ -539,6 +547,7 @@ impl State {
     }
 
     fn remove_managed(&mut self, id: WindowId) {
+        self.remember_floating(id);
         if let Some(managed) = self.desktop.get(id) {
             self.space.unmap_elem(&managed.window);
         }
@@ -1081,7 +1090,9 @@ impl State {
     }
 
     pub fn end_drag(&mut self) {
-        self.desktop.drag = None;
+        if let Some(drag) = self.desktop.drag.take() {
+            self.remember_floating(drag.id);
+        }
     }
 
     pub fn focus_step(&mut self, direction: isize) {
