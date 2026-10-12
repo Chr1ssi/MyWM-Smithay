@@ -157,8 +157,8 @@
 #[program_bindings.volume_up]
 #keys = ["XF86AudioRaiseVolume"]
 #command = ["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"]
+#allow_when_locked = true  # läuft auch bei gesperrtem Bildschirm (sonst gehen alle Tasten an die Sperre)
 
-# Regeln gelten beim ersten Einordnen eines Fensters, nicht bei späteren Änderungen.
 # App-IDs werden beim Start einer Anwendung im mywm-Log ausgegeben.
 # Selektoren: app_id, title, dialog. Alle angegebenen müssen passen; Texte passen als Ganzes
 # und mit Groß-/Kleinschreibung, `*` steht für beliebig viele Zeichen. Letzte Angabe je

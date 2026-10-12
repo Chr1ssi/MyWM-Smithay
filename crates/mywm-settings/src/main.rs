@@ -502,6 +502,16 @@ impl App {
                     self.doc.set_list(&path, &values);
                     self.revalidate();
                 }
+                let locked = format!("program_bindings.{name}.allow_when_locked");
+                let mut allowed = self.doc.get_bool(&locked).unwrap_or(false);
+                if ui.checkbox(&mut allowed, "Auch bei gesperrtem Bildschirm (z. B. Lautstärke)").changed() {
+                    if allowed {
+                        self.doc.set(&locked, toml_edit::Value::from(true));
+                    } else {
+                        self.doc.unset(&locked);
+                    }
+                    self.revalidate();
+                }
             });
         }
         if let Some(name) = remove {

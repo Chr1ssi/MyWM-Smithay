@@ -55,8 +55,8 @@ impl State {
     }
 
     pub fn run_action(&mut self, action: Action) {
-        // Behind a lock nothing but locking again does anything.
-        if self.session_lock.is_active() && !matches!(action, Action::Lock) {
+        // Behind a lock nothing but locking again and the program bindings that allow it does anything.
+        if self.session_lock.is_active() && !self.config.allowed_when_locked(action) {
             return;
         }
         tracing::debug!("action {action:?}");
@@ -144,12 +144,16 @@ impl State {
                                 _ => ModalKey::Ignore,
                             }));
                         }
-                        // A locked session hands every other key to the locker.
-                        if state.session_lock.is_active() {
-                            return FilterResult::Forward;
-                        }
                         // Unmodified symbol, so Shift+1 is still "1".
                         let action = handle.raw_syms().first().and_then(|sym| state.binding_for(mods, *sym));
+                        // A locked session hands every key to the locker but the program bindings that allow it.
+                        if state.session_lock.is_active() {
+                            let allowed = |a: &Action| matches!(a, Action::Program(_)) && state.config.allowed_when_locked(*a);
+                            return match action.filter(allowed) {
+                                Some(action) => FilterResult::Intercept(Intercepted::Action(action)),
+                                None => FilterResult::Forward,
+                            };
+                        }
                         // A client that took the shortcuts (a game, a VM) gets every key but the way out.
                         let action = action.filter(|a| !state.shortcuts_inhibited() || *a == Action::ReleaseShortcuts);
                         match action {

@@ -161,6 +161,9 @@ impl Default for Config {
 pub struct ProgramBinding {
     pub keys: Vec<String>,
     pub command: Vec<String>,
+    /// Also runs while the session is locked (volume and media keys); every other key goes to the lock screen.
+    #[serde(default)]
+    pub allow_when_locked: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -391,6 +394,15 @@ impl Config {
         Ok(config)
     }
 
+    /// Whether `action` may run while the session is locked: locking again, and the program bindings that allow it.
+    pub fn allowed_when_locked(&self, action: Action) -> bool {
+        match action {
+            Action::Lock => true,
+            Action::Program(index) => self.program_bindings.values().nth(index).is_some_and(|b| b.allow_when_locked),
+            _ => false,
+        }
+    }
+
     /// Like `load`, but a file that cannot be read or parsed gives the defaults (with the theme) and
     /// the reason, on one line: a typo must not keep the session, the lock screen or the bar from starting.
     pub fn load_or_default() -> (Self, Option<String>) {
@@ -530,6 +542,18 @@ pub fn one_line(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_marked_program_bindings_run_behind_the_lock() {
+        let config = Config::parse(
+            "[program_bindings.a_volume]\nkeys = ['XF86AudioRaiseVolume']\ncommand = ['wpctl']\nallow_when_locked = true\n[program_bindings.b_browser]\nkeys = ['Super+b']\ncommand = ['firefox']\n",
+        )
+        .unwrap();
+        assert!(config.allowed_when_locked(Action::Lock));
+        assert!(config.allowed_when_locked(Action::Program(0)));
+        assert!(!config.allowed_when_locked(Action::Program(1)));
+        assert!(!config.allowed_when_locked(Action::Terminal));
+    }
+
     #[test]
     fn errors_fit_on_one_line() {
         let error = Config::parse("[appearance]\ngaps_inner = \"x\"\n").unwrap_err().to_string();
