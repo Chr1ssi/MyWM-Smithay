@@ -115,14 +115,16 @@ in
     # mywm-portal.service, the session-bound unit behind the portal's D-Bus activation.
     systemd.packages = [ cfg.package ];
 
-    # Screen sharing goes through mywm-portal (the compositor asks what to share); the
-    # file chooser and the rest come from the GTK portal.
+    # Screen sharing goes through mywm-portal (the compositor asks what to share), and so does
+    # Inhibit (the GTK portal's needs a GNOME session); the file chooser and the rest come from
+    # the GTK portal.
     xdg.portal = {
       enable = true;
       extraPortals = [ pkgs.xdg-desktop-portal-gtk cfg.package ];
       config.mywm = {
         default = [ "gtk" ];
         "org.freedesktop.impl.portal.ScreenCast" = [ "mywm" ];
+        "org.freedesktop.impl.portal.Inhibit" = [ "mywm" ];
       };
     };
     services.pipewire.enable = lib.mkDefault true;

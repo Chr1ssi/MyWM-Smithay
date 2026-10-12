@@ -7,7 +7,7 @@ use std::{
 
 use mywm_ipc::{Chosen, SourceKinds};
 
-fn socket_path() -> Option<PathBuf> {
+pub fn socket_path() -> Option<PathBuf> {
     std::env::var_os("MYWM_SOCKET")
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)

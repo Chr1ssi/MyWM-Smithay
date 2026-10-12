@@ -133,6 +133,8 @@ pub struct State {
     pub ipc_dirty: bool,
     /// The bar client that confirms logouts (`handle-logout`), if one registered.
     pub logout_handler: Option<u64>,
+    /// Bar-socket clients keeping the session from going idle (`inhibit-idle`) until they disconnect.
+    pub ipc_idle_inhibitors: std::collections::HashSet<u64>,
     /// Key bindings after the nested-modifier remapping.
     pub bindings: Vec<Binding>,
     pub pointer_modifiers: Modifiers,
@@ -322,6 +324,7 @@ impl State {
             ipc: None,
             ipc_dirty: false,
             logout_handler: None,
+            ipc_idle_inhibitors: Default::default(),
             pointer_modifiers: Modifiers::default(),
             suppressed_keys: Vec::new(),
             remap_super,

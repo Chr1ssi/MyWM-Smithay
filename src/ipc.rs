@@ -155,12 +155,14 @@ impl State {
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => {
                     self.ipc = Some(ipc);
+                    self.ipc_client_gone(id);
                     return PostAction::Remove;
                 }
             }
         }
         if client.input.len() > MAX_LINE {
             self.ipc = Some(ipc);
+            self.ipc_client_gone(id);
             return PostAction::Remove;
         }
         while let Some(end) = client.input.iter().position(|c| *c == b'\n') {
@@ -176,13 +178,24 @@ impl State {
             ipc.clients.push(client);
         }
         self.ipc = Some(ipc);
+        if !alive {
+            self.ipc_client_gone(id);
+        }
         if alive { PostAction::Continue } else { PostAction::Remove }
+    }
+
+    /// A client disconnected or was dropped: what it held ends with it.
+    fn ipc_client_gone(&mut self, id: u64) {
+        if self.ipc_idle_inhibitors.remove(&id) {
+            self.update_idle_inhibition();
+        }
     }
 
     /// Whether the command was valid; valid ones have been carried out.
     fn run_ipc_command(&mut self, command: Command, client: u64) -> bool {
-        // Registering does nothing by itself; a bar that restarts behind the lock must not lose it.
-        if self.session_lock.is_active() && !matches!(command, Command::Lock | Command::HandleLogout) {
+        // Registering does nothing by itself; a bar that restarts behind the lock must not lose it. An idle
+        // inhibition (a video behind the lock) may begin there too.
+        if self.session_lock.is_active() && !matches!(command, Command::Lock | Command::HandleLogout | Command::InhibitIdle) {
             return false;
         }
         match command {
@@ -191,6 +204,10 @@ impl State {
             // The bar sends this once the user confirmed; the exit binding would ask again.
             Command::Logout => self.loop_signal.stop(),
             Command::HandleLogout => self.logout_handler = Some(client),
+            Command::InhibitIdle => {
+                self.ipc_idle_inhibitors.insert(client);
+                self.update_idle_inhibition();
+            }
             Command::ThemeReload => self.run_action(Action::Reload),
             Command::Scratchpad => self.run_action(Action::ToggleScratchpad),
             Command::NewWorkspace { output } => {
@@ -256,6 +273,7 @@ impl State {
         let Some(ipc) = &mut self.ipc else { return };
         // A client that falls hopelessly behind is dropped; its event source removes
         // itself on the next wakeup.
+        let mut dropped = Vec::new();
         ipc.clients.retain_mut(|client| {
             if !client.broken {
                 if client.snapshot != snapshot {
@@ -264,7 +282,14 @@ impl State {
                 }
                 client.broken = !client.write_pending();
             }
-            client.output.len() <= MAX_PENDING_OUTPUT
+            let keep = client.output.len() <= MAX_PENDING_OUTPUT;
+            if !keep {
+                dropped.push(client.id);
+            }
+            keep
         });
+        for id in dropped {
+            self.ipc_client_gone(id);
+        }
     }
 }

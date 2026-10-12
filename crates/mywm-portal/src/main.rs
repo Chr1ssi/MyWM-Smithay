@@ -1,9 +1,11 @@
-//! `mywm-portal`: the screen-cast backend of xdg-desktop-portal for the MyWM compositor.
+//! `mywm-portal`: the screen-cast and inhibit backend of xdg-desktop-portal for the MyWM compositor.
 //!
 //! Instead of a generic dialog it asks the compositor what to share (click a window, or the
 //! desktop for the monitor) and captures it with `ext-image-copy-capture` into a PipeWire
-//! stream. Replaces `xdg-desktop-portal-wlr`.
+//! stream. Replaces `xdg-desktop-portal-wlr`. Apps that keep the session awake through the
+//! portal reach the compositor's idle inhibition (see `idle`).
 mod chooser;
+mod idle;
 mod stream;
 
 use std::{
@@ -270,9 +272,10 @@ fn main() -> zbus::Result<()> {
         let connection = zbus::connection::Builder::session()?
             .name(NAME)?
             .serve_at(PATH, ScreenCast { sessions })?
+            .serve_at(PATH, idle::Inhibit { inhibitions: idle::Shared::default() })?
             .build()
             .await?;
-        tracing::info!("screen-cast portal ready as {NAME}");
+        tracing::info!("screen-cast and inhibit portal ready as {NAME}");
         // Without its bus nobody can reach the portal any more; staying would only leave an orphan
         // behind (a session bus that ends without stopping its activated services).
         connection.closed().await;

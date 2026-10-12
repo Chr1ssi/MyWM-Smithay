@@ -5,6 +5,8 @@
 //! * compositor → client, whenever something changed:
 //!   `v1 state <output>;<output>...`, `v1 scratchpad <visible> <occupied>`, `v1 locked <0|1>`,
 //!   `v1 gaming <0|1>` (a game is shown fullscreen on some monitor)
+//! * `v1 inhibit-idle` keeps the session from going idle until the sender's connection closes
+//!   (mywm-portal, for apps that inhibit through the portal)
 //! * compositor → the client that sent `handle-logout`, when the exit binding is pressed:
 //!   `v1 confirm-logout <output id>` (it asks the user and answers with `logout`)
 //!
@@ -69,6 +71,8 @@ pub enum Command {
     /// The sender confirms logouts: the exit binding asks it with `v1 confirm-logout <output>`
     /// instead of ending the session (which it still does while no such client is connected).
     HandleLogout,
+    /// Keep the session from going idle while the sender stays connected.
+    InhibitIdle,
     ThemeReload,
     Scratchpad,
     NewWorkspace { output: u32 },
@@ -88,6 +92,7 @@ pub fn parse_command(line: &str) -> Option<Command> {
         })),
         ["v1", "logout"] => Some(Command::Logout),
         ["v1", "handle-logout"] => Some(Command::HandleLogout),
+        ["v1", "inhibit-idle"] => Some(Command::InhibitIdle),
         ["v1", "theme-reload"] => Some(Command::ThemeReload),
         ["v1", "scratchpad"] => Some(Command::Scratchpad),
         ["v1", "new-workspace", output] => Some(Command::NewWorkspace { output: output.parse().ok()? }),
@@ -239,6 +244,7 @@ mod tests {
         assert_eq!(parse_command("v1 lock\n"), Some(Command::Lock));
         assert_eq!(parse_command("v1 logout"), Some(Command::Logout));
         assert_eq!(parse_command("v1 handle-logout\n"), Some(Command::HandleLogout));
+        assert_eq!(parse_command("v1 inhibit-idle\n"), Some(Command::InhibitIdle));
         assert_eq!(confirm_logout(7), "v1 confirm-logout 7\n");
         assert_eq!(parse_command("v1 theme-reload"), Some(Command::ThemeReload));
         assert_eq!(parse_command("v1 choose-source both"), Some(Command::ChooseSource(SourceKinds::Both)));

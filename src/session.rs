@@ -192,7 +192,7 @@ impl State {
     pub fn update_idle_inhibition(&mut self) {
         self.idle_inhibitors.retain(|surface, _| surface.is_alive());
         // Games rarely inhibit idle themselves, and a controller makes no input the compositor sees.
-        let inhibited = !self.idle_inhibitors.is_empty() || self.game_shown();
+        let inhibited = !self.idle_inhibitors.is_empty() || !self.ipc_idle_inhibitors.is_empty() || self.game_shown();
         self.idle_notifier_state.set_is_inhibited(inhibited);
     }
 }
