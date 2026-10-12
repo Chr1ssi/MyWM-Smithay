@@ -40,10 +40,10 @@ block_from_capture = true
 
 `mywm-portal` ersetzt `xdg-desktop-portal-wlr`. Es ist das ScreenCast-Backend von
 `xdg-desktop-portal` und fragt **im Compositor** nach der Quelle: Beim Teilen (Vesktop, Discord,
-Browser, OBS) öffnet sich auf dem Monitor unter dem Mauszeiger die Workspace-Übersicht (Rahmen in der
-Aufnahme-Farbe). Ein Klick auf ein **Fenster** teilt dieses Fenster, auch eines auf einem gerade nicht
-gezeigten Workspace; ein Klick in eine Kachel daneben (oder Enter) teilt den **Monitor**, Esc bricht ab.
-Auf den anderen Monitoren teilt ein Klick auf ein Fenster das Fenster, ein Klick daneben den Monitor. Anders als beim wlr-Portal funktionieren damit auch einzelne Fenster, und es läuft
+Browser, OBS) öffnet sich auf allen Monitoren die Workspace-Übersicht (Rahmen in der Aufnahme-Farbe).
+Ein Klick auf ein **Fenster** teilt dieses Fenster, auch eines auf einem gerade nicht gezeigten
+Workspace; ein Klick in eine Kachel daneben (oder Enter) teilt den **Monitor** dieser Übersicht, `D`
+einen dynamischen Stream, Esc oder ein Klick neben die Kacheln bricht ab. Anders als beim wlr-Portal funktionieren damit auch einzelne Fenster, und es läuft
 ohne `slurp`/Chooser-Programm. Die Fenstergröße wird live nachgeführt, der Cursor kann mitgemalt werden.
 
 Außerdem ist es das Inhibit-Backend: Firefox (und Flatpak-Apps) verhindern Sperre und Monitor-Aus beim

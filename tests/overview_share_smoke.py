@@ -80,4 +80,34 @@ except BaseException:
     comp.process.kill()
     print(open(comp.dir + "/log").read()[-3000:])
     raise
+
+# Two monitors: picking what to share, the overview is on both, not only under the pointer.
+def surface_pixels(comp, output):
+    """Pixels of the overview's empty cells (the `surface` color) on `output`."""
+    shot = subprocess.run(["grim", "-o", output, "-t", "ppm", "-"], env=comp.env(), capture_output=True, check=True).stdout
+    out = subprocess.run(["convert", "ppm:-", "-fill", "black", "+opaque", "#313244", "-fill", "white", "-opaque", "#313244",
+                          "-format", "%[fx:mean*w*h]", "info:"], input=shot, capture_output=True, check=True).stdout
+    return round(float(out))
+
+
+comp = Compositor(config='[bindings]\nfocus_output_right = ["Super+Ctrl+period"]\n', extra_env={"MYWM_VIRTUAL_OUTPUTS": "1"})
+try:
+    bar = Bar(comp.sock)
+    bar.until(lambda s: len(s) == 2)
+    time.sleep(1)
+    comp.key("alt+ctrl+period")  # the pointer goes to the second monitor
+    time.sleep(0.5)
+    before = surface_pixels(comp, "winit")
+    client = ask(comp, "both")
+    during = surface_pixels(comp, "winit")
+    print("overview pixels on the monitor without the pointer, before and while picking:", before, during)
+    assert before < 1000 < 50_000 < during, (before, during)
+    comp.key("Return")
+    assert answer(client) == "v1 chosen monitor virtual-1"
+    print("the overview is on every monitor; Enter shares the one under the pointer OK")
+    assert comp.stop()
+except BaseException:
+    comp.process.kill()
+    print(open(comp.dir + "/log").read()[-3000:])
+    raise
 print("OK")

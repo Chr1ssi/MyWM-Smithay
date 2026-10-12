@@ -25,18 +25,10 @@ const BTN_LEFT: u32 = 0x110;
 /// A drag shorter than this (in logical pixels) counts as a click.
 const CLICK_SLOP: f64 = 4.0;
 
-/// Interactive selection in progress.
+/// Interactive selection of what to take a screenshot of, in progress.
 pub struct Selecting {
     /// Where the button went down; `None` while hovering.
     anchor: Option<Point<f64, Logical>>,
-    purpose: Purpose,
-}
-
-/// Why the user is picking something on screen.
-enum Purpose {
-    Screenshot,
-    /// A screen-sharing portal asked (IPC client `client`) for a monitor or window.
-    Share { client: u64, kinds: mywm_ipc::SourceKinds },
 }
 
 /// A shot waiting for the next frame of its output.
@@ -71,62 +63,21 @@ impl State {
         if self.selecting.is_some() {
             return self.cancel_selection();
         }
-        self.selecting = Some(Selecting { anchor: None, purpose: Purpose::Screenshot });
+        self.selecting = Some(Selecting { anchor: None });
         self.queue_redraw_all();
     }
 
-    /// `choose-source` from the screen-sharing portal: pick a monitor or window to share.
-    /// Ask what to share: the overview on the monitor under the pointer offers its windows (also those on
-    /// other workspaces) and the monitor; on the other monitors a click picks a window or the monitor.
+    /// `choose-source` from the screen-sharing portal: the overview opens on every monitor to pick from.
     pub fn start_share_chooser(&mut self, client: u64, kinds: mywm_ipc::SourceKinds) -> bool {
         if self.selecting.is_some() || self.overview.is_some() || self.session_lock.is_active() {
             return false;
         }
-        self.selecting = Some(Selecting { anchor: None, purpose: Purpose::Share { client, kinds } });
-        self.open_overview(true);
-        // The bar shows how to pick.
-        self.ipc_dirty = true;
-        self.queue_redraw_all();
-        true
-    }
-
-    /// What the open share request allows, if one is open.
-    pub fn share_kinds(&self) -> Option<mywm_ipc::SourceKinds> {
-        match self.selecting.as_ref()?.purpose {
-            Purpose::Share { kinds, .. } => Some(kinds),
-            Purpose::Screenshot => None,
-        }
-    }
-
-    /// End the selection; a screen-sharing request is answered with `chosen`, and its overview closes.
-    pub fn finish_selection(&mut self, chosen: Option<mywm_ipc::Chosen>) {
-        if let Some(Selecting { purpose: Purpose::Share { client, .. }, .. }) = self.selecting.take() {
-            self.ipc_send_chosen(client, &chosen.unwrap_or(mywm_ipc::Chosen::Nothing));
-            self.ipc_dirty = true;
-            if self.overview.as_ref().is_some_and(|o| o.share) {
-                self.overview = None;
-            }
-        }
-        self.queue_redraw_all();
-    }
-
-    /// What a click (or Enter) at the pointer picks for screen sharing; `None` if nothing allowed is there.
-    fn share_choice(&self, kinds: mywm_ipc::SourceKinds, enter: bool) -> Option<mywm_ipc::Chosen> {
-        if kinds.windows() && !enter {
-            let (window, _) = self.window_at(self.pointer_location)?;
-            if let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).and_then(|m| m.foreign.as_ref()) {
-                return Some(mywm_ipc::Chosen::Window(id.identifier()));
-            }
-        }
-        if kinds.monitors() {
-            let output = self.space.output_under(self.pointer_location).next()?;
-            return Some(mywm_ipc::Chosen::Monitor(output.name()));
-        }
-        None
+        self.open_overview(Some((client, kinds)))
     }
 
     pub fn cancel_selection(&mut self) {
-        self.finish_selection(None);
+        self.selecting = None;
+        self.queue_redraw_all();
     }
 
     pub fn selection_moved(&mut self) {
@@ -136,20 +87,11 @@ impl State {
     pub fn selection_key(&mut self, key: ModalKey) {
         match key {
             ModalKey::Cancel => self.cancel_selection(),
-            ModalKey::Confirm => match self.selecting.as_ref().map(|s| &s.purpose) {
-                Some(Purpose::Share { kinds, .. }) => {
-                    let kinds = *kinds;
-                    // Enter shares the monitor under the pointer.
-                    if let Some(choice) = self.share_choice(kinds, true) {
-                        self.finish_selection(Some(choice));
-                    }
-                }
-                _ => {
-                    self.selecting = None;
-                    self.queue_redraw_all();
-                    self.shoot_output_under_pointer();
-                }
-            },
+            ModalKey::Confirm => {
+                self.selecting = None;
+                self.queue_redraw_all();
+                self.shoot_output_under_pointer();
+            }
             ModalKey::Ignore | ModalKey::Left | ModalKey::Right | ModalKey::Up | ModalKey::Down | ModalKey::Dynamic => {}
         }
     }
@@ -160,15 +102,6 @@ impl State {
         if button != BTN_LEFT {
             if state == ButtonState::Pressed {
                 self.cancel_selection();
-            }
-            return;
-        }
-        if let Purpose::Share { kinds, .. } = selecting.purpose {
-            // Sharing is a plain click: on a window, or on the desktop for its monitor.
-            if state == ButtonState::Released
-                && let Some(choice) = self.share_choice(kinds, false)
-            {
-                self.finish_selection(Some(choice));
             }
             return;
         }
@@ -271,10 +204,6 @@ impl State {
     /// The dimming and selection frame drawn over `output` while selecting.
     pub fn overlay_elements(&self, output: &Output) -> Vec<SolidColorRenderElement> {
         let Some(selecting) = &self.selecting else { return Vec::new() };
-        // Where the overview picks what to share, it shows the choice itself.
-        if self.overview.as_ref().is_some_and(|o| o.share && o.output() == output) {
-            return Vec::new();
-        }
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let Some(size) = self.capture_geometry(output).map(|g| g.size) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
@@ -301,10 +230,7 @@ impl State {
         let thickness = (2.0 * scale).round().max(1.0) as i32;
         let selection = match selecting.anchor {
             Some(anchor) => Some((to_local(normalized(anchor, self.pointer_location)), frame_color)),
-            None => match selecting.purpose {
-                Purpose::Share { kinds, .. } if !kinds.windows() => None,
-                _ => self.window_frame_at_pointer().map(|frame| (to_local(frame), accent)),
-            },
+            None => self.window_frame_at_pointer().map(|frame| (to_local(frame), accent)),
         };
         match selection {
             Some((rect, color)) => {
@@ -319,18 +245,7 @@ impl State {
                 add(Rectangle::new((x0 - thickness, y0).into(), (thickness, y1 - y0).into()), color);
                 add(Rectangle::new((x1, y0).into(), (thickness, y1 - y0).into()), color);
             }
-            None => {
-                add(full, [0.0, 0.0, 0.0, 0.3]);
-                // Sharing a monitor: frame the one under the pointer.
-                let here = self.space.output_under(self.pointer_location).next() == Some(output);
-                if here && matches!(selecting.purpose, Purpose::Share { kinds, .. } if kinds.monitors()) {
-                    let (w, h, t) = (full.size.w, full.size.h, thickness * 2);
-                    add(Rectangle::new((0, 0).into(), (w, t).into()), accent);
-                    add(Rectangle::new((0, h - t).into(), (w, t).into()), accent);
-                    add(Rectangle::new((0, 0).into(), (t, h).into()), accent);
-                    add(Rectangle::new((w - t, 0).into(), (t, h).into()), accent);
-                }
-            }
+            None => add(full, [0.0, 0.0, 0.0, 0.3]),
         }
         elements
     }
