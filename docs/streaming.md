@@ -34,6 +34,11 @@ Fenster, ein Klick auf den Desktop (oder Enter) teilt den **Monitor** unter dem 
 bricht ab. Anders als beim wlr-Portal funktionieren damit auch einzelne Fenster, und es läuft
 ohne `slurp`/Chooser-Programm. Die Fenstergröße wird live nachgeführt, der Cursor kann mitgemalt werden.
 
+Außerdem ist es das Inhibit-Backend: Firefox (und Flatpak-Apps) verhindern Sperre und Monitor-Aus beim
+Video über das Portal statt über Wayland. Das GTK-Portal nimmt solche Anfragen zwar an, braucht dahinter
+aber eine GNOME-Sitzung; `mywm-portal` gibt sie an den Compositor weiter. Dafür steht in
+`mywm-portals.conf` neben ScreenCast auch `org.freedesktop.impl.portal.Inhibit=mywm`.
+
 Einrichtung:
 
 1. `cargo build --release -p mywm-portal` und die Binary `mywm-portal` in den `PATH` legen.

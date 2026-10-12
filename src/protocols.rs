@@ -6,7 +6,7 @@ use smithay::{
     delegate_commit_timing, delegate_content_type, delegate_cursor_shape, delegate_drm_syncobj, delegate_fifo,
     delegate_fractional_scale,
     delegate_pointer_constraints, delegate_presentation, delegate_primary_selection,
-    delegate_relative_pointer, delegate_viewporter, delegate_xdg_decoration,
+    delegate_relative_pointer, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_foreign,
     input::pointer::PointerHandle,
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode,
@@ -200,6 +200,12 @@ impl State {
 
 impl TabletSeatHandler for State {}
 
+impl smithay::wayland::xdg_foreign::XdgForeignHandler for State {
+    fn xdg_foreign_state(&mut self) -> &mut smithay::wayland::xdg_foreign::XdgForeignState {
+        &mut self.xdg_foreign_state
+    }
+}
+
 // --- Plain delegates ----------------------------------------------------------------------
 
 delegate_viewporter!(State);
@@ -210,6 +216,7 @@ delegate_content_type!(State);
 delegate_fifo!(State);
 delegate_commit_timing!(State);
 delegate_xdg_decoration!(State);
+delegate_xdg_foreign!(State);
 delegate_primary_selection!(State);
 delegate_relative_pointer!(State);
 delegate_pointer_constraints!(State);

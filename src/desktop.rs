@@ -458,6 +458,34 @@ impl State {
         mywm_config::any_blocks_capture(&self.config.rules) && mywm_config::blocks_capture(&self.config.rules, m.subject())
     }
 
+    /// A toplevel got a parent after it was placed (`xdg-foreign` sets it once the dialog exists): it is a
+    /// dialog now, floating if the rules let dialogs float. A window that is not placed yet reads its parent
+    /// when it is.
+    pub fn parent_changed(&mut self, surface: &WlSurface) {
+        let Some(m) = self.desktop.by_surface(surface).filter(|m| m.placed) else { return };
+        let id = m.id;
+        let parent = m
+            .window
+            .toplevel()
+            .and_then(|t| t.parent())
+            .and_then(|parent| self.desktop.by_surface(&parent).map(|p| p.id));
+        if parent.is_none() || parent == m.parent {
+            return;
+        }
+        let subject = mywm_config::Subject { dialog: true, ..m.subject() };
+        let floating = mywm_config::resolve(&self.config.rules, subject, self.config.float_dialogs).floating;
+        if let Some(m) = self.desktop.get_mut(id) {
+            m.parent = parent;
+            if floating && !m.floating {
+                m.floating = true;
+                m.floating_rect = None;
+                m.fullscreen = false;
+            }
+        }
+        self.size_floating_to_client(id);
+        self.refresh();
+    }
+
     /// The window's title changed: rules that select by title see the new one.
     pub fn update_title(&mut self, id: WindowId) {
         if let Some(m) = self.desktop.get_mut(id) {

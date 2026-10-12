@@ -50,7 +50,8 @@ Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-
 `docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).
 
 Screen-Sharing ohne `xdg-desktop-portal-wlr`: `mywm-portal` fragt im Compositor nach Fenster oder Monitor
-und streamt über PipeWire (`docs/streaming.md`).
+und streamt über PipeWire (`docs/streaming.md`). Es übernimmt auch das Inhibit-Portal, damit Programme wie
+Firefox, die darüber die Sperre verhindern, den Bildschirm wirklich wach halten.
 
 Installation, Session und NixOS-Modul: `docs/install.md`. Zusätzlich: `[input]` (Beschleunigung,
 Scrollrichtung, Tastenwiederholung), `keyboard-shortcuts-inhibit` (mit `Super+Shift+Escape` holt man die Kürzel

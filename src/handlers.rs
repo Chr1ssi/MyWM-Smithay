@@ -143,6 +143,10 @@ impl XdgShellHandler for State {
         &mut self.xdg_shell_state
     }
 
+    fn parent_changed(&mut self, surface: ToplevelSurface) {
+        self.parent_changed(surface.wl_surface());
+    }
+
     fn title_changed(&mut self, surface: ToplevelSurface) {
         self.update_foreign_toplevel(surface.wl_surface());
         if let Some(id) = self.desktop.by_surface(surface.wl_surface()).map(|m| m.id) {

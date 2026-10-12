@@ -15,7 +15,9 @@
 //! whose second update targets that much later with `wp_commit_timer_v1`; prints `timed <ms>` when it
 //! was applied) or `mywm-test-client named <seconds> <app_id> <title|-> [fullscreen]` (a window with that
 //! app id and title, asking for fullscreen before it is mapped, that prints `size <w> <h>` whenever the
-//! compositor gives it another size).
+//! compositor gives it another size) or `mywm-test-client foreign <seconds> [late]` (a window that exports
+//! itself with `xdg-foreign` and a second one, its dialog, that imports it as its parent before its first
+//! commit, or with `late` after it was placed; prints the dialog's `size <w> <h>` like `named`).
 use std::{os::fd::AsFd, time::{Duration, Instant}};
 
 use wayland_client::{
@@ -34,6 +36,12 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_surface_v1::{self, KeyboardInteractivity, ZwlrLayerSurfaceV1},
 };
 use wayland_protocols::{
+    xdg::foreign::zv2::client::{
+        zxdg_exported_v2::{self, ZxdgExportedV2},
+        zxdg_exporter_v2::ZxdgExporterV2,
+        zxdg_imported_v2::ZxdgImportedV2,
+        zxdg_importer_v2::ZxdgImporterV2,
+    },
     wp::commit_timing::v1::client::{wp_commit_timer_v1::WpCommitTimerV1, wp_commit_timing_manager_v1::WpCommitTimingManagerV1},
     wp::fifo::v1::client::{wp_fifo_manager_v1::WpFifoManagerV1, wp_fifo_v1::WpFifoV1},
     wp::content_type::v1::client::{
@@ -83,6 +91,10 @@ struct App {
     frame_times: Vec<u32>,
     /// `wl_buffer.release` events so far: an update replacing a buffer was applied, shown or not.
     buffers_released: u32,
+    /// The handle an exported toplevel got (`foreign` mode).
+    exported: Option<String>,
+    /// The last size each toplevel was given, for windows that are not alone (`foreign` mode).
+    sizes: std::collections::HashMap<wayland_client::backend::ObjectId, (i32, i32)>,
     /// The surface the pointer entered (pointer mode), cleared on leave.
     pointer_entered: bool,
     /// `wl_keyboard.key` events not printed yet (keys mode): key code and state.
@@ -121,9 +133,10 @@ impl Dispatch<XdgSurface, usize> for App {
 }
 
 impl Dispatch<XdgToplevel, ()> for App {
-    fn event(state: &mut Self, _: &XdgToplevel, event: wayland_protocols::xdg::shell::client::xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(state: &mut Self, toplevel: &XdgToplevel, event: wayland_protocols::xdg::shell::client::xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let wayland_protocols::xdg::shell::client::xdg_toplevel::Event::Configure { width, height, .. } = event {
             state.toplevel_size = (width, height);
+            state.sizes.insert(wayland_client::Proxy::id(toplevel), (width, height));
         }
     }
 }
@@ -208,6 +221,16 @@ delegate_noop!(App: ignore WlSurface);
 delegate_noop!(App: ignore WlRegion);
 delegate_noop!(App: ignore WpContentTypeManagerV1);
 delegate_noop!(App: ignore WpContentTypeV1);
+delegate_noop!(App: ignore ZxdgExporterV2);
+delegate_noop!(App: ignore ZxdgImporterV2);
+delegate_noop!(App: ignore ZxdgImportedV2);
+impl Dispatch<ZxdgExportedV2, ()> for App {
+    fn event(state: &mut Self, _: &ZxdgExportedV2, event: zxdg_exported_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let zxdg_exported_v2::Event::Handle { handle } = event {
+            state.exported = Some(handle);
+        }
+    }
+}
 delegate_noop!(App: ignore WpFifoManagerV1);
 delegate_noop!(App: ignore WpFifoV1);
 delegate_noop!(App: ignore WpCommitTimingManagerV1);
@@ -412,6 +435,58 @@ fn named_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, comp
     }
 }
 
+/// A parent window that exports itself and its dialog that imports it (`foreign` mode).
+fn foreign_windows(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, seconds: u64, (exporter, importer, late): (ZxdgExporterV2, ZxdgImporterV2, bool)) {
+    let qh = queue.handle();
+    let (parent, _buffers) = shm_window(app, queue, compositor, shm, wm_base);
+    let _exported = exporter.export_toplevel(&parent, &qh, ());
+    while app.exported.is_none() {
+        queue.blocking_dispatch(app).unwrap();
+    }
+    let handle = app.exported.clone().unwrap_or_default();
+    // The dialog: its own surface and toplevel, sized by the compositor like `named`.
+    app.configured.push(false);
+    let index = app.configured.len() - 1;
+    let surface = compositor.create_surface(&qh, ());
+    let xdg = wm_base.get_xdg_surface(&surface, &qh, index);
+    let toplevel = xdg.get_toplevel(&qh, ());
+    toplevel.set_app_id("mywm.test.dialog".into());
+    let imported = importer.import_toplevel(handle, &qh, ());
+    if !late {
+        imported.set_parent_of(&surface);
+    }
+    surface.commit();
+    while !app.configured[index] {
+        queue.blocking_dispatch(app).unwrap();
+    }
+    let file = std::fs::File::options().read(true).write(true).create(true).truncate(true).open(std::env::temp_dir().join(format!("mywm-tc-d{}", std::process::id()))).unwrap();
+    file.set_len(100 * 100 * 4).unwrap();
+    let pool = shm.create_pool(file.as_fd(), 100 * 100 * 4, &qh, ());
+    let buffer = pool.create_buffer(0, 100, 100, 400, wl_shm::Format::Xrgb8888, &qh, ());
+    surface.attach(Some(&buffer), 0, 0);
+    surface.commit();
+    let mut printed = (-1, -1);
+    let end = Instant::now() + Duration::from_secs(seconds);
+    let mut parented = !late;
+    let start = Instant::now();
+    while Instant::now() < end {
+        let size = app.sizes.get(&wayland_client::Proxy::id(&toplevel)).copied().unwrap_or_default();
+        if size != printed {
+            printed = size;
+            println!("size {} {}", printed.0, printed.1);
+        }
+        // Late: once the dialog was placed as an ordinary window.
+        if !parented && start.elapsed() >= Duration::from_secs(1) {
+            parented = true;
+            imported.set_parent_of(&surface);
+            println!("parented");
+        }
+        if !pump(app, queue, 50) {
+            return;
+        }
+    }
+}
+
 /// Read what arrives within `timeout` milliseconds and dispatch it; false once the connection is gone.
 fn pump(app: &mut App, queue: &mut wayland_client::EventQueue<App>, timeout: i32) -> bool {
     if queue.flush().is_err() {
@@ -503,6 +578,14 @@ fn main() {
 
     if mode == "simple" {
         simple_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds);
+        return;
+    }
+
+    if mode == "foreign" {
+        let exporter: ZxdgExporterV2 = globals.bind(&qh, 1..=1, ()).expect("xdg exporter");
+        let importer: ZxdgImporterV2 = globals.bind(&qh, 1..=1, ()).expect("xdg importer");
+        let late = std::env::args().nth(3).is_some_and(|a| a == "late");
+        foreign_windows(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds, (exporter, importer, late));
         return;
     }
 

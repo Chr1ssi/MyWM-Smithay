@@ -71,6 +71,8 @@ pub struct State {
     pub gamma_global: Option<smithay::reexports::wayland_server::backend::GlobalId>,
     pub shortcuts_inhibit: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
     pub activation_state: smithay::wayland::xdg_activation::XdgActivationState,
+    /// `xdg-foreign`: a portal dialog (the file chooser) becomes the dialog of the app that opened it.
+    pub xdg_foreign_state: smithay::wayland::xdg_foreign::XdgForeignState,
     pub selecting: Option<crate::screenshot::Selecting>,
     pub overview: Option<crate::overview::Overview>,
     pub pending_shots: Vec<crate::screenshot::PendingShot>,
@@ -259,6 +261,7 @@ impl State {
             gamma_global: None,
             shortcuts_inhibit: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState::new::<State>(&dh),
             activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<State>(&dh),
+            xdg_foreign_state: smithay::wayland::xdg_foreign::XdgForeignState::new::<State>(&dh),
             selecting: None,
             overview: None,
             pending_shots: Vec::new(),
