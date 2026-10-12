@@ -54,7 +54,9 @@ try:
 
     fresh_wireplumber()
 
-    comp = Compositor(windows=1)
+    # Keys for the dynamic cast target (nested, Super is Alt).
+    cast_keys = '[bindings]\ncast_window = ["Super+w"]\ncast_monitor = ["Super+o"]\ncast_clear = ["Super+x"]\n'
+    comp = Compositor(windows=1, config=cast_keys)
     time.sleep(3)
     portal_env = dict(pw_env, WAYLAND_DISPLAY=comp.display, MYWM_SOCKET=comp.sock, RUST_LOG="info")
     spawn(["./target/debug/mywm-portal"], portal_env, "portal")
@@ -137,6 +139,28 @@ try:
     opaque = subprocess.check_output(["identify", "-format", "%[opaque]", path]).decode()
     assert opaque.lower() == "true", f"BGRA frames are not opaque: {opaque}"
     print("BGRA opaque OK")
+    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    assert closed.returncode == 0, closed.stderr
+
+    # A dynamic stream ("d" in the overview): black until a key gives it a target, then whatever the keys
+    # say, and black again (not the last picture) once they take it away.
+    session, node, size, source_type = stream(lambda: comp.key("d"), "dynamic")
+    dims, path = grab(node, "dynamic-start")
+    assert dims == "1280x720" and brightness(path) < 0.02, (dims, brightness(path))
+    comp.key("alt+w")
+    time.sleep(1)
+    dims, path = grab(node, "dynamic-window")
+    assert dims not in ("1280x720", "1280x800") and brightness(path) > 0.1, (dims, brightness(path))
+    print("dynamic stream shows the focused window:", dims)
+    comp.key("alt+o")
+    time.sleep(1)
+    dims, path = grab(node, "dynamic-monitor")
+    assert dims == "1280x800" and brightness(path) > 0.1, (dims, brightness(path))
+    comp.key("alt+x")
+    time.sleep(1)
+    dims, path = grab(node, "dynamic-clear")
+    assert brightness(path) < 0.02, ("the stream still shows the monitor after cast_clear", brightness(path))
+    print("dynamic stream: monitor, then black again OK")
     closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
 

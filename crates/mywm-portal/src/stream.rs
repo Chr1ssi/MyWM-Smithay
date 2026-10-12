@@ -1,17 +1,25 @@
 //! One screen-cast stream: captures a monitor or window from the compositor with
 //! `ext-image-copy-capture` and publishes the frames as a PipeWire video source.
 //!
+//! A dynamic stream follows the compositor's cast target (`v1 cast-target`, switched with keys):
+//! it replaces its capture session when the target changes and sends black frames while there is
+//! none, so a consumer never keeps showing the last picture of something that was taken away.
+//!
 //! Frames are captured straight into the PipeWire buffers (their shared memory backs the
 //! `wl_buffer`), so there is no copy in this process. Everything runs on one thread whose
 //! PipeWire loop also watches the Wayland connection.
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    os::fd::{AsFd, FromRawFd},
+    collections::{HashMap, HashSet},
+    io::{Read, Write},
+    os::fd::{AsFd, AsRawFd, FromRawFd},
+    os::unix::net::UnixStream,
     rc::Rc,
     sync::mpsc,
     thread::JoinHandle,
 };
+
+use mywm_ipc::CastTarget;
 
 use pipewire as pw;
 use pw::{
@@ -27,7 +35,7 @@ use pw::{
 };
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
-    globals::{GlobalList, GlobalListContents, registry_queue_init},
+    globals::{GlobalListContents, registry_queue_init},
     protocol::{
         wl_buffer::WlBuffer,
         wl_output::{self, WlOutput},
@@ -57,17 +65,22 @@ use wayland_protocols::ext::{
 pub enum Source {
     Monitor(String),
     Window(String),
+    /// Whatever the compositor's cast target is (see the module documentation).
+    Dynamic,
 }
 
 impl Source {
-    /// `source_type` of the portal: 1 monitor, 2 window.
+    /// `source_type` of the portal: 1 monitor, 2 window. A dynamic stream counts as a monitor.
     pub fn portal_type(&self) -> u32 {
         match self {
-            Source::Monitor(_) => 1,
+            Source::Monitor(_) | Source::Dynamic => 1,
             Source::Window(_) => 2,
         }
     }
 }
+
+/// The size a dynamic stream starts with, black, before it is given a target.
+const DYNAMIC_START_SIZE: (u32, u32) = (1280, 720);
 
 pub struct Started {
     pub node_id: u32,
@@ -125,7 +138,6 @@ struct Wl {
     // Session constraints.
     size: Option<(u32, u32)>,
     constraints_done: bool,
-    constraints_changed: bool,
     stopped: bool,
     // Frame outcome, set by events.
     frame: Option<Result<(), FailureReason>>,
@@ -170,12 +182,7 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, ()> for Wl {
     fn event(state: &mut Self, _: &ExtImageCopyCaptureSessionV1, event: ext_image_copy_capture_session_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         use ext_image_copy_capture_session_v1::Event;
         match event {
-            Event::BufferSize { width, height } => {
-                if state.size.is_some_and(|s| s != (width, height)) {
-                    state.constraints_changed = true;
-                }
-                state.size = Some((width, height));
-            }
+            Event::BufferSize { width, height } => state.size = Some((width, height)),
             Event::Done => state.constraints_done = true,
             Event::Stopped => state.stopped = true,
             _ => {}
@@ -206,6 +213,37 @@ wayland_client::delegate_noop!(Wl: ignore ExtOutputImageCaptureSourceManagerV1);
 wayland_client::delegate_noop!(Wl: ignore ExtForeignToplevelImageCaptureSourceManagerV1);
 wayland_client::delegate_noop!(Wl: ignore ExtImageCopyCaptureManagerV1);
 
+/// What a stream needs to open capture sessions, also later ones (a dynamic stream's).
+struct Capture {
+    copy: ExtImageCopyCaptureManagerV1,
+    outputs: ExtOutputImageCaptureSourceManagerV1,
+    toplevels: ExtForeignToplevelImageCaptureSourceManagerV1,
+    /// Kept so the toplevels' identifiers stay known.
+    _list: ExtForeignToplevelListV1,
+    cursor: bool,
+}
+
+impl Capture {
+    /// A session for a monitor or window by name; `None` if it is not there (any more).
+    fn open(&self, wl: &Wl, qh: &QueueHandle<Wl>, target: &CastTarget) -> Option<ExtImageCopyCaptureSessionV1> {
+        let source = match target {
+            CastTarget::Nothing => return None,
+            CastTarget::Monitor(name) => {
+                let output = wl.outputs.iter().find(|(_, n)| n.as_deref() == Some(name.as_str()))?.0.clone();
+                self.outputs.create_source(&output, qh, ())
+            }
+            CastTarget::Window(identifier) => {
+                let handle = wl.toplevels.iter().find(|(_, id)| id.as_deref() == Some(identifier.as_str()))?.0.clone();
+                self.toplevels.create_source(&handle, qh, ())
+            }
+        };
+        let options = if self.cursor { Options::PaintCursors } else { Options::empty() };
+        let session = self.copy.create_session(&source, options, qh, ());
+        source.destroy();
+        Some(session)
+    }
+}
+
 // --- PipeWire side ------------------------------------------------------------------------
 
 /// Everything the callbacks share (single-threaded).
@@ -215,15 +253,23 @@ struct Shared {
     wl: Wl,
     qh: QueueHandle<Wl>,
     shm: WlShm,
-    session: ExtImageCopyCaptureSessionV1,
+    capture: Capture,
+    /// None for a dynamic stream without a target: it sends black frames.
+    session: Option<ExtImageCopyCaptureSessionV1>,
+    /// The compositor connection a dynamic stream hears its targets on, and what arrived of a line.
+    follow: Option<(UnixStream, Vec<u8>)>,
+    /// The size last offered to the consumer.
+    offered: (u32, u32),
+    /// Buffers already black (a dynamic stream without a target fills each once).
+    blackened: HashSet<usize>,
     // Negotiated.
     format: Option<(VideoFormat, (u32, u32))>,
     streaming: bool,
     node_reported: bool,
     /// PipeWire buffer -> the wl_buffer over its memory.
     buffers: HashMap<usize, (WlBuffer, std::os::fd::OwnedFd)>,
-    /// The buffer being captured into, and its frame object.
-    in_flight: Option<(*mut pw::sys::pw_buffer, ExtImageCopyCaptureFrameV1)>,
+    /// The buffer being captured into, and its frame object (none for a black frame).
+    in_flight: Option<(*mut pw::sys::pw_buffer, Option<ExtImageCopyCaptureFrameV1>)>,
     ready_tx: Option<mpsc::Sender<Result<Started, String>>>,
     /// The stream ended without being asked to.
     ended_itself: bool,
@@ -329,24 +375,109 @@ impl Shared {
 
     fn after_events(&mut self, stream: &StreamRef) {
         if self.wl.stopped {
-            self.ended_itself = true;
-            return;
-        }
-        if self.wl.constraints_changed {
-            // The window or monitor changed size: offer the new size.
-            self.wl.constraints_changed = false;
-            if let Some(size) = self.wl.size {
-                let bytes = format_pod(size);
-                if let Some(pod) = Pod::from_bytes(&bytes) {
-                    let _ = stream.update_params(&mut [pod]);
-                }
+            // A dynamic stream outlives what it showed: it goes black until the next target.
+            if self.follow.is_some() {
+                self.retarget(stream, &CastTarget::Nothing);
+            } else {
+                self.ended_itself = true;
+                return;
             }
+        }
+        // The window or monitor changed size, or a new target has another: offer the new size.
+        if let Some(size) = self.wl.size.filter(|_| self.session.is_some() && self.wl.constraints_done)
+            && size != self.offered
+        {
+            self.offer(stream, size);
         }
         if let Some(outcome) = self.wl.frame.take() {
             self.finish_frame(stream, outcome);
         }
         self.request_frame(stream);
         self.flush();
+    }
+
+    fn offer(&mut self, stream: &StreamRef, size: (u32, u32)) {
+        self.offered = size;
+        let bytes = format_pod(size);
+        if let Some(pod) = Pod::from_bytes(&bytes) {
+            let _ = stream.update_params(&mut [pod]);
+        }
+    }
+
+    /// Show `target` from now on: the capture in flight is dropped, the old session closed, a new one
+    /// opened; without a target (or when it is gone) the stream goes black.
+    fn retarget(&mut self, stream: &StreamRef, target: &CastTarget) {
+        if self.in_flight.is_some() {
+            self.finish_frame(stream, Err(FailureReason::Unknown));
+        }
+        if let Some(session) = self.session.take() {
+            session.destroy();
+        }
+        self.wl.size = None;
+        self.wl.constraints_done = false;
+        self.wl.stopped = false;
+        self.wl.frame = None;
+        self.session = self.capture.open(&self.wl, &self.qh, target);
+        if self.session.is_none() {
+            // The buffers hold the last picture: black them again.
+            self.blackened.clear();
+        }
+        tracing::info!("screen cast: now showing {target:?}");
+        self.flush();
+    }
+
+    /// Lines from the compositor connection of a dynamic stream: the targets.
+    fn read_targets(&mut self, stream: &StreamRef) {
+        let Some((connection, pending)) = &mut self.follow else { return };
+        let mut buf = [0; 1024];
+        let mut gone = false;
+        loop {
+            match connection.read(&mut buf) {
+                Ok(0) => {
+                    gone = true;
+                    break;
+                }
+                Ok(n) => pending.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        let mut targets = Vec::new();
+        while let Some(end) = pending.iter().position(|c| *c == b'\n') {
+            let line: Vec<u8> = pending.drain(..=end).collect();
+            if let Some(target) = std::str::from_utf8(&line).ok().and_then(CastTarget::parse) {
+                targets.push(target);
+            }
+        }
+        if gone {
+            // The compositor went away: nothing will be shown any more.
+            self.follow = None;
+            targets.push(CastTarget::Nothing);
+        }
+        for target in targets {
+            self.retarget(stream, &target);
+        }
+    }
+
+    /// A black frame for a dynamic stream without a target: every buffer is filled once.
+    fn black_frame(&mut self, stream: &StreamRef, size: (u32, u32)) {
+        // SAFETY: a buffer we get here is handed back with `queue_raw_buffer` exactly once.
+        let raw = unsafe { stream.dequeue_raw_buffer() };
+        if raw.is_null() {
+            return;
+        }
+        if !self.blackened.contains(&(raw as usize))
+            && let Some((_, fd)) = self.buffers.get(&(raw as usize))
+        {
+            let zeros = vec![0u8; (size.0 * size.1 * 4) as usize];
+            // SAFETY: writes into our own memfd, at most its length.
+            let written = unsafe { libc::pwrite(fd.as_raw_fd(), zeros.as_ptr().cast(), zeros.len(), 0) };
+            if written == zeros.len() as isize {
+                self.blackened.insert(raw as usize);
+            }
+        }
+        self.in_flight = Some((raw, None));
+        self.finish_frame(stream, Ok(()));
     }
 
     /// Start a capture into a free PipeWire buffer if the stream wants frames.
@@ -362,6 +493,13 @@ impl Shared {
             return;
         }
         self.next_capture = if now.duration_since(self.next_capture) > self.frame_interval { now + self.frame_interval } else { self.next_capture + self.frame_interval };
+        let Some(session) = self.session.clone() else {
+            return self.black_frame(stream, size);
+        };
+        // A new session first agrees on its size with the consumer.
+        if !self.wl.constraints_done || self.wl.size != Some(size) {
+            return;
+        }
         // SAFETY: a buffer we get here is handed back with `queue_raw_buffer` exactly once.
         let raw = unsafe { stream.dequeue_raw_buffer() };
         if raw.is_null() {
@@ -372,17 +510,19 @@ impl Shared {
             unsafe { stream.queue_raw_buffer(raw) };
             return;
         };
-        let _ = (format, size);
-        let frame = self.session.create_frame(&self.qh, ());
+        let _ = format;
+        let frame = session.create_frame(&self.qh, ());
         frame.attach_buffer(&wl_buffer);
         frame.damage_buffer(0, 0, size.0 as i32, size.1 as i32);
         frame.capture();
-        self.in_flight = Some((raw, frame));
+        self.in_flight = Some((raw, Some(frame)));
     }
 
     fn finish_frame(&mut self, stream: &StreamRef, outcome: Result<(), FailureReason>) {
         let Some((raw, frame)) = self.in_flight.take() else { return };
-        frame.destroy();
+        if let Some(frame) = frame {
+            frame.destroy();
+        }
         let Some((_, size)) = self.format else { return };
         // SAFETY: `raw` came from `dequeue_raw_buffer` and is valid until queued.
         unsafe {
@@ -426,13 +566,12 @@ impl Shared {
             let _ = stream.trigger_process();
         } else if matches!(outcome, Err(FailureReason::Stopped)) {
             self.wl.stopped = true;
-            self.ended_itself = true;
         }
     }
 }
 
 /// The Wayland side once the compositor has announced what it can capture.
-type WaylandParts = (Connection, EventQueue<Wl>, Wl, GlobalList, ExtImageCopyCaptureSessionV1, WlShm);
+type WaylandParts = (Connection, EventQueue<Wl>, Wl, Capture, Option<ExtImageCopyCaptureSessionV1>, WlShm);
 
 fn setup_wayland(source: &Source, cursor: bool) -> Result<WaylandParts, String> {
     let conn = Connection::connect_to_env().map_err(|e| format!("cannot connect to the compositor: {e}"))?;
@@ -441,50 +580,48 @@ fn setup_wayland(source: &Source, cursor: bool) -> Result<WaylandParts, String> 
     let mut wl = Wl::default();
     let need = |what: &str| format!("the compositor does not offer {what}");
     let shm: WlShm = globals.bind(&qh, 1..=1, ()).map_err(|_| need("wl_shm"))?;
-    let copy: ExtImageCopyCaptureManagerV1 = globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-image-copy-capture"))?;
-    let source_object = match source {
-        Source::Monitor(name) => {
-            let manager: ExtOutputImageCaptureSourceManagerV1 = globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-image-capture-source"))?;
-            // Bind every output to learn its name.
-            let outputs: Vec<(u32, u32)> = globals.contents().with_list(|list| {
-                list.iter().filter(|g| g.interface == "wl_output").map(|g| (g.name, g.version)).collect()
-            });
-            for (global, version) in outputs {
-                let output: WlOutput = globals.registry().bind(global, version.min(4), &qh, ());
-                wl.outputs.push((output, None));
-            }
-            queue.roundtrip(&mut wl).map_err(|e| e.to_string())?;
-            let output = wl
-                .outputs
-                .iter()
-                .find(|(_, n)| n.as_deref() == Some(name.as_str()))
-                .map(|(o, _)| o.clone())
-                .ok_or_else(|| format!("no monitor called {name}"))?;
-            manager.create_source(&output, &qh, ())
-        }
-        Source::Window(identifier) => {
-            let manager: ExtForeignToplevelImageCaptureSourceManagerV1 = globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-image-capture-source"))?;
-            let _list: ExtForeignToplevelListV1 = globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-foreign-toplevel-list"))?;
-            queue.roundtrip(&mut wl).map_err(|e| e.to_string())?;
-            queue.roundtrip(&mut wl).map_err(|e| e.to_string())?;
-            let handle = wl
-                .toplevels
-                .iter()
-                .find(|(_, id)| id.as_deref() == Some(identifier.as_str()))
-                .map(|(h, _)| h.clone())
-                .ok_or("the window is gone")?;
-            manager.create_source(&handle, &qh, ())
-        }
+    let capture = Capture {
+        copy: globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-image-copy-capture"))?,
+        outputs: globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-image-capture-source"))?,
+        toplevels: globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-image-capture-source"))?,
+        _list: globals.bind(&qh, 1..=1, ()).map_err(|_| need("ext-foreign-toplevel-list"))?,
+        cursor,
     };
-    let options = if cursor { Options::PaintCursors } else { Options::empty() };
-    let session = copy.create_session(&source_object, options, &qh, ());
+    // Bind every output to learn its name.
+    let outputs: Vec<(u32, u32)> =
+        globals.contents().with_list(|list| list.iter().filter(|g| g.interface == "wl_output").map(|g| (g.name, g.version)).collect());
+    for (global, version) in outputs {
+        let output: WlOutput = globals.registry().bind(global, version.min(4), &qh, ());
+        wl.outputs.push((output, None));
+    }
+    // Names, then the toplevels and their identifiers.
+    queue.roundtrip(&mut wl).map_err(|e| e.to_string())?;
+    queue.roundtrip(&mut wl).map_err(|e| e.to_string())?;
+    let target = match source {
+        Source::Dynamic => return Ok((conn, queue, wl, capture, None, shm)),
+        Source::Monitor(name) => CastTarget::Monitor(name.clone()),
+        Source::Window(identifier) => CastTarget::Window(identifier.clone()),
+    };
+    let session = capture.open(&wl, &qh, &target).ok_or_else(|| match source {
+        Source::Monitor(name) => format!("no monitor called {name}"),
+        _ => "the window is gone".to_owned(),
+    })?;
     while !wl.constraints_done {
         queue.blocking_dispatch(&mut wl).map_err(|e| e.to_string())?;
         if wl.stopped {
             return Err("the source is not available for capture".into());
         }
     }
-    Ok((conn, queue, wl, globals, session, shm))
+    Ok((conn, queue, wl, capture, Some(session), shm))
+}
+
+/// Follow the compositor's cast target: `v1 cast-follow` on a connection of the stream's own.
+fn follow_targets() -> Result<UnixStream, String> {
+    let path = crate::chooser::socket_path().ok_or("no MYWM_SOCKET and no XDG_RUNTIME_DIR")?;
+    let mut connection = UnixStream::connect(&path).map_err(|e| format!("cannot reach the compositor at {}: {e}", path.display()))?;
+    connection.write_all(b"v1 cast-follow\n").map_err(|e| e.to_string())?;
+    connection.set_nonblocking(true).map_err(|e| e.to_string())?;
+    Ok(connection)
 }
 
 /// Run the stream until asked to stop (or the source ends). Returns whether it ended by itself.
@@ -499,11 +636,21 @@ fn run(
         let _ = tx.send(Err(message));
         false
     };
-    let (conn, queue, wl, _globals, session, shm) = match setup_wayland(&source, cursor) {
+    let (conn, queue, wl, capture, session, shm) = match setup_wayland(&source, cursor) {
         Ok(parts) => parts,
         Err(message) => return fail(&ready_tx, message),
     };
-    let Some(size) = wl.size else { return fail(&ready_tx, "the compositor announced no size".into()) };
+    let follow = match source {
+        Source::Dynamic => match follow_targets() {
+            Ok(connection) => Some((connection, Vec::new())),
+            Err(message) => return fail(&ready_tx, message),
+        },
+        _ => None,
+    };
+    let size = if follow.is_some() { DYNAMIC_START_SIZE } else {
+        let Some(size) = wl.size else { return fail(&ready_tx, "the compositor announced no size".into()) };
+        size
+    };
     let qh = queue.handle();
 
     pw::init();
@@ -524,7 +671,11 @@ fn run(
         wl,
         qh,
         shm,
+        capture,
         session,
+        follow,
+        offered: size,
+        blackened: HashSet::new(),
         format: None,
         streaming: false,
         node_reported: false,
@@ -567,7 +718,7 @@ fn run(
                         if !s.node_reported {
                             s.node_reported = true;
                             if let Some(tx) = s.ready_tx.take() {
-                                let size = s.wl.size.unwrap_or((0, 0));
+                                let size = s.offered;
                                 let _ = tx.send(Ok(Started { node_id: stream.node_id(), size }));
                             }
                         }
@@ -664,10 +815,11 @@ fn run(
             {
                 // A capture into this buffer is pointless now; the buffer is gone.
                 if s.in_flight.as_ref().is_some_and(|(p, _)| *p == raw)
-                    && let Some((_, frame)) = s.in_flight.take()
+                    && let Some((_, Some(frame))) = s.in_flight.take()
                 {
                     frame.destroy();
                 }
+                s.blackened.remove(&(raw as usize));
                 buffer.destroy();
             }
         })
@@ -702,6 +854,18 @@ fn run(
                 quit.quit();
             }
         }
+    });
+    // A dynamic stream hears its targets on its compositor connection.
+    let follow_fd = shared.borrow().follow.as_ref().and_then(|(c, _)| c.as_fd().try_clone_to_owned().ok());
+    let _follow_io = follow_fd.map(|fd| {
+        mainloop.loop_().add_io(fd, spa::support::system::IoFlags::IN, {
+            let (shared, stream) = (shared.clone(), stream.clone());
+            move |_| {
+                if let Ok(mut s) = shared.try_borrow_mut() {
+                    s.read_targets(&stream);
+                }
+            }
+        })
     });
     // A buffer may be missing right when a frame is wanted; look again now and then.
     let timer = mainloop.loop_().add_timer({

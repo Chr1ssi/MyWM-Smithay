@@ -276,6 +276,7 @@ impl State {
             locked: self.session_lock.is_locked(),
             gaming: self.game_shown(),
             capturing: self.capturing(),
+            choosing: self.share_kinds().is_some(),
             config_error: self.config_error.clone(),
             ..Default::default()
         };

@@ -11,6 +11,17 @@ GPU-Puffer (dmabuf) werden direkt beschrieben, ohne Umweg über die CPU; Shared-
 brauchen einmal Auslesen der GPU. Auf der Hardware verwendet der Portal-Dienst automatisch den
 dmabuf-Weg, wenn OBS/der Browser ihn versteht.
 
+## Dynamischer Stream
+
+Wählt man beim Teilen in der Übersicht `D`, entsteht ein Stream, dessen Inhalt man per Tastenkürzel
+wechselt, ohne dass OBS oder der Browser neu teilen müssen: `cast_window` zeigt das fokussierte
+Fenster, `cast_monitor` den fokussierten Monitor, `cast_clear` nichts (schwarze Bilder, nicht das
+letzte Bild). Er beginnt schwarz. Die Tasten haben keine Standardbelegung (`[bindings]`, siehe
+`example.toml`). Ändert sich die Größe, handelt der Stream sie mit dem Empfänger neu aus.
+
+Die Bar zeigt währenddessen „Aufnahme“, solange etwas aufgenommen wird, und beim Auswählen einen
+Hinweis mit den Tasten; ein einzeln geteiltes Fenster hat einen Rahmen in `appearance.capture_border`.
+
 ## Fenster aus Aufnahmen heraushalten
 
 Eine Fensterregel mit `block_from_capture = true` zeigt das Fenster in jeder Aufnahme als schwarze

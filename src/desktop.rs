@@ -553,6 +553,11 @@ impl State {
 
     fn remove_managed(&mut self, id: WindowId) {
         self.remember_floating(id);
+        // A dynamic cast of this window shows nothing from now on.
+        let shown = self.desktop.get(id).and_then(|m| m.foreign.as_ref()).map(|h| h.identifier());
+        if shown.is_some_and(|id| self.cast_target == mywm_ipc::CastTarget::Window(id)) {
+            self.set_cast_target(mywm_ipc::CastTarget::Nothing);
+        }
         if let Some(managed) = self.desktop.get(id) {
             self.space.unmap_elem(&managed.window);
         }

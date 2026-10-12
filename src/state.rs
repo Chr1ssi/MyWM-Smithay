@@ -135,6 +135,11 @@ pub struct State {
     pub ipc_dirty: bool,
     /// The bar client that confirms logouts (`handle-logout`), if one registered.
     pub logout_handler: Option<u64>,
+    /// What dynamic screen casts show, and the bar-socket clients (the portal's streams) that follow it.
+    pub cast_target: mywm_ipc::CastTarget,
+    pub cast_followers: std::collections::HashSet<u64>,
+    /// Followers that have not been told the current target yet (sent by `ipc_flush`).
+    pub cast_unsent: Vec<u64>,
     /// When wlr-screencopy last copied a frame (see `State::capturing`).
     pub last_screencopy: Option<Instant>,
     /// Where each app's floating window was last (see `floating_memory`).
@@ -337,6 +342,9 @@ impl State {
             config_error: None,
             floating_memory: crate::floating_memory::load(),
             last_screencopy: None,
+            cast_target: Default::default(),
+            cast_followers: Default::default(),
+            cast_unsent: Vec::new(),
             pointer_modifiers: Modifiers::default(),
             suppressed_keys: Vec::new(),
             remap_super,

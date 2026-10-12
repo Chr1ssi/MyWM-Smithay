@@ -192,6 +192,9 @@ impl State {
             ModalKey::Down => (selected + columns).min(n - 1),
             ModalKey::Cancel => return self.close_overview(),
             ModalKey::Confirm => return self.activate_overview_selection(),
+            // Picking what to share: a stream whose content the cast keys switch.
+            ModalKey::Dynamic if overview.share => return self.finish_selection(Some(mywm_ipc::Chosen::Dynamic)),
+            ModalKey::Dynamic => selected,
             ModalKey::Ignore => selected,
         };
         self.queue_redraw_all();

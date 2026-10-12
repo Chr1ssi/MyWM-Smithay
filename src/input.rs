@@ -75,6 +75,19 @@ impl State {
                 }
             }
             Action::ToggleSticky => self.toggle_sticky(),
+            Action::CastWindow => {
+                let target = self.desktop.focused().and_then(|id| self.desktop.get(id)).and_then(|m| m.foreign.as_ref());
+                if let Some(handle) = target {
+                    self.set_cast_target(mywm_ipc::CastTarget::Window(handle.identifier()));
+                }
+            }
+            Action::CastMonitor => {
+                let output = self.outputs.get(self.desktop.focused_monitor).map(|e| e.output.name());
+                if let Some(name) = output {
+                    self.set_cast_target(mywm_ipc::CastTarget::Monitor(name));
+                }
+            }
+            Action::CastClear => self.set_cast_target(mywm_ipc::CastTarget::Nothing),
             Action::FocusUrgent => {
                 if let Some(id) = self.next_window_where(|m| m.urgent) {
                     self.show_window(id);
@@ -153,6 +166,7 @@ impl State {
                                 keysyms::KEY_Right => ModalKey::Right,
                                 keysyms::KEY_Up => ModalKey::Up,
                                 keysyms::KEY_Down => ModalKey::Down,
+                                keysyms::KEY_d | keysyms::KEY_D => ModalKey::Dynamic,
                                 _ => ModalKey::Ignore,
                             }));
                         }

@@ -55,6 +55,8 @@ pub enum ModalKey {
     Right,
     Up,
     Down,
+    /// `d` while picking what to share: a dynamic cast.
+    Dynamic,
     Ignore,
 }
 
@@ -82,6 +84,8 @@ impl State {
         }
         self.selecting = Some(Selecting { anchor: None, purpose: Purpose::Share { client, kinds } });
         self.open_overview(true);
+        // The bar shows how to pick.
+        self.ipc_dirty = true;
         self.queue_redraw_all();
         true
     }
@@ -98,6 +102,7 @@ impl State {
     pub fn finish_selection(&mut self, chosen: Option<mywm_ipc::Chosen>) {
         if let Some(Selecting { purpose: Purpose::Share { client, .. }, .. }) = self.selecting.take() {
             self.ipc_send_chosen(client, &chosen.unwrap_or(mywm_ipc::Chosen::Nothing));
+            self.ipc_dirty = true;
             if self.overview.as_ref().is_some_and(|o| o.share) {
                 self.overview = None;
             }
@@ -145,7 +150,7 @@ impl State {
                     self.shoot_output_under_pointer();
                 }
             },
-            ModalKey::Ignore | ModalKey::Left | ModalKey::Right | ModalKey::Up | ModalKey::Down => {}
+            ModalKey::Ignore | ModalKey::Left | ModalKey::Right | ModalKey::Up | ModalKey::Down | ModalKey::Dynamic => {}
         }
     }
 

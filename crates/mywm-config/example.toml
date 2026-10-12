@@ -119,6 +119,11 @@
 #focus_urgent = ["Super+u"]
 # Fenster auf allen Workspaces seines Monitors (schwebend, z. B. Bild-im-Bild); ohne Standardtaste.
 #toggle_sticky = ["Super+p"]
+# Dynamischer Stream (beim Teilen D drücken): zeigt das fokussierte Fenster, den fokussierten
+# Monitor oder nichts (schwarz); der Stream in OBS/Browser läuft dabei weiter. Ohne Standardtasten.
+#cast_window = ["Super+Ctrl+w"]
+#cast_monitor = ["Super+Ctrl+o"]
+#cast_clear = ["Super+Ctrl+x"]
 # Monitorfokus bzw. fokussiertes Fenster geometrisch zum Nachbarmonitor bewegen.
 #focus_output_left = ["Super+Alt+Left"]
 #focus_output_right = ["Super+Alt+Right"]

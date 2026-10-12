@@ -5,8 +5,10 @@
 //! * compositor → client, whenever something changed:
 //!   `v1 state <output>;<output>...`, `v1 scratchpad <visible> <occupied>`, `v1 locked <0|1>`,
 //!   `v1 gaming <0|1>` (a game is shown fullscreen on some monitor), `v1 capture <0|1>` (something
-//!   records or streams the screen or a window), `v1 config ok` or
+//!   records or streams the screen or a window), `v1 choosing <0|1>` (the user picks what to share),
+//!   `v1 config ok` or
 //!   `v1 config error <reason>` (the configuration file did not load)
+//! * `v1 cast-follow`: the compositor sends `v1 cast-target ...` (see `CastTarget`) now and on every change
 //! * `v1 inhibit-idle` keeps the session from going idle until the sender's connection closes
 //!   (mywm-portal, for apps that inhibit through the portal)
 //! * compositor → the client that sent `handle-logout`, when the exit binding is pressed:
@@ -40,6 +42,8 @@ impl SourceKinds {
 pub enum Chosen {
     Monitor(String),
     Window(String),
+    /// A stream whose content the user switches with keys (see `CastTarget`).
+    Dynamic,
     Nothing,
 }
 
@@ -48,6 +52,7 @@ impl Chosen {
         match self {
             Chosen::Monitor(name) => format!("v1 chosen monitor {name}\n"),
             Chosen::Window(id) => format!("v1 chosen window {id}\n"),
+            Chosen::Dynamic => "v1 chosen dynamic\n".into(),
             Chosen::Nothing => "v1 chosen none\n".into(),
         }
     }
@@ -57,7 +62,38 @@ impl Chosen {
         match args.as_slice() {
             ["v1", "chosen", "monitor", name] => Some(Chosen::Monitor((*name).into())),
             ["v1", "chosen", "window", id] => Some(Chosen::Window((*id).into())),
+            ["v1", "chosen", "dynamic"] => Some(Chosen::Dynamic),
             ["v1", "chosen", "none"] => Some(Chosen::Nothing),
+            _ => None,
+        }
+    }
+}
+
+/// What dynamic screen casts show: sent as `v1 cast-target none|monitor <name>|window <id>` to every client
+/// that follows it (`cast-follow`), at once and whenever it changes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CastTarget {
+    #[default]
+    Nothing,
+    Monitor(String),
+    Window(String),
+}
+
+impl CastTarget {
+    pub fn encode(&self) -> String {
+        match self {
+            CastTarget::Nothing => "v1 cast-target none\n".into(),
+            CastTarget::Monitor(name) => format!("v1 cast-target monitor {name}\n"),
+            CastTarget::Window(id) => format!("v1 cast-target window {id}\n"),
+        }
+    }
+
+    pub fn parse(line: &str) -> Option<Self> {
+        let args: Vec<_> = line.split_whitespace().collect();
+        match args.as_slice() {
+            ["v1", "cast-target", "none"] => Some(CastTarget::Nothing),
+            ["v1", "cast-target", "monitor", name] => Some(CastTarget::Monitor((*name).into())),
+            ["v1", "cast-target", "window", id] => Some(CastTarget::Window((*id).into())),
             _ => None,
         }
     }
@@ -75,6 +111,8 @@ pub enum Command {
     HandleLogout,
     /// Keep the session from going idle while the sender stays connected.
     InhibitIdle,
+    /// Follow the dynamic cast target (`v1 cast-target ...`) while connected.
+    CastFollow,
     ThemeReload,
     Scratchpad,
     NewWorkspace { output: u32 },
@@ -95,6 +133,7 @@ pub fn parse_command(line: &str) -> Option<Command> {
         ["v1", "logout"] => Some(Command::Logout),
         ["v1", "handle-logout"] => Some(Command::HandleLogout),
         ["v1", "inhibit-idle"] => Some(Command::InhibitIdle),
+        ["v1", "cast-follow"] => Some(Command::CastFollow),
         ["v1", "theme-reload"] => Some(Command::ThemeReload),
         ["v1", "scratchpad"] => Some(Command::Scratchpad),
         ["v1", "new-workspace", output] => Some(Command::NewWorkspace { output: output.parse().ok()? }),
@@ -136,6 +175,7 @@ pub struct Snapshot {
     pub locked: bool,
     pub gaming: bool,
     pub capturing: bool,
+    pub choosing: bool,
     /// Why the configuration file did not load (one line), if it did not.
     pub config_error: Option<String>,
 }
@@ -163,13 +203,14 @@ impl Snapshot {
             })
             .collect();
         format!(
-            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\nv1 gaming {}\nv1 capture {}\nv1 config {}\n",
+            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\nv1 gaming {}\nv1 capture {}\nv1 choosing {}\nv1 config {}\n",
             outputs.join(";"),
             u8::from(self.scratchpad_visible),
             u8::from(self.scratchpad_occupied),
             u8::from(self.locked),
             u8::from(self.gaming),
             u8::from(self.capturing),
+            u8::from(self.choosing),
             // A reason with a line break would break the protocol's lines.
             self.config_error.as_deref().map_or("ok".into(), |reason| format!("error {}", reason.replace('\n', " ")))
         )
@@ -215,6 +256,7 @@ impl Snapshot {
                 ["v1", "locked", locked] => snapshot.locked = *locked == "1",
                 ["v1", "gaming", gaming] => snapshot.gaming = *gaming == "1",
                 ["v1", "capture", capturing] => snapshot.capturing = *capturing == "1",
+                ["v1", "choosing", choosing] => snapshot.choosing = *choosing == "1",
                 ["v1", "config", "ok"] => snapshot.config_error = None,
                 ["v1", "config", "error", reason @ ..] => snapshot.config_error = Some(reason.join(" ")),
                 _ => return None,
@@ -256,6 +298,11 @@ mod tests {
         assert_eq!(parse_command("v1 logout"), Some(Command::Logout));
         assert_eq!(parse_command("v1 handle-logout\n"), Some(Command::HandleLogout));
         assert_eq!(parse_command("v1 inhibit-idle\n"), Some(Command::InhibitIdle));
+        assert_eq!(parse_command("v1 cast-follow"), Some(Command::CastFollow));
+        for target in [CastTarget::Nothing, CastTarget::Monitor("DP-3".into()), CastTarget::Window("abc".into())] {
+            assert_eq!(CastTarget::parse(&target.encode()), Some(target));
+        }
+        assert_eq!(Chosen::parse(&Chosen::Dynamic.encode()), Some(Chosen::Dynamic));
         assert_eq!(confirm_logout(7), "v1 confirm-logout 7\n");
         assert_eq!(parse_command("v1 theme-reload"), Some(Command::ThemeReload));
         assert_eq!(parse_command("v1 choose-source both"), Some(Command::ChooseSource(SourceKinds::Both)));
@@ -293,12 +340,13 @@ mod tests {
             locked: false,
             gaming: true,
             capturing: false,
+            choosing: false,
             config_error: None,
         };
         let text = snapshot.encode();
         assert_eq!(
             text,
-            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\nv1 gaming 1\nv1 capture 0\nv1 config ok\n"
+            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\nv1 gaming 1\nv1 capture 0\nv1 choosing 0\nv1 config ok\n"
         );
         assert_eq!(Snapshot::decode(&text), Some(snapshot));
         let broken = Snapshot { config_error: Some("line 3 · expected a number".into()), ..Snapshot::default() };

@@ -156,6 +156,8 @@ impl State {
             return elements;
         }
         if let Some(overview) = self.overview_elements(renderer, output, blanks) {
+            // The top layer stays on top: notifications, and what to do while picking what to share.
+            elements.extend(layer_elements(renderer, output, &[Layer::Overlay]));
             elements.extend(overview);
             elements.extend(self.scene_elements(renderer, output, false, Vec::new(), Vec::new(), blanks));
             return elements;
@@ -188,26 +190,10 @@ impl State {
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
         let visible_area = Rectangle::<i32, Physical>::from_size(geo.size.to_physical_precise_round(scale));
-        let map = layer_map_for_output(output);
-        let layer_elements = |renderer: &mut GlesRenderer, layers: &[Layer]| -> Vec<OutputElement> {
-            map.layers()
-                .rev()
-                .filter(|surface| layers.contains(&surface.layer()))
-                .filter_map(|surface| map.layer_geometry(surface).map(|geo| (geo.loc, surface)))
-                .flat_map(|(loc, surface)| {
-                    AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
-                        surface,
-                        renderer,
-                        loc.to_physical_precise_round(scale),
-                        Scale::from(scale),
-                        1.0,
-                    )
-                })
-                .map(OutputElement::from)
-                .collect()
-        };
+        let layer_elements = |renderer: &mut GlesRenderer, layers: &[Layer]| layer_elements(renderer, output, layers);
 
-        let mut elements = layer_elements(renderer, &[Layer::Overlay]);
+        // With the overview the `Overlay` layer is drawn in front of it (see `draw_output`).
+        let mut elements = if with_windows { layer_elements(renderer, &[Layer::Overlay]) } else { Vec::new() };
         let (mut unmanaged, mut fullscreen, mut regular) = (Vec::new(), Vec::new(), Vec::new());
         for window in self.space.elements().rev().filter(|_| with_windows) {
             if !self.space.element_bbox(window).is_some_and(|bbox| bbox.overlaps(geo)) {
@@ -327,4 +313,25 @@ impl State {
     pub fn clear_color(&self) -> [f32; 4] {
         if self.session_lock.is_active() { [0.0, 0.0, 0.0, 1.0] } else { self.desktop.appearance.background.0 }
     }
+}
+
+/// The surfaces of `output`'s layer shell `layers`, front to back.
+fn layer_elements(renderer: &mut GlesRenderer, output: &Output, layers: &[Layer]) -> Vec<OutputElement> {
+    let scale = output.current_scale().fractional_scale();
+    let map = layer_map_for_output(output);
+    map.layers()
+        .rev()
+        .filter(|surface| layers.contains(&surface.layer()))
+        .filter_map(|surface| map.layer_geometry(surface).map(|geo| (geo.loc, surface)))
+        .flat_map(|(loc, surface)| {
+            AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                surface,
+                renderer,
+                loc.to_physical_precise_round(scale),
+                Scale::from(scale),
+                1.0,
+            )
+        })
+        .map(OutputElement::from)
+        .collect()
 }

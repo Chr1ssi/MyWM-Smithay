@@ -227,6 +227,7 @@ fn start_stream(
     let source = match choose_once(app_id, kinds)? {
         Chosen::Monitor(name) => Source::Monitor(name),
         Chosen::Window(id) => Source::Window(id),
+        Chosen::Dynamic => Source::Dynamic,
         Chosen::Nothing => return Ok(None),
     };
     let source_type = source.portal_type();

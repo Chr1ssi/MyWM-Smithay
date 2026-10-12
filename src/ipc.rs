@@ -186,6 +186,7 @@ impl State {
 
     /// A client disconnected or was dropped: what it held ends with it.
     fn ipc_client_gone(&mut self, id: u64) {
+        self.cast_followers.remove(&id);
         if self.ipc_idle_inhibitors.remove(&id) {
             self.update_idle_inhibition();
         }
@@ -195,7 +196,9 @@ impl State {
     fn run_ipc_command(&mut self, command: Command, client: u64) -> bool {
         // Registering does nothing by itself; a bar that restarts behind the lock must not lose it. An idle
         // inhibition (a video behind the lock) may begin there too.
-        if self.session_lock.is_active() && !matches!(command, Command::Lock | Command::HandleLogout | Command::InhibitIdle) {
+        if self.session_lock.is_active()
+            && !matches!(command, Command::Lock | Command::HandleLogout | Command::InhibitIdle | Command::CastFollow)
+        {
             return false;
         }
         match command {
@@ -204,6 +207,10 @@ impl State {
             // The bar sends this once the user confirmed; the exit binding would ask again.
             Command::Logout => self.loop_signal.stop(),
             Command::HandleLogout => self.logout_handler = Some(client),
+            Command::CastFollow => {
+                self.cast_followers.insert(client);
+                self.cast_unsent.push(client);
+            }
             Command::InhibitIdle => {
                 self.ipc_idle_inhibitors.insert(client);
                 self.update_idle_inhibition();
@@ -261,7 +268,28 @@ impl State {
     }
 
     /// Send the current state to every client whose copy is outdated.
+    /// Change what dynamic screen casts show; their streams are told at the next flush.
+    pub fn set_cast_target(&mut self, target: mywm_ipc::CastTarget) {
+        if self.cast_target == target {
+            return;
+        }
+        tracing::info!("dynamic cast target: {target:?}");
+        self.cast_target = target;
+        self.cast_unsent = self.cast_followers.iter().copied().collect();
+    }
+
     pub fn ipc_flush(&mut self) {
+        if !self.cast_unsent.is_empty() {
+            let line = self.cast_target.encode();
+            for client in std::mem::take(&mut self.cast_unsent) {
+                if let Some(ipc) = &mut self.ipc
+                    && let Some(c) = ipc.clients.iter_mut().find(|c| c.id == client)
+                {
+                    c.output.extend_from_slice(line.as_bytes());
+                    c.broken = !c.write_pending();
+                }
+            }
+        }
         if !self.ipc_dirty {
             return;
         }
