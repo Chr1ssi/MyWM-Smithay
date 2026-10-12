@@ -217,6 +217,8 @@ pub struct AppearanceConfig {
     pub muted_text: HexColor,
     /// Border of a window that asks for attention (`xdg-activation`) without being focused.
     pub urgent_border: HexColor,
+    /// Border of a window that is being shared or recorded on its own.
+    pub capture_border: HexColor,
 }
 
 impl Default for AppearanceConfig {
@@ -228,6 +230,7 @@ impl Default for AppearanceConfig {
             active_border: hex("#89b4fa"),
             inactive_border: hex("#45475a"),
             urgent_border: hex("#f38ba8"),
+            capture_border: hex("#fab387"),
             background: hex("#1e1e2e"),
             surface: hex("#313244"),
             text: hex("#cdd6f4"),
@@ -250,6 +253,7 @@ impl AppearanceConfig {
             ("on_surface_variant", &mut self.muted_text),
             ("primary", &mut self.active_border),
             ("outline_variant", &mut self.inactive_border),
+            ("tertiary", &mut self.capture_border),
         ] {
             if let Some(color) = color(role) {
                 *target = color;

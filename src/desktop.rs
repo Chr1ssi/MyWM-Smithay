@@ -597,6 +597,9 @@ impl State {
         let scratch_monitor = self.scratchpad_monitor();
         let anim_ms = self.config.effects.animation_ms;
         let urgent_color = self.config.appearance.urgent_border.0.0;
+        let capture_color = self.config.appearance.capture_border.0.0;
+        let captured: Vec<WindowId> =
+            self.desktop.windows.iter().filter(|m| self.window_captured(&m.window)).map(|m| m.id).collect();
         let monitors: Vec<(WindowId, Option<usize>)> =
             self.desktop.windows.iter().map(|m| (m.id, self.monitor_of_window(m))).collect();
         let d = &mut self.desktop;
@@ -704,7 +707,10 @@ impl State {
             if focused == Some(m.id) {
                 m.urgent = false;
             }
-            let color = if focused == Some(m.id) {
+            // A shared window says so whether it has the focus or not.
+            let color = if captured.contains(&m.id) {
+                capture_color
+            } else if focused == Some(m.id) {
                 active
             } else if m.urgent {
                 urgent_color

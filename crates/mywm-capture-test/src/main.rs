@@ -1,5 +1,6 @@
 //! Captures one frame of an output or of the first toplevel through `ext-image-copy-capture`
-//! and prints `WxH center=RRGGBB` (or fails). Usage: `mywm-capture-test output|toplevel [shm]`.
+//! and prints `WxH center=RRGGBB` (or fails). Usage: `mywm-capture-test output|toplevel [shm] [hold <seconds>]`;
+//! `hold` keeps the session open that long afterwards, like a stream that goes on.
 use std::{fs::File, os::fd::AsFd, os::unix::fs::FileExt};
 
 use wayland_client::{
@@ -150,4 +151,12 @@ fn main() {
     file.read_exact_at(&mut pixel, u64::from((h / 2) * stride + (w / 2) * 4)).unwrap();
     // Argb8888 is little endian: B, G, R, A.
     println!("{w}x{h} center={:02X}{:02X}{:02X} alpha={:02X}", pixel[2], pixel[1], pixel[0], pixel[3]);
+    let args: Vec<String> = std::env::args().collect();
+    let hold = args.iter().position(|a| a == "hold").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
+    if let Some(seconds) = hold {
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+        drop(session);
+    }
 }

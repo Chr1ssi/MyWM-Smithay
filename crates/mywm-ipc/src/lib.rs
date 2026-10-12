@@ -4,7 +4,8 @@
 //! * client → compositor: `v1 <command>\n`, answered by `v1 ok` or `v1 error invalid-command`
 //! * compositor → client, whenever something changed:
 //!   `v1 state <output>;<output>...`, `v1 scratchpad <visible> <occupied>`, `v1 locked <0|1>`,
-//!   `v1 gaming <0|1>` (a game is shown fullscreen on some monitor), `v1 config ok` or
+//!   `v1 gaming <0|1>` (a game is shown fullscreen on some monitor), `v1 capture <0|1>` (something
+//!   records or streams the screen or a window), `v1 config ok` or
 //!   `v1 config error <reason>` (the configuration file did not load)
 //! * `v1 inhibit-idle` keeps the session from going idle until the sender's connection closes
 //!   (mywm-portal, for apps that inhibit through the portal)
@@ -134,6 +135,7 @@ pub struct Snapshot {
     pub scratchpad_occupied: bool,
     pub locked: bool,
     pub gaming: bool,
+    pub capturing: bool,
     /// Why the configuration file did not load (one line), if it did not.
     pub config_error: Option<String>,
 }
@@ -161,12 +163,13 @@ impl Snapshot {
             })
             .collect();
         format!(
-            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\nv1 gaming {}\nv1 config {}\n",
+            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\nv1 gaming {}\nv1 capture {}\nv1 config {}\n",
             outputs.join(";"),
             u8::from(self.scratchpad_visible),
             u8::from(self.scratchpad_occupied),
             u8::from(self.locked),
             u8::from(self.gaming),
+            u8::from(self.capturing),
             // A reason with a line break would break the protocol's lines.
             self.config_error.as_deref().map_or("ok".into(), |reason| format!("error {}", reason.replace('\n', " ")))
         )
@@ -211,6 +214,7 @@ impl Snapshot {
                 }
                 ["v1", "locked", locked] => snapshot.locked = *locked == "1",
                 ["v1", "gaming", gaming] => snapshot.gaming = *gaming == "1",
+                ["v1", "capture", capturing] => snapshot.capturing = *capturing == "1",
                 ["v1", "config", "ok"] => snapshot.config_error = None,
                 ["v1", "config", "error", reason @ ..] => snapshot.config_error = Some(reason.join(" ")),
                 _ => return None,
@@ -288,12 +292,13 @@ mod tests {
             scratchpad_occupied: true,
             locked: false,
             gaming: true,
+            capturing: false,
             config_error: None,
         };
         let text = snapshot.encode();
         assert_eq!(
             text,
-            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\nv1 gaming 1\nv1 config ok\n"
+            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\nv1 gaming 1\nv1 capture 0\nv1 config ok\n"
         );
         assert_eq!(Snapshot::decode(&text), Some(snapshot));
         let broken = Snapshot { config_error: Some("line 3 · expected a number".into()), ..Snapshot::default() };

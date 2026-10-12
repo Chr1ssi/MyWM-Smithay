@@ -147,6 +147,42 @@ impl State {
         ])
     }
 
+    /// Something is being captured: a capture session (a stream through the portal, a shared window), or
+    /// wlr-screencopy frames in the last moments (which come one at a time, without a session).
+    pub fn capturing(&self) -> bool {
+        !self.image_capture.sessions.is_empty() || self.last_screencopy.is_some_and(|at| at.elapsed() < SCREENCOPY_ACTIVE)
+    }
+
+    /// Capture sessions began or ended: borders of shared windows and the bar's indicator follow.
+    pub fn captures_changed(&mut self) {
+        self.refresh();
+    }
+
+    /// A wlr-screencopy frame was copied: count as capturing until frames stop for `SCREENCOPY_ACTIVE`.
+    pub fn note_screencopy(&mut self) {
+        let was = self.capturing();
+        self.last_screencopy = Some(std::time::Instant::now());
+        if was {
+            return;
+        }
+        self.ipc_dirty = true;
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let check = Timer::from_duration(SCREENCOPY_ACTIVE);
+        let registered = self.loop_handle.insert_source(check, |_, _, state| {
+            match state.last_screencopy.map(|at| at.elapsed()) {
+                Some(elapsed) if elapsed < SCREENCOPY_ACTIVE => TimeoutAction::ToDuration(SCREENCOPY_ACTIVE - elapsed),
+                _ => {
+                    state.last_screencopy = None;
+                    state.ipc_dirty = true;
+                    TimeoutAction::Drop
+                }
+            }
+        });
+        if let Err(error) = registered {
+            tracing::warn!("cannot time the capture indicator: {error}");
+        }
+    }
+
     /// Whether a capture of `output` (or of a window showing there) is waiting for a frame.
     pub fn has_image_captures_for(&self, output: &Output) -> bool {
         self.image_capture.pending.iter().any(|p| self.frame_belongs_to(p, output))
@@ -227,6 +263,14 @@ impl State {
     }
 
     fn stop_sessions(&mut self, matches: impl Fn(&Source) -> bool) {
+        let before = self.image_capture.sessions.len();
+        self.stop_matching_sessions(matches);
+        if self.image_capture.sessions.len() != before {
+            self.captures_changed();
+        }
+    }
+
+    fn stop_matching_sessions(&mut self, matches: impl Fn(&Source) -> bool) {
         let state = &mut self.image_capture;
         state.sessions.retain(|(resource, shared)| {
             if !matches(&shared.source) {
@@ -254,7 +298,11 @@ impl State {
         elements: &[OutputElement],
         had_damage: bool,
     ) {
+        let before = self.image_capture.sessions.len();
         self.image_capture.sessions.retain(|(resource, _)| resource.is_alive());
+        if self.image_capture.sessions.len() != before {
+            self.captures_changed();
+        }
         self.complete_readbacks(renderer, false);
         if self.image_capture.pending.is_empty() {
             return;
@@ -493,6 +541,10 @@ fn render_elements_to_buffer<E: RenderElement<GlesRenderer>>(
     render_to_buffer(renderer, tracker, elements, [0.0, 0.0, 0.0, 0.0], buffer, size, region)
 }
 
+/// How long after the last wlr-screencopy frame the session still counts as captured: recorders copy every
+/// frame, but an unchanged screen gives them none.
+const SCREENCOPY_ACTIVE: std::time::Duration = std::time::Duration::from_millis(1500);
+
 // --- Sources ------------------------------------------------------------------------------
 
 impl GlobalDispatch<ExtOutputImageCaptureSourceManagerV1, (), State> for State {
@@ -602,6 +654,7 @@ impl Dispatch<ExtImageCopyCaptureManagerV1, (), State> for State {
                 let resource = init.init(session, shared.clone());
                 state.send_constraints(&resource, size);
                 state.image_capture.sessions.push((resource, shared));
+                state.captures_changed();
             }
             ext_image_copy_capture_manager_v1::Request::CreatePointerCursorSession { session, .. } => {
                 // Cursors are painted into the image (`paint_cursors`); there is no separate stream.
@@ -686,7 +739,11 @@ impl Dispatch<ExtImageCopyCaptureSessionV1, Arc<SessionShared>, State> for State
         if state.image_capture.sessions.iter().any(|(s, _)| s == session) {
             tracing::info!("capture session closed: {}", describe(&data.source));
         }
+        let before = state.image_capture.sessions.len();
         state.image_capture.sessions.retain(|(s, _)| s != session);
+        if state.image_capture.sessions.len() != before {
+            state.captures_changed();
+        }
     }
 }
 

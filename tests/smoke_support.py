@@ -105,6 +105,7 @@ class Bar:
         self.locked = False
         self.gaming = False
         self.config_error = None
+        self.capturing = False
         self.replies = []
         self.confirm_logouts = []
 
@@ -122,6 +123,8 @@ class Bar:
                 self.locked = text.endswith("1")
             elif text.startswith("v1 gaming"):
                 self.gaming = text.endswith("1")
+            elif text.startswith("v1 capture "):
+                self.capturing = text.endswith("1")
             elif text.startswith("v1 config "):
                 self.config_error = None if text == "v1 config ok" else text.removeprefix("v1 config error ")
             elif text.startswith("v1 confirm-logout "):

@@ -106,6 +106,7 @@ impl State {
                     let now: std::time::Duration = Clock::<Monotonic>::new().now().into();
                     pending.frame.flags(zwlr_screencopy_frame_v1::Flags::empty());
                     pending.frame.ready((now.as_secs() >> 32) as u32, now.as_secs() as u32, now.subsec_nanos());
+                    self.note_screencopy();
                 }
                 Err(error) => {
                     tracing::warn!("screen capture of {} failed: {error}", pending.output.name());
