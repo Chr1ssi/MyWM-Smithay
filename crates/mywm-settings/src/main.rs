@@ -88,6 +88,7 @@ fn action_label(name: &str) -> &'static str {
         "toggle_scratchpad" => "Scratchpad zeigen/verstecken",
         "move_to_scratchpad" => "Fenster ins Scratchpad",
         "release_shortcuts" => "Tastenkürzel von Spiel/VM zurückholen",
+        "focus_urgent" => "Zum Fenster, das Aufmerksamkeit will",
         "focus_output_left" => "Fokus Monitor links",
         "focus_output_right" => "Fokus Monitor rechts",
         "focus_output_up" => "Fokus Monitor oben",
@@ -502,6 +503,19 @@ impl App {
                     self.doc.set_list(&path, &values);
                     self.revalidate();
                 }
+                let app = format!("program_bindings.{name}.app_id");
+                let mut app_id = self.doc.get_str(&app).unwrap_or("").to_owned();
+                ui.horizontal(|ui| {
+                    ui.label("Offenes Fenster zeigen (app_id)");
+                    if ui.add(egui::TextEdit::singleline(&mut app_id).desired_width(200.0)).changed() {
+                        if app_id.is_empty() {
+                            self.doc.unset(&app);
+                        } else {
+                            self.doc.set(&app, toml_edit::Value::from(app_id.as_str()));
+                        }
+                        self.revalidate();
+                    }
+                });
                 let locked = format!("program_bindings.{name}.allow_when_locked");
                 let mut allowed = self.doc.get_bool(&locked).unwrap_or(false);
                 if ui.checkbox(&mut allowed, "Auch bei gesperrtem Bildschirm (z. B. Lautstärke)").changed() {

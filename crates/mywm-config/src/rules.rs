@@ -80,7 +80,7 @@ impl Rule {
 }
 
 /// Whether `text` matches `pattern` as a whole, `*` standing for any run of characters.
-fn glob(pattern: &str, text: &str) -> bool {
+pub fn glob(pattern: &str, text: &str) -> bool {
     let mut parts = pattern.split('*');
     // Without a `*` there is a single part, which must be the whole text.
     let first = parts.next().unwrap_or_default();

@@ -12,7 +12,7 @@ use std::{
 pub use keys::{Modifiers, parse_key};
 use keys::Result;
 use mywm_layout::MAX_NUMBER;
-pub use rules::{Placement, Rule, Subject, any_blocks_capture, blocks_capture, opacity, resolve};
+pub use rules::{Placement, Rule, Subject, any_blocks_capture, blocks_capture, glob, opacity, resolve};
 use serde::Deserialize;
 pub use sections::{
     AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig, InputConfig, AccelProfile,
@@ -44,6 +44,8 @@ pub enum Action {
     /// Take the keyboard back from a client that inhibits shortcuts (games, VMs).
     ReleaseShortcuts,
     MoveToScratchpad,
+    /// Show and focus a window that asked for attention.
+    FocusUrgent,
     FocusOutput(OutputDirection),
     MoveToOutput(OutputDirection),
     Focus(isize),
@@ -161,6 +163,9 @@ impl Default for Config {
 pub struct ProgramBinding {
     pub keys: Vec<String>,
     pub command: Vec<String>,
+    /// Run or raise: if a window with this app id (`*` wildcards) is open, the keys show and focus it
+    /// (pressed again, the next one) instead of starting the command.
+    pub app_id: Option<String>,
     /// Also runs while the session is locked (volume and media keys); every other key goes to the lock screen.
     #[serde(default)]
     pub allow_when_locked: bool,
@@ -197,6 +202,7 @@ pub struct Bindings {
     toggle_scratchpad: Vec<String>,
     release_shortcuts: Vec<String>,
     move_to_scratchpad: Vec<String>,
+    focus_urgent: Vec<String>,
     focus_output_left: Vec<String>,
     focus_output_right: Vec<String>,
     focus_output_up: Vec<String>,
@@ -242,6 +248,7 @@ impl Bindings {
             ("toggle_scratchpad", &self.toggle_scratchpad),
             ("move_to_scratchpad", &self.move_to_scratchpad),
             ("release_shortcuts", &self.release_shortcuts),
+            ("focus_urgent", &self.focus_urgent),
             ("focus_output_left", &self.focus_output_left),
             ("focus_output_right", &self.focus_output_right),
             ("focus_output_up", &self.focus_output_up),
@@ -281,6 +288,8 @@ impl Default for Bindings {
             toggle_scratchpad: keys(&["Super+grave"]),
             release_shortcuts: keys(&["Super+Shift+Escape"]),
             move_to_scratchpad: keys(&["Super+Shift+grave"]),
+            // New actions start unbound: a default key could clash with one an existing file already uses.
+            focus_urgent: Vec::new(),
             focus_output_left: keys(&["Super+Alt+Left"]),
             focus_output_right: keys(&["Super+Alt+Right"]),
             focus_output_up: keys(&["Super+Alt+Up"]),
@@ -351,6 +360,9 @@ impl Config {
             }
             if !non_empty(&binding.command) {
                 return Err(format!("program_bindings.{name}.command must contain a program").into());
+            }
+            if binding.app_id.as_ref().is_some_and(|id| id.trim().is_empty()) {
+                return Err(format!("program_bindings.{name}.app_id must not be empty").into());
             }
         }
         for (index, rule) in config.rules.iter().enumerate() {
@@ -462,6 +474,7 @@ impl Config {
             (&b.column_grow, Action::ResizeColumn(100)),
             (&b.toggle_scratchpad, Action::ToggleScratchpad),
             (&b.move_to_scratchpad, Action::MoveToScratchpad),
+            (&b.focus_urgent, Action::FocusUrgent),
             (&b.focus_output_left, Action::FocusOutput(Left)),
             (&b.focus_output_right, Action::FocusOutput(Right)),
             (&b.focus_output_up, Action::FocusOutput(Up)),

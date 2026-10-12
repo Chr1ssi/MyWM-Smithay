@@ -112,6 +112,8 @@
 # Globaler Floating-Stack: ein-/ausblenden bzw. Fenster hinein-/herausverschieben.
 #toggle_scratchpad = ["Super+grave"]
 #move_to_scratchpad = ["Super+Shift+grave"]
+# Zum Fenster springen, das Aufmerksamkeit will (roter Rahmen); ohne Standardtaste.
+#focus_urgent = ["Super+u"]
 # Monitorfokus bzw. fokussiertes Fenster geometrisch zum Nachbarmonitor bewegen.
 #focus_output_left = ["Super+Alt+Left"]
 #focus_output_right = ["Super+Alt+Right"]
@@ -146,6 +148,7 @@
 #[program_bindings.browser]
 #keys = ["Super+b"]
 #command = ["helium-browser"]
+#app_id = "helium*"  # läuft schon ein Fenster mit dieser app_id, wird es gezeigt statt neu gestartet
 
 #[program_bindings.file_manager]
 #keys = ["Super+e"]

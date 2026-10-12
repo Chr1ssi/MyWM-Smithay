@@ -64,8 +64,19 @@ impl State {
             Action::Terminal => self.spawn_command(&self.config.terminal.clone(), false),
             Action::Launcher => self.spawn_command(&self.config.launcher.clone(), true),
             Action::Program(index) => {
-                if let Some(binding) = self.config.program_bindings.values().nth(index) {
-                    self.spawn_command(&binding.command.clone(), false);
+                let Some(binding) = self.config.program_bindings.values().nth(index) else { return };
+                // Run or raise: an open window of the app is shown instead of starting another.
+                let open = binding.app_id.as_deref().and_then(|pattern| {
+                    self.next_window_where(|m| m.app_id.as_deref().is_some_and(|id| mywm_config::glob(pattern, id)))
+                });
+                match open {
+                    Some(id) => self.show_window(id),
+                    None => self.spawn_command(&binding.command.clone(), false),
+                }
+            }
+            Action::FocusUrgent => {
+                if let Some(id) = self.next_window_where(|m| m.urgent) {
+                    self.show_window(id);
                 }
             }
             Action::Reload => self.reload_config(),

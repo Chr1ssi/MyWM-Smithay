@@ -963,6 +963,35 @@ impl State {
         self.refresh();
     }
 
+    /// Bring `id` to the front wherever it is: its workspace is shown (the pointer moves along to its monitor,
+    /// as with the workspace keys), a window kept in the scratchpad shows it, and it takes the focus.
+    pub fn show_window(&mut self, id: WindowId) {
+        if self.desktop.in_scratchpad(id) {
+            let d = &mut self.desktop;
+            d.scratchpad_visible = true;
+            d.scratchpad.focused = Some(id);
+            d.focus_scratch = true;
+            self.refresh();
+            return;
+        }
+        let Some((monitor, number)) = self.desktop.desk.locate(&id) else { return };
+        if self.desktop.desk.monitors[monitor].workspaces.active != number {
+            self.select_workspace_on(monitor, number);
+        } else if self.pointer_monitor() != Some(monitor) {
+            self.warp_to_monitor(monitor);
+        }
+        self.focus_window(id);
+    }
+
+    /// The next of the placed windows `matches` picks, after the focused one if that is one of them: pressed
+    /// again, a key goes through all of them.
+    pub fn next_window_where(&self, matches: impl Fn(&Managed) -> bool) -> Option<WindowId> {
+        let candidates: Vec<WindowId> =
+            self.desktop.windows.iter().filter(|m| m.placed && matches(m)).map(|m| m.id).collect();
+        let after = self.desktop.focused().and_then(|focused| candidates.iter().position(|id| *id == focused));
+        after.map_or(candidates.first(), |index| candidates.get((index + 1) % candidates.len())).copied()
+    }
+
     pub fn toggle_floating(&mut self) {
         let Some(id) = self.desktop.focused() else { return };
         let area = self.desktop.monitor_area_of(id);
