@@ -74,19 +74,33 @@ impl State {
     }
 
     /// `choose-source` from the screen-sharing portal: pick a monitor or window to share.
+    /// Ask what to share: the overview on the monitor under the pointer offers its windows (also those on
+    /// other workspaces) and the monitor; on the other monitors a click picks a window or the monitor.
     pub fn start_share_chooser(&mut self, client: u64, kinds: mywm_ipc::SourceKinds) -> bool {
         if self.selecting.is_some() || self.overview.is_some() || self.session_lock.is_active() {
             return false;
         }
         self.selecting = Some(Selecting { anchor: None, purpose: Purpose::Share { client, kinds } });
+        self.open_overview(true);
         self.queue_redraw_all();
         true
     }
 
-    /// End the selection; a screen-sharing request is answered with `chosen`.
-    fn finish_selection(&mut self, chosen: Option<mywm_ipc::Chosen>) {
+    /// What the open share request allows, if one is open.
+    pub fn share_kinds(&self) -> Option<mywm_ipc::SourceKinds> {
+        match self.selecting.as_ref()?.purpose {
+            Purpose::Share { kinds, .. } => Some(kinds),
+            Purpose::Screenshot => None,
+        }
+    }
+
+    /// End the selection; a screen-sharing request is answered with `chosen`, and its overview closes.
+    pub fn finish_selection(&mut self, chosen: Option<mywm_ipc::Chosen>) {
         if let Some(Selecting { purpose: Purpose::Share { client, .. }, .. }) = self.selecting.take() {
             self.ipc_send_chosen(client, &chosen.unwrap_or(mywm_ipc::Chosen::Nothing));
+            if self.overview.as_ref().is_some_and(|o| o.share) {
+                self.overview = None;
+            }
         }
         self.queue_redraw_all();
     }
@@ -252,6 +266,10 @@ impl State {
     /// The dimming and selection frame drawn over `output` while selecting.
     pub fn overlay_elements(&self, output: &Output) -> Vec<SolidColorRenderElement> {
         let Some(selecting) = &self.selecting else { return Vec::new() };
+        // Where the overview picks what to share, it shows the choice itself.
+        if self.overview.as_ref().is_some_and(|o| o.share && o.output() == output) {
+            return Vec::new();
+        }
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let Some(size) = self.capture_geometry(output).map(|g| g.size) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();

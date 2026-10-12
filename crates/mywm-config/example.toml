@@ -96,7 +96,8 @@
 #screenshot = ["Super+s"]
 #screenshot_screen = ["Super+Shift+s"]   # Monitor unter dem Mauszeiger
 #screenshot_window = ["Super+Ctrl+s"]    # fokussiertes Fenster
-# Übersicht: alle Workspaces des Monitors als Vorschau; Klick oder Pfeiltasten + Enter wählen, Esc schließt.
+# Übersicht: alle Workspaces des Monitors als Vorschau; Klick oder Pfeiltasten + Enter wählen, ein Klick auf ein
+# Fenster zeigt dieses Fenster, Esc schließt.
 #overview = ["Super+Tab"]
 # Spiele und VMs dürfen Tastenkürzel abfangen (keyboard-shortcuts-inhibit). Mit dieser Taste holt man sich die Tastatur zurück.
 #release_shortcuts = ["Super+Shift+Escape"]
