@@ -112,6 +112,9 @@ impl SessionLockHandler for State {
         }
         self.session_lock.holder = Some(confirmation.ext_session_lock().clone());
         self.end_drag();
+        // Pickers would keep the keyboard from the lock screen.
+        self.selecting = None;
+        self.picking = None;
         self.session_lock.unconfirmed = self.outputs.iter().map(|e| e.output.name()).collect();
         if self.session_lock.unconfirmed.is_empty() {
             confirmation.lock();

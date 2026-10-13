@@ -296,6 +296,7 @@ impl State {
             gaming: self.game_shown(),
             capturing: self.capturing(),
             choosing: self.share_kinds().is_some(),
+            picking: self.picked_color(),
             config_error: self.config_error.clone(),
             ..Default::default()
         };

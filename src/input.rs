@@ -97,6 +97,13 @@ impl State {
             Action::Lock => self.start_locker(),
             Action::Wallpaper => self.open_wallpaper_picker(),
             Action::Overview => self.toggle_overview(),
+            Action::ColorPicker => {
+                if self.picking.is_some() {
+                    self.cancel_color_picker();
+                } else {
+                    self.start_color_picker();
+                }
+            }
             Action::ReleaseShortcuts => self.release_shortcuts(),
             Action::Screenshot => self.start_selection(),
             Action::ScreenshotScreen => self.screenshot_screen(),
@@ -156,8 +163,8 @@ impl State {
                         if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&raw) {
                             return FilterResult::Intercept(Intercepted::Vt((raw - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
                         }
-                        // While picking a screenshot region the keyboard belongs to the picker.
-                        if state.selecting.is_some() || state.overview_open() {
+                        // While picking a screenshot region or a color the keyboard belongs to the picker.
+                        if state.selecting.is_some() || state.picking.is_some() || state.overview_open() {
                             use crate::screenshot::ModalKey;
                             return FilterResult::Intercept(Intercepted::Modal(match raw {
                                 keysyms::KEY_Escape => ModalKey::Cancel,
@@ -203,6 +210,8 @@ impl State {
                     Some(Intercepted::Modal(key)) => {
                         if self.overview_open() {
                             self.overview_key(key);
+                        } else if self.picking.is_some() {
+                            self.picker_key(key);
                         } else {
                             self.selection_key(key);
                         }
@@ -288,6 +297,9 @@ impl State {
         if self.selecting.is_some() {
             return self.selection_button(button, state);
         }
+        if self.picking.is_some() {
+            return self.picker_button(button, state);
+        }
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released && self.desktop.drag.is_some() {
@@ -340,6 +352,10 @@ impl State {
         }
         if self.selecting.is_some() {
             return self.selection_moved();
+        }
+        // The cursor's output redraws (above) and takes a new sample for the magnifier.
+        if self.picking.is_some() {
+            return;
         }
         if self.desktop.drag.is_some() {
             self.update_drag();
@@ -404,7 +420,7 @@ impl State {
     /// motion, and a locked pointer (games) produces none: the hidden game would keep the
     /// pointer and its lock.
     pub fn refresh_pointer_focus(&mut self) {
-        if self.overview_open() || self.selecting.is_some() || self.desktop.drag.is_some() {
+        if self.overview_open() || self.selecting.is_some() || self.picking.is_some() || self.desktop.drag.is_some() {
             return;
         }
         let Some(pointer) = self.seat.get_pointer() else { return };

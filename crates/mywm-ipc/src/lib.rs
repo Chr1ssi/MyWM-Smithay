@@ -6,6 +6,7 @@
 //!   `v1 state <output>;<output>...`, `v1 scratchpad <visible> <occupied>`, `v1 locked <0|1>`,
 //!   `v1 gaming <0|1>` (a game is shown fullscreen on some monitor), `v1 capture <0|1>` (something
 //!   records or streams the screen or a window), `v1 choosing <0|1>` (the user picks what to share),
+//!   `v1 picking 0` or `v1 picking 1 [#rrggbb]` (the color picker is on, with the color under the pointer),
 //!   `v1 config ok` or
 //!   `v1 config error <reason>` (the configuration file did not load)
 //! * `v1 cast-follow`: the compositor sends `v1 cast-target ...` (see `CastTarget`) now and on every change
@@ -176,6 +177,8 @@ pub struct Snapshot {
     pub gaming: bool,
     pub capturing: bool,
     pub choosing: bool,
+    /// The color picker is on: `Some`, with the color under the pointer once it is known.
+    pub picking: Option<Option<String>>,
     /// Why the configuration file did not load (one line), if it did not.
     pub config_error: Option<String>,
 }
@@ -203,7 +206,7 @@ impl Snapshot {
             })
             .collect();
         format!(
-            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\nv1 gaming {}\nv1 capture {}\nv1 choosing {}\nv1 config {}\n",
+            "v1 state {}\nv1 scratchpad {} {}\nv1 locked {}\nv1 gaming {}\nv1 capture {}\nv1 choosing {}\nv1 picking {}\nv1 config {}\n",
             outputs.join(";"),
             u8::from(self.scratchpad_visible),
             u8::from(self.scratchpad_occupied),
@@ -211,6 +214,11 @@ impl Snapshot {
             u8::from(self.gaming),
             u8::from(self.capturing),
             u8::from(self.choosing),
+            match &self.picking {
+                None => "0".into(),
+                Some(None) => "1".into(),
+                Some(Some(color)) => format!("1 {color}"),
+            },
             // A reason with a line break would break the protocol's lines.
             self.config_error.as_deref().map_or("ok".into(), |reason| format!("error {}", reason.replace('\n', " ")))
         )
@@ -257,6 +265,9 @@ impl Snapshot {
                 ["v1", "gaming", gaming] => snapshot.gaming = *gaming == "1",
                 ["v1", "capture", capturing] => snapshot.capturing = *capturing == "1",
                 ["v1", "choosing", choosing] => snapshot.choosing = *choosing == "1",
+                ["v1", "picking", "0"] => snapshot.picking = None,
+                ["v1", "picking", "1"] => snapshot.picking = Some(None),
+                ["v1", "picking", "1", color] => snapshot.picking = Some(Some((*color).into())),
                 ["v1", "config", "ok"] => snapshot.config_error = None,
                 ["v1", "config", "error", reason @ ..] => snapshot.config_error = Some(reason.join(" ")),
                 _ => return None,
@@ -341,13 +352,19 @@ mod tests {
             gaming: true,
             capturing: false,
             choosing: false,
+            picking: None,
             config_error: None,
         };
         let text = snapshot.encode();
         assert_eq!(
             text,
-            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\nv1 gaming 1\nv1 capture 0\nv1 choosing 0\nv1 config ok\n"
+            "v1 state 1,0,0,1920,1080,1,0,1,1:1|3:0|0:1\nv1 scratchpad 1 1\nv1 locked 0\nv1 gaming 1\nv1 capture 0\nv1 choosing 0\nv1 picking 0\nv1 config ok\n"
         );
+        let picking = Snapshot { picking: Some(Some("#a1b2c3".into())), ..Snapshot::default() };
+        assert!(picking.encode().contains("\nv1 picking 1 #a1b2c3\n"));
+        assert_eq!(Snapshot::decode(&picking.encode()), Some(picking));
+        let starting = Snapshot { picking: Some(None), ..Snapshot::default() };
+        assert_eq!(Snapshot::decode(&starting.encode()), Some(starting));
         assert_eq!(Snapshot::decode(&text), Some(snapshot));
         let broken = Snapshot { config_error: Some("line 3 · expected a number".into()), ..Snapshot::default() };
         assert!(broken.encode().ends_with("v1 config error line 3 · expected a number\n"));

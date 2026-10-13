@@ -78,6 +78,7 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                 state.fulfill_screencopy(backend.renderer(), &output, &elements, true);
                 state.fulfill_image_captures(backend.renderer(), &output, &elements, had_damage);
                 state.fulfill_screenshots(backend.renderer(), &output, &elements);
+                state.sample_color(backend.renderer(), &output, &elements);
                 let outputs: Vec<_> = state.outputs.iter().map(|e| e.output.clone()).collect();
                 // Virtual outputs have no window of their own, but can still be captured.
                 for other in outputs.iter().filter(|o| *o != &output) {
@@ -87,6 +88,7 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
                         state.fulfill_screencopy(renderer, other, &elements, true);
                         state.fulfill_image_captures(renderer, other, &elements, true);
                         state.fulfill_screenshots(renderer, other, &elements);
+                        state.sample_color(renderer, other, &elements);
                     }
                 }
                 for other in &outputs {

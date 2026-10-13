@@ -32,6 +32,11 @@ opacity = 0.92
 | `Super+Shift+s` | Monitor unter dem Mauszeiger |
 | `Super+Ctrl+s` | fokussiertes Fenster (mit Rahmen) |
 
+Farbpipette (`color_picker`, ohne Standardtaste): Neben dem Mauszeiger zeigt eine Lupe die Pixel
+darum, das mittlere markiert; die Bar zeigt dessen Hex-Wert. Ein Klick (oder Enter) kopiert ihn als
+`#rrggbb` in die Zwischenablage und meldet ihn mit einem Farbfeld, Esc oder eine andere Maustaste
+bricht ab. Die Farbe kommt wie bei Screenshots aus dem fertigen Bild, ohne Cursor und Lupe.
+
 Das PNG landet in `screenshot_directory` (Standard `~/Bilder/Screenshots`, Name
 `Screenshot_JJJJ-MM-TT_HH-MM-SS.png`) und in der Zwischenablage (braucht `wl-copy`); mit
 `notify-send` gibt es eine Benachrichtigung. Cursor und Auswahl-Overlay sind nie im Bild.

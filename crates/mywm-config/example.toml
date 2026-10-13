@@ -96,6 +96,9 @@
 #screenshot = ["Super+s"]
 #screenshot_screen = ["Super+Shift+s"]   # Monitor unter dem Mauszeiger
 #screenshot_window = ["Super+Ctrl+s"]    # fokussiertes Fenster
+# Farbpipette: eine Lupe am Mauszeiger, ein Klick kopiert die Farbe darunter als #rrggbb (Esc bricht ab);
+# ohne Standardtaste.
+#color_picker = ["Super+Shift+c"]
 # Übersicht: alle Workspaces jedes Monitors als Vorschau, dazu `+` und das Scratchpad; Klick, Pfeiltasten + Enter
 # oder eine Ziffer wählen, ein Klick auf ein Fenster zeigt es, Ziehen verschiebt es, q oder Mittelklick schließt es,
 # Esc schließt die Übersicht.

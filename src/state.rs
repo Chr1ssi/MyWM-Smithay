@@ -74,6 +74,7 @@ pub struct State {
     /// `xdg-foreign`: a portal dialog (the file chooser) becomes the dialog of the app that opened it.
     pub xdg_foreign_state: smithay::wayland::xdg_foreign::XdgForeignState,
     pub selecting: Option<crate::screenshot::Selecting>,
+    pub picking: Option<crate::color_picker::Picking>,
     pub overview: Option<crate::overview::Overview>,
     pub pending_shots: Vec<crate::screenshot::PendingShot>,
     /// Shaders for rounded corners, compiled when first needed.
@@ -272,6 +273,7 @@ impl State {
             activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<State>(&dh),
             xdg_foreign_state: smithay::wayland::xdg_foreign::XdgForeignState::new::<State>(&dh),
             selecting: None,
+            picking: None,
             overview: None,
             pending_shots: Vec::new(),
             effect_shaders: None,

@@ -107,6 +107,7 @@ class Bar:
         self.config_error = None
         self.capturing = False
         self.scratchpad = (False, False)  # visible, occupied
+        self.picking = None  # None, or the color under the pointer ("" until known) while the color picker is on
         self.replies = []
         self.confirm_logouts = []
 
@@ -120,6 +121,9 @@ class Bar:
             text = line.decode()
             if text.startswith("v1 state"):
                 self.state = parse_state(text)
+            elif text.startswith("v1 picking "):
+                fields = text.split()
+                self.picking = None if fields[2] == "0" else (fields[3] if len(fields) > 3 else "")
             elif text.startswith("v1 scratchpad "):
                 self.scratchpad = tuple(flag == "1" for flag in text.split()[2:4])
             elif text.startswith("v1 locked"):

@@ -4,6 +4,7 @@ mod attention;
 mod barriers;
 mod floating_memory;
 mod blur;
+mod color_picker;
 mod cursor;
 mod desktop;
 mod effects;

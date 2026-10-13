@@ -90,6 +90,7 @@ fn action_label(name: &str) -> &'static str {
         "release_shortcuts" => "Tastenkürzel von Spiel/VM zurückholen",
         "focus_urgent" => "Zum Fenster, das Aufmerksamkeit will",
         "toggle_sticky" => "Fenster auf allen Workspaces",
+        "color_picker" => "Farbpipette",
         "cast_window" => "Dynamischer Stream: fokussiertes Fenster",
         "cast_monitor" => "Dynamischer Stream: fokussierter Monitor",
         "cast_clear" => "Dynamischer Stream: nichts zeigen",

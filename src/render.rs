@@ -139,6 +139,7 @@ impl State {
     fn draw_output(&mut self, renderer: &mut GlesRenderer, output: &Output, blanks: &mut Vec<Blank>) -> Vec<OutputElement> {
         let mut elements: Vec<OutputElement> =
             self.cursor_elements(renderer, output).into_iter().map(OutputElement::from).collect();
+        elements.extend(self.magnifier_elements(output).into_iter().map(OutputElement::from));
         elements.extend(self.overlay_elements(output).into_iter().map(OutputElement::from));
         self.wallpaper_prepare(renderer);
         if self.session_lock.is_active() {

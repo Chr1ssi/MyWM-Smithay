@@ -31,6 +31,8 @@ pub enum Action {
     Screenshot,
     ScreenshotScreen,
     ScreenshotWindow,
+    /// A magnifier at the pointer; a click copies the color under it as `#rrggbb`.
+    ColorPicker,
     /// Show all workspaces of the monitor under the pointer as thumbnails.
     Overview,
     Lock,
@@ -215,6 +217,7 @@ pub struct Bindings {
     move_to_scratchpad: Vec<String>,
     focus_urgent: Vec<String>,
     toggle_sticky: Vec<String>,
+    color_picker: Vec<String>,
     cast_window: Vec<String>,
     cast_monitor: Vec<String>,
     cast_clear: Vec<String>,
@@ -265,6 +268,7 @@ impl Bindings {
             ("release_shortcuts", &self.release_shortcuts),
             ("focus_urgent", &self.focus_urgent),
             ("toggle_sticky", &self.toggle_sticky),
+            ("color_picker", &self.color_picker),
             ("cast_window", &self.cast_window),
             ("cast_monitor", &self.cast_monitor),
             ("cast_clear", &self.cast_clear),
@@ -310,6 +314,7 @@ impl Default for Bindings {
             // New actions start unbound: a default key could clash with one an existing file already uses.
             focus_urgent: Vec::new(),
             toggle_sticky: Vec::new(),
+            color_picker: Vec::new(),
             cast_window: Vec::new(),
             cast_monitor: Vec::new(),
             cast_clear: Vec::new(),
@@ -499,6 +504,7 @@ impl Config {
             (&b.move_to_scratchpad, Action::MoveToScratchpad),
             (&b.focus_urgent, Action::FocusUrgent),
             (&b.toggle_sticky, Action::ToggleSticky),
+            (&b.color_picker, Action::ColorPicker),
             (&b.cast_window, Action::CastWindow),
             (&b.cast_monitor, Action::CastMonitor),
             (&b.cast_clear, Action::CastClear),

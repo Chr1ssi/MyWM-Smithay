@@ -931,6 +931,7 @@ impl State {
         self.fulfill_screencopy(renderer, &output, &elements, had_damage);
         self.fulfill_image_captures(renderer, &output, &elements, had_damage);
         self.fulfill_screenshots(renderer, &output, &elements);
+        self.sample_color(renderer, &output, &elements);
         self.note_locked_frame(&output);
 
         if queued {
