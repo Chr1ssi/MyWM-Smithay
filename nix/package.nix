@@ -18,6 +18,8 @@
   swayidle,
   wlopm,
   wl-clipboard,
+  gammastep,
+  iproute2,
   libnotify,
   xwayland,
   dbus,
@@ -97,6 +99,8 @@ rustPlatform.buildRustPackage {
         swayidle
         wlopm
         wl-clipboard
+        gammastep # the shell's night light
+        iproute2 # the shell's local addresses
         libnotify
         xwayland
         coreutils
