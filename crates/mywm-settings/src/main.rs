@@ -404,7 +404,7 @@ impl App {
         });
         let events = ctx.input(|i| i.events.clone());
         for event in events {
-            if let egui::Event::Key { key, pressed: true, modifiers, repeat: false, .. } = event {
+            if let egui::Event::Key { key, physical_key, pressed: true, modifiers, repeat: false, .. } = event {
                 let mods = Mods {
                     logo: capture.mods.logo,
                     ctrl: capture.mods.ctrl || modifiers.ctrl,
@@ -415,7 +415,14 @@ impl App {
                     close = true;
                     break;
                 }
-                if let Some(binding) = keys::binding(mods, key) {
+                // The key as the compositor will see it: by its place, in the layout this file configures.
+                let defaults = mywm_config::KeyboardConfig::default();
+                let layout = keys::Layout::new(
+                    self.doc.get_str("keyboard.layout").unwrap_or(&defaults.layout),
+                    self.doc.get_str("keyboard.variant").unwrap_or(&defaults.variant),
+                    self.doc.get_str("keyboard.options").unwrap_or(&defaults.options),
+                );
+                if let Some(binding) = layout.binding(mods, physical_key.unwrap_or(key)) {
                     let default_keys = capture.path.strip_prefix("bindings.").and_then(|name| Bindings::default().entries().into_iter().find(|(n, _)| *n == name).map(|(_, k)| k.clone()));
                     let mut list = self.doc.get_list(&capture.path).or_else(|| default_keys.clone()).unwrap_or_default();
                     if !list.contains(&binding) {

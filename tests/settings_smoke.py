@@ -1,4 +1,5 @@
-"""The settings GUI (mywm-settings) under Xvfb: capture a key, save, see the file change.
+"""The settings GUI (mywm-settings) under Xvfb: capture a key, save, see the file change; keys are named as the
+configured layout names them.
 
 Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/settings_smoke.py
 """
@@ -59,6 +60,36 @@ try:
     xdo("key", "ctrl+s")
     time.sleep(1)
     assert open(config).read() == before, "a duplicate binding was saved"
+    print("duplicates OK")
+except BaseException:
+    app.kill()
+    print(app.stderr.read().decode()[-1500:])
+    raise
+finally:
+    app.kill()
+
+# With a German layout, the key at the US place of [ is ü: the binding names it so, as the compositor sees it.
+app.wait(5)
+assert wait(lambda: not subprocess.run(["xdotool", "search", "--name", "mywm Einstellungen"], capture_output=True).stdout.strip()), "the first window stayed"
+with open(config, "w") as f:
+    f.write('[keyboard]\nlayout = "de"\n')
+app = subprocess.Popen(["./target/debug/mywm-settings", "--config", config, "--page", "0"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+try:
+    assert wait(lambda: subprocess.run(["xdotool", "search", "--name", "mywm Einstellungen"], capture_output=True).stdout.strip(), 40), "no window"
+    window = subprocess.check_output(["xdotool", "search", "--name", "mywm Einstellungen"]).split()[0].decode()
+    assert wait(drawn, 30), "the window was never drawn"
+    xdo("windowfocus", window)
+    for attempt in range(4):
+        xdo("mousemove", "--window", window, "295", "89", "click", "1")
+        time.sleep(1)
+        # The X server's layout is us: this is the key right of p.
+        xdo("key", "bracketleft")
+        time.sleep(1)
+        xdo("key", "ctrl+s")
+        if wait(lambda: "Super+udiaeresis" in open(config).read(), 4):
+            break
+    assert "Super+udiaeresis" in open(config).read(), open(config).read()
+    print("layout OK")
     print("OK")
 except BaseException:
     app.kill()

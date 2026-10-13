@@ -42,7 +42,7 @@ def wait(cond, timeout=8):
 
 
 class Compositor:
-    def __init__(self, config="", extra_env=None, windows=0, extra_args="", top=""):
+    def __init__(self, config="", extra_env=None, windows=0, extra_args="", top="", layout="us"):
         self.dir = tempfile.mkdtemp()
         self.sock = f"{self.dir}/ctl.sock"
         # An empty wallpaper directory, so the compositor does not draw one from the user's pictures.
@@ -51,7 +51,7 @@ class Compositor:
             top = f'wallpaper_directory = "{self.dir}/wallpapers"\n' + top
         with open(f"{self.dir}/config.toml", "w") as f:
             # `top` holds top-level keys, which must precede the first table.
-            f.write(top + '[keyboard]\nlayout = "us"\n' + config)
+            f.write(top + f'[keyboard]\nlayout = "{layout}"\n' + config)
         # Isolated from the user's session: own state directory (theme, wallpaper), no log file (the compositor
         # would rotate the real session's log), and no environment of a running mywm session.
         os.makedirs(f"{self.dir}/state")
