@@ -138,8 +138,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    if let Some(cmd) = std::env::args().nth(1) {
-        state.spawn_command(&["sh".into(), "-c".into(), cmd], false);
+    // `--greeter <command>`: the login screen; the compositor ends with it, so greetd can start the session.
+    match args.get(1).map(String::as_str) {
+        Some("--greeter") => match args.get(2) {
+            Some(cmd) => state.spawn_greeter(cmd),
+            None => return Err("--greeter requires the login screen's command".into()),
+        },
+        Some(cmd) => state.spawn_command(&["sh".into(), "-c".into(), cmd.into()], false),
+        None => {}
     }
 
     event_loop.run(None, &mut state, |state| {

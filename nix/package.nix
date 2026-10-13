@@ -14,7 +14,6 @@
   libglvnd,
   pipewire,
   quickshell,
-  swaylock,
   swayidle,
   wlopm,
   wl-clipboard,
@@ -95,7 +94,6 @@ rustPlatform.buildRustPackage {
       --set-default MYWM_SHELL_DIR $out/share/mywm/quickshell \
       --prefix PATH : ${lib.makeBinPath [
         quickshell
-        swaylock
         swayidle
         wlopm
         wl-clipboard

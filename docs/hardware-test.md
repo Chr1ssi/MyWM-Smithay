@@ -91,9 +91,11 @@ Prüfen:
 
 - **Bar/Launcher**: Quickshell (`mywm-shell`) über `wlr-layer-shell`; die Bar spricht über
   `$MYWM_SOCKET` mit dem Compositor. Ohne gesetztes `MYWM_SOCKET` in der Sitzung bleibt sie leer.
-- **Sperre/Idle**: `Super+Escape` startet swaylock; auf Hardware startet der Compositor
+- **Sperre/Idle**: `Super+Escape` startet den Sperrbildschirm (`lock.qml` aus mywm-shell, Passwort über
+  den PAM-Dienst `mywm-lock`). Stirbt er, startet der Compositor einen neuen, der die Sperre übernimmt.
+  Auf Hardware startet der Compositor
   außerdem `swayidle` (Sperre nach `[idle] lock_after_seconds`, danach Monitore aus über
-  `wlopm`). Dafür müssen `swaylock`, `swayidle` und `wlopm` installiert sein.
+  `wlopm`). Dafür müssen `quickshell`, `swayidle` und `wlopm` installiert sein.
 - **Steam/X11**: `steam` läuft über Xwayland (`DISPLAY` setzt der Compositor für gestartete
   Programme selbst). Nativ: Proton mit `PROTON_ENABLE_WAYLAND=1`, SDL mit `SDL_VIDEODRIVER=wayland`.
 - **Streaming**: siehe `docs/streaming.md`.

@@ -1,6 +1,6 @@
 """Behind the lock only the program bindings marked allow_when_locked run; every other key goes to the locker.
 
-Needs swaylock. Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/locked_bindings_smoke.py
+Needs quickshell (the lock screen of the mywm-shell checkout next to this one). Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/locked_bindings_smoke.py
 """
 import os, subprocess, tempfile, time
 from smoke_support import Bar, Compositor, wait

@@ -9,7 +9,7 @@ leicht, latenzarm (Gaming) und mit sauberem Screen-Capture (Streaming).
 DRM/libinput, Gaming-Pfad (Direct Scanout mit Dmabuf-Feedback, VRR,
 Presentation-Time, explizite Sync, Relative Pointer/Pointer Constraints, Viewporter,
 Fractional Scale) und Desktop-Integration: Layer-Shell (Quickshell-Bar, Launcher),
-Sitzungssperre (`ext-session-lock`/swaylock), Idle (`ext-idle-notify`/swayidle,
+Sitzungssperre (`ext-session-lock`, Sperrbildschirm aus mywm-shell), Idle (`ext-idle-notify`/swayidle,
 `wlr-output-power-management`/wlopm), Xwayland für Legacy-Apps (Steam) und
 Bildschirmaufnahme (`wlr-screencopy` → OBS, Browser, grim). Der Compositor läuft im
 Alltag auf echter Hardware (NixOS, eigene Sitzung); die nested Smoke-Tests decken Layer-Shell,
@@ -93,7 +93,7 @@ Einzeln, in `nix develop .#smoke` und mit gesetztem `$DISPLAY` (z. B. Xvfb):
 PYTHONPATH=tests python3 tests/ipc_smoke.py           # Bar-Socket (braucht X)
 PYTHONPATH=tests python3 tests/multimonitor_smoke.py  # Multi-Monitor mit virtuellen Ausgängen
 PYTHONPATH=tests python3 tests/globals_smoke.py       # angebotene Wayland-Protokolle
-PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Power (swaylock/swayidle/wlopm)
+PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Power (lock.qml/swayidle/wlopm)
 PYTHONPATH=tests python3 tests/xwayland_smoke.py      # X11-Clients (xterm, xeyes)
 PYTHONPATH=tests python3 tests/screencopy_smoke.py    # Aufnahme mit grim
 PYTHONPATH=tests python3 tests/clipboard_smoke.py     # Kopieren/Einfügen (wl-clipboard)

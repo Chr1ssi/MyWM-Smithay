@@ -165,6 +165,8 @@ fn sync_greeter(wallpaper: &Path, state: &ThemeState) {
         return;
     };
     let sync = || -> Result<()> {
+        // theme.json for mywm-shell's login screen, theme.css for a GTK greeter.
+        write_atomic(&directory.join("theme.json"), &(serde_json::to_string_pretty(state)? + "\n"))?;
         render(directory.join("theme.css"), GREETER, state)?;
         let temporary = directory.join("background.tmp");
         fs::copy(wallpaper, &temporary)?;

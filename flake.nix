@@ -69,7 +69,7 @@
               xterm
               xeyes
               xev
-              swaylock
+              quickshell # the lock screen (lock.qml of the mywm-shell checkout next to this one)
               swayidle
               wlopm
               wlr-randr

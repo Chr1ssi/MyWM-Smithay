@@ -237,7 +237,7 @@ impl State {
         self.apply_released(released);
     }
 
-    /// The locker draws its input feedback (swaylock's ring) only when its frame callback comes.
+    /// The locker draws its input feedback (a typed character) only when its frame callback comes.
     fn send_lock_frame(
         &self,
         output: &Output,

@@ -308,7 +308,7 @@ impl State {
             xdisplay: None,
             override_redirect: Vec::new(),
             lock_manager_state: SessionLockManagerState::new::<State, _>(&dh, |_| true),
-            session_lock: SessionLock::default(),
+            session_lock: SessionLock::new(&loop_handle),
             idle_notifier_state: IdleNotifierState::new(&dh, loop_handle.clone()),
             idle_inhibitors: HashMap::new(),
             output_power_objects: Vec::new(),
@@ -437,6 +437,35 @@ impl State {
                 .env("MYWM_LAUNCHER_Y", (self.pointer_location.y as i32).to_string());
         }
         Self::spawn_reaped(cmd, &format!("{program:?}"));
+    }
+
+    /// Run the login screen (`--greeter`) and stop when it ends, whether it started a session or failed.
+    pub fn spawn_greeter(&mut self, command: &str) {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", command]).env("WAYLAND_DISPLAY", &self.socket_name).envs(self.config.theme_env());
+        let (sender, ended) = calloop::channel::channel();
+        let watched = self.loop_handle.insert_source(ended, |event, _, state: &mut State| {
+            if let calloop::channel::Event::Msg(status) = event {
+                tracing::info!("the login screen ended ({status})");
+                state.loop_signal.stop();
+            }
+        });
+        match (watched, cmd.spawn()) {
+            (Ok(_), Ok(mut child)) => {
+                std::thread::spawn(move || {
+                    let status = child.wait().map_or_else(|e| e.to_string(), |s| s.to_string());
+                    let _ = sender.send(status);
+                });
+            }
+            (Err(error), _) => {
+                tracing::error!("cannot watch the login screen: {}", error.error);
+                self.loop_signal.stop();
+            }
+            (_, Err(error)) => {
+                tracing::error!("cannot start the login screen: {error}");
+                self.loop_signal.stop();
+            }
+        }
     }
 
     /// Open the wallpaper picker of the running wallpaper layer at the pointer.

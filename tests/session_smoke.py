@@ -1,6 +1,7 @@
 """Screen lock, idle notification and monitor power against the nested compositor.
 
-Needs swaylock, swayidle and wlopm besides the usual tools.
+Needs quickshell (the lock screen of the mywm-shell checkout next to this one), swayidle and wlopm besides the
+usual tools.
 Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/session_smoke.py
 """
 import os, subprocess, time
@@ -57,7 +58,7 @@ try:
     assert wait(lambda: "winit on" in subprocess.check_output(["wlopm"], env=env).decode())
     print("output power OK")
 
-    # --- session lock (ext-session-lock via swaylock) ---
+    # --- session lock (ext-session-lock via mywm-shell's lock.qml) ---
     screenshot(f"{comp.dir}/before.png")
     before = pixel(f"{comp.dir}/before.png", 300, 400)
     result = subprocess.run(["./target/debug/mywm-compositor", "--lock"], env=env, timeout=15)
@@ -68,19 +69,20 @@ try:
     locked = pixel(f"{comp.dir}/locked.png", 300, 400)
     print("pixel before lock:", before, "while locked:", locked)
     assert before != locked, "windows are still visible behind the lock"
-    assert locked.upper() == "#1E1E2E", "lock screen should show the palette background"
-    # The locker redraws its ring for a key press only when it gets its frame callback: swaylock then lights
-    # up an arc of the ring (at a random place) in the bright text color, which is nowhere else around it.
-    def bright_ring_pixels(path):
-        raw = subprocess.check_output(["convert", path, "-crop", "140x125+571+335", "rgb:-"])
+    # Without a wallpaper the lock screen is its dimmed background color all around the card.
+    assert locked == pixel(f"{comp.dir}/locked.png", 100, 700), "the lock screen does not cover the windows"
+    # The locker redraws for a key press only when it gets its frame callback: the password field then shows a dot
+    # (bright text color) where it had a dim placeholder.
+    def bright_field_pixels(path):
+        raw = subprocess.check_output(["convert", path, "-crop", "280x40+480+580", "rgb:-"])
         return sum(1 for i in range(0, len(raw), 3) if min(raw[i:i + 3]) > 0xB0)
     screenshot(f"{comp.dir}/before-typing.png")
     comp.key("a")
     time.sleep(0.5)
     screenshot(f"{comp.dir}/typed.png")
-    lit = bright_ring_pixels(f"{comp.dir}/typed.png") - bright_ring_pixels(f"{comp.dir}/before-typing.png")
-    print("ring pixels lit by typing:", lit)
-    assert lit > 50, "the lock screen did not react to typing"
+    lit = bright_field_pixels(f"{comp.dir}/typed.png") - bright_field_pixels(f"{comp.dir}/before-typing.png")
+    print("field pixels lit by typing:", lit)
+    assert lit > 20, "the lock screen did not react to typing"
     assert bar.send("workspace 1 1") == "v1 error invalid-command", "commands must be refused while locked"
     assert comp.stop(), "socket not removed on exit"
     print("session lock OK")

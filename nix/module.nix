@@ -54,6 +54,31 @@ let
       Keywords=tiling;wayland;compositor;
       EOF
     '';
+  greeterConfig = (pkgs.formats.toml { }).generate "mywm-greeter.toml" (
+    {
+      xwayland = false;
+      idle = {
+        lock_after_seconds = 0;
+        monitor_off_after_seconds = 0;
+      };
+    }
+    // cfg.greeter.settings
+  );
+
+  # greetd's session for the login screen: mywm with nothing but greeter.qml; it ends once a session starts.
+  greeterLaunch = pkgs.writeShellScript "mywm-greeter" ''
+    export XDG_SESSION_TYPE=wayland
+    export MYWM_CONFIG=${greeterConfig}
+    export MYWM_THEME_STATE=${lib.escapeShellArg cfg.greeterDirectory}/theme.json
+    export MYWM_GREETER_BACKGROUND=${lib.escapeShellArg cfg.greeterDirectory}/background
+    export MYWM_GREETER_SESSIONS=${config.services.displayManager.sessionData.desktops}/share/wayland-sessions
+    ${lib.optionalString (cfg.greeter.user != null) "export MYWM_GREETER_USER=${lib.escapeShellArg cfg.greeter.user}"}
+    # The greeter user has no state directory; messages go to the journal.
+    export MYWM_LOG_FILE=off RUST_LOG=warn
+    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}") cfg.greeter.environment)}
+    exec ${pkgs.dbus}/bin/dbus-run-session ${cfg.package}/bin/mywm-compositor --greeter \
+      "qs --path ${cfg.package}/share/mywm/quickshell/greeter.qml"
+  '';
 in
 {
   options.programs.mywm = {
@@ -88,19 +113,71 @@ in
       default = null;
       description = ''
         Directory writable by the session user and readable by the greeter.
-        On each theme change mywm writes `background` (the wallpaper) and
-        `theme.css` (GTK color definitions) there.
+        On each theme change mywm writes `background` (the wallpaper),
+        `theme.json` (the colors, for mywm's login screen) and `theme.css`
+        (GTK color definitions) there.
       '';
+    };
+
+    greeter = {
+      enable = lib.mkEnableOption ''
+        greetd with mywm's own login screen (`greeter.qml` of mywm-shell, in the look of the
+        lock screen), shown by `mywm-compositor --greeter`. Needs `greeterDirectory` for the
+        wallpaper and colors'';
+
+      user = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "User name the login screen starts with.";
+      };
+
+      settings = lib.mkOption {
+        type = (pkgs.formats.toml { }).type;
+        default = { };
+        example = lib.literalExpression ''
+          {
+            keyboard.layout = "de";
+            outputs = [ { name = "DP-3"; mode = "2560x1440@143.97"; position = [ 0 0 ]; } ];
+          }
+        '';
+        description = ''
+          mywm configuration while the login screen shows (`config.toml` keys): outputs, keyboard,
+          input. Xwayland and the idle lock are off there.
+        '';
+      };
+
+      environment = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        example = { XCURSOR_THEME = "Bibata-Modern-Ice"; XCURSOR_SIZE = "24"; };
+        description = "Further environment of the login screen, such as the cursor theme.";
+      };
     };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = !cfg.greeter.enable || cfg.greeterDirectory != null;
+        message = "programs.mywm.greeter needs programs.mywm.greeterDirectory (wallpaper and colors).";
+      }
+    ];
+
+    services.greetd = lib.mkIf cfg.greeter.enable {
+      enable = true;
+      settings.default_session = {
+        command = "${greeterLaunch}";
+        user = "greeter";
+      };
+    };
+
     environment.systemPackages = [ cfg.package cfg.settingsPackage ];
     services.displayManager.sessionPackages =
       [ (sessionPackage "mywm" "mywm" "Smithay-based tiling compositor with its own Quickshell shell" quiet) ]
       ++ lib.optional cfg.devSession
         (sessionPackage "mywm-dev" "mywm (Dev)" "mywm with session log and frame statistics" verbose);
-    security.pam.services.swaylock = { };
+    # The lock screen (mywm-shell's lock.qml) checks the password with this service.
+    security.pam.services.mywm-lock = { };
 
     # Started by session-environment; pulls in graphical-session.target so systemd
     # user services bound to it run inside the session.

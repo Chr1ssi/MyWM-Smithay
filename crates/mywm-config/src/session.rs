@@ -9,31 +9,10 @@ use std::{
 
 use crate::{Config, IdleConfig, keys::Result};
 
-/// `swaylock` with the colors of the configured palette.
+/// The lock screen of mywm-shell (`lock.qml`) with the theme's colors. It unlocks through PAM (service `mywm-lock`).
 pub fn locker(config: &Config) -> Command {
-    let mut command = Command::new("swaylock");
-    command.args(["--config", "/dev/null", "--show-keyboard-layout", "--indicator-idle-visible"]);
-    let a = &config.appearance;
-    let hex = |color: crate::HexColor| color.css()[1..].to_string();
-    for (flag, color) in [
-        ("--color", a.background),
-        ("--inside-color", a.surface),
-        ("--ring-color", a.active_border),
-        ("--text-color", a.text),
-        ("--key-hl-color", a.text),
-        ("--bs-hl-color", a.muted_text),
-        ("--layout-bg-color", a.surface),
-        ("--layout-text-color", a.text),
-        ("--layout-border-color", a.inactive_border),
-    ] {
-        command.args([flag.to_string(), hex(color)]);
-    }
-    for state in ["clear", "caps-lock", "ver", "wrong"] {
-        command.args([format!("--inside-{state}-color"), hex(a.surface)]);
-        command.args([format!("--ring-{state}-color"), hex(a.active_border)]);
-        command.args([format!("--text-{state}-color"), hex(a.text)]);
-    }
-    command.arg("--line-uses-ring");
+    let mut command = Command::new("qs");
+    command.arg("--path").arg(crate::shell_qml("lock.qml")).envs(config.theme_env());
     command
 }
 
@@ -42,7 +21,7 @@ pub fn locker(config: &Config) -> Command {
 pub fn lock_and_wait(config: &Config) -> Result<()> {
     let Some(path) = std::env::var_os("MYWM_SOCKET") else {
         let status = locker(config).status()?;
-        return status.success().then_some(()).ok_or_else(|| "swaylock exited unsuccessfully".into());
+        return status.success().then_some(()).ok_or_else(|| "the screen locker exited unsuccessfully".into());
     };
     let mut socket = UnixStream::connect(path)?;
     socket.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -127,13 +106,12 @@ mod tests {
     }
 
     #[test]
-    fn locker_uses_the_palette() {
-        let args: Vec<_> = locker(&Config::default())
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        let position = args.iter().position(|a| a == "--ring-color").unwrap();
-        assert_eq!(args[position + 1], "89b4fa");
-        assert!(args.contains(&"--line-uses-ring".to_string()));
+    fn locker_runs_the_shell_lock_screen_with_the_palette() {
+        let locker = locker(&Config::default());
+        let args: Vec<_> = locker.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(locker.get_program(), "qs");
+        assert!(args[1].ends_with("lock.qml"), "{args:?}");
+        let accent = locker.get_envs().find(|(name, _)| *name == "MYWM_COLOR_ACCENT").and_then(|(_, value)| value);
+        assert_eq!(accent.map(|v| v.to_string_lossy().into_owned()), Some("#89b4fa".into()));
     }
 }

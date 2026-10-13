@@ -3,7 +3,7 @@
 Der Compositor läuft als Sitzung (vom Display-Manager gestartet) oder nested in einem anderen
 Fenster zum Entwickeln (`cargo run`). Die Sitzung besteht aus `mywm-session` (Skript): es startet den
 Compositor und darin Wallpaper-Picker, Bar, einen Polkit-Agenten und die Portal-Umgebung. Sperre und
-Idle startet der Compositor selbst (swaylock/swayidle).
+Idle startet der Compositor selbst (Sperrbildschirm `lock.qml` aus mywm-shell, swayidle).
 
 ## NixOS (Flake)
 
@@ -25,10 +25,18 @@ modules = [
 ```
 
 Das Modul legt die Sitzung „mywm“ für den Display-Manager an, aktiviert Xwayland, PipeWire und
-die Portale (Screen-Sharing über `mywm-portal`, Dateiauswahl über das GTK-Portal) und das
-Sperr-PAM für swaylock. Die Konfiguration liegt in `~/.config/mywm/config.toml`
+die Portale (Screen-Sharing über `mywm-portal`, Dateiauswahl über das GTK-Portal) und den
+PAM-Dienst `mywm-lock` für den Sperrbildschirm. Die Konfiguration liegt in `~/.config/mywm/config.toml`
 (Vorlage: `crates/mywm-config/example.toml`). NVIDIA: `hardware.nvidia.modesetting.enable = true`
 und der offene Kernelmodul-Treiber wie bisher.
+
+Anmeldung: Mit `programs.mywm.greeter.enable = true` (und `programs.mywm.greeterDirectory`)
+richtet das Modul greetd mit dem Anmeldebildschirm aus mywm-shell ein. Er läuft in
+`mywm-compositor --greeter "<Befehl>"`, der endet, sobald der Anmeldebildschirm endet, damit
+greetd die gewählte Sitzung startet. `greeter.user` füllt den Benutzernamen vor,
+`greeter.settings` ist die mywm-Konfiguration dafür (Ausgänge, Tastatur, Eingabe; Xwayland und
+die Idle-Sperre sind aus), `greeter.environment` setzt z. B. das Cursor-Theme. Wallpaper und
+Farben (`theme.json`) spiegelt die Sitzung bei jedem Themewechsel in `greeterDirectory`.
 
 Logging: Die Sitzung „mywm“ schreibt nur Warnungen, Fehler und Abstürze nach
 `~/.local/state/mywm/compositor.log`. Mit `programs.mywm.devSession = true` gibt es zusätzlich
@@ -55,7 +63,7 @@ als `*.1` erhalten.
    ```
 5. Portale: Dateien aus `portal/` installieren (siehe `docs/streaming.md`), für
    `XDG_CURRENT_DESKTOP=mywm` als `~/.config/xdg-desktop-portal/mywm-portals.conf`.
-6. Laufzeit-Programme: `quickshell`, `swaylock`, `swayidle`, `wlopm`, `wl-clipboard` (Screenshot in
+6. Laufzeit-Programme: `quickshell`, `swayidle`, `wlopm`, `wl-clipboard` (Screenshot in
    die Zwischenablage), `libnotify` (Benachrichtigung), `xwayland`, `polkit-gnome` (optional).
 
 ## Erster Start auf der Hardware

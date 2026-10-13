@@ -1,5 +1,8 @@
 //! Session state: the screen lock (`ext-session-lock`), idle detection and monitor power.
-use std::{collections::HashSet, process::Child};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use smithay::{
     delegate_idle_inhibit, delegate_idle_notify, delegate_session_lock,
@@ -7,6 +10,8 @@ use smithay::{
     desktop::WindowSurfaceType,
     output::Output,
     reexports::{
+        calloop::{LoopHandle, channel},
+        wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1,
         wayland_protocols_wlr::output_power_management::v1::server::{
             zwlr_output_power_manager_v1::{self, ZwlrOutputPowerManagerV1},
             zwlr_output_power_v1::{self, ZwlrOutputPowerV1},
@@ -33,21 +38,46 @@ enum LockState {
     Locked,
 }
 
+/// A locker that ends this soon after it started, with the session still locked, counts as failing at once.
+const QUICK_EXIT: Duration = Duration::from_secs(5);
+/// Lockers failing at once in a row before no further one is started.
+const MAX_QUICK_EXITS: u32 = 3;
+
 pub struct SessionLock {
     state: LockState,
     surfaces: Vec<(Output, LockSurface)>,
     /// Outputs that still have to draw a locked frame before the lock is confirmed.
     unconfirmed: HashSet<String>,
-    locker: Option<Child>,
-}
-
-impl Default for SessionLock {
-    fn default() -> Self {
-        Self { state: LockState::Unlocked, surfaces: Vec::new(), unconfirmed: HashSet::new(), locker: None }
-    }
+    /// The lock of the locker holding the session; once its client is gone, another locker may take over.
+    holder: Option<ExtSessionLockV1>,
+    /// The locker the compositor started is running.
+    locker_running: bool,
+    quick_exits: u32,
+    /// How long each started locker ran, once it ended.
+    locker_exits: channel::Sender<Duration>,
 }
 
 impl SessionLock {
+    pub fn new(loop_handle: &LoopHandle<'static, State>) -> Self {
+        let (locker_exits, receiver) = channel::channel();
+        if let Err(error) = loop_handle.insert_source(receiver, |event, _, state| {
+            if let channel::Event::Msg(lived) = event {
+                state.locker_exited(lived);
+            }
+        }) {
+            tracing::warn!("a screen locker that dies will not be replaced: {}", error.error);
+        }
+        Self {
+            state: LockState::Unlocked,
+            surfaces: Vec::new(),
+            unconfirmed: HashSet::new(),
+            holder: None,
+            locker_running: false,
+            quick_exits: 0,
+            locker_exits,
+        }
+    }
+
     /// The session is locked or about to be: nothing but the lock may be shown or reached.
     pub fn is_active(&self) -> bool {
         !matches!(self.state, LockState::Unlocked)
@@ -66,9 +96,21 @@ impl SessionLockHandler for State {
 
     fn lock(&mut self, confirmation: SessionLocker) {
         if self.session_lock.is_active() {
-            // Already locked: dropping the request tells the second locker `finished`.
-            return;
+            // Already locked: dropping the request tells the second locker `finished`, unless the one holding the
+            // lock is gone. Then nobody could unlock, and the new one takes over the locked session at once.
+            if self.session_lock.holder.as_ref().is_some_and(Resource::is_alive) {
+                return;
+            }
+            tracing::warn!("a new screen locker took over the locked session");
+            self.session_lock.holder = Some(confirmation.ext_session_lock().clone());
+            self.session_lock.surfaces.retain(|(_, surface)| surface.wl_surface().is_alive());
+            self.session_lock.unconfirmed.clear();
+            confirmation.lock();
+            self.session_lock.state = LockState::Locked;
+            self.ipc_dirty = true;
+            return self.refresh();
         }
+        self.session_lock.holder = Some(confirmation.ext_session_lock().clone());
         self.end_drag();
         self.session_lock.unconfirmed = self.outputs.iter().map(|e| e.output.name()).collect();
         if self.session_lock.unconfirmed.is_empty() {
@@ -84,6 +126,8 @@ impl SessionLockHandler for State {
     fn unlock(&mut self) {
         tracing::info!("session unlocked");
         self.session_lock.state = LockState::Unlocked;
+        self.session_lock.holder = None;
+        self.session_lock.quick_exits = 0;
         self.session_lock.surfaces.clear();
         self.session_lock.unconfirmed.clear();
         self.refresh();
@@ -142,23 +186,51 @@ impl State {
         }
     }
 
-    /// Start the screen locker (`swaylock` with the palette's colors) unless the session is locked.
+    /// Start the screen locker (`lock.qml` of mywm-shell) unless one is running and holds the lock.
     pub fn start_locker(&mut self) {
-        if self.session_lock.is_active() {
+        let held = self.session_lock.holder.as_ref().is_some_and(Resource::is_alive);
+        if self.session_lock.locker_running || (self.session_lock.is_active() && held) {
             return;
         }
-        if let Some(child) = &mut self.session_lock.locker {
-            match child.try_wait() {
-                Ok(None) => return,
-                _ => self.session_lock.locker = None,
-            }
-        }
+        self.spawn_locker();
+    }
+
+    fn spawn_locker(&mut self) {
         let mut command = mywm_config::session::locker(&self.config);
         command.env("WAYLAND_DISPLAY", &self.socket_name);
         match command.spawn() {
-            Ok(child) => self.session_lock.locker = Some(child),
+            Ok(mut child) => {
+                self.session_lock.locker_running = true;
+                let exits = self.session_lock.locker_exits.clone();
+                let started = Instant::now();
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                    let _ = exits.send(started.elapsed());
+                });
+            }
             Err(error) => tracing::warn!("cannot start the screen locker: {error}"),
         }
+    }
+
+    /// The started locker ended. Normally it unlocked first; if the session is still locked, nobody else
+    /// can unlock it, so another locker starts (and takes over), unless they keep failing at once.
+    fn locker_exited(&mut self, lived: Duration) {
+        self.session_lock.locker_running = false;
+        if !self.session_lock.is_active() {
+            return;
+        }
+        let lock = &mut self.session_lock;
+        lock.quick_exits = if lived < QUICK_EXIT { lock.quick_exits + 1 } else { 0 };
+        if lock.quick_exits > MAX_QUICK_EXITS {
+            tracing::error!(
+                "the screen locker keeps exiting while the session is locked; not starting it again \
+                 (the bar socket's `lock` command tries once more)"
+            );
+            return;
+        }
+        tracing::warn!("the screen locker exited while the session is locked; starting another");
+        // Its client may not be noticed as gone yet; the new one takes over once it asks to lock.
+        self.spawn_locker();
     }
 }
 
