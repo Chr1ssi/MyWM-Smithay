@@ -115,6 +115,14 @@ impl State {
             .monitor_at(self.pointer_location.x.floor() as i32, self.pointer_location.y.floor() as i32)
     }
 
+    /// Name of the monitor with workspace 1 (the first of `workspace_outputs`): where the login and lock
+    /// screens ask for the password (`MYWM_PRIMARY_OUTPUT`).
+    pub fn primary_output_name(&self) -> Option<String> {
+        let desk = &self.desktop.desk;
+        let monitor = (0..desk.monitors.len()).find(|index| desk.home_number(*index) == 1)?;
+        self.outputs.get(monitor).map(|entry| entry.output.name())
+    }
+
     /// The scratchpad appears on the monitor under the pointer.
     pub fn scratchpad_monitor(&self) -> usize {
         self.pointer_monitor().unwrap_or(self.desktop.focused_monitor)

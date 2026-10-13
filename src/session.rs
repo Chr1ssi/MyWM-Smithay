@@ -198,6 +198,9 @@ impl State {
     fn spawn_locker(&mut self) {
         let mut command = mywm_config::session::locker(&self.config);
         command.env("WAYLAND_DISPLAY", &self.socket_name);
+        if let Some(primary) = self.primary_output_name() {
+            command.env("MYWM_PRIMARY_OUTPUT", primary);
+        }
         match command.spawn() {
             Ok(mut child) => {
                 self.session_lock.locker_running = true;

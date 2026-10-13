@@ -443,6 +443,9 @@ impl State {
     pub fn spawn_greeter(&mut self, command: &str) {
         let mut cmd = std::process::Command::new("sh");
         cmd.args(["-c", command]).env("WAYLAND_DISPLAY", &self.socket_name).envs(self.config.theme_env());
+        if let Some(primary) = self.primary_output_name() {
+            cmd.env("MYWM_PRIMARY_OUTPUT", primary);
+        }
         let (sender, ended) = calloop::channel::channel();
         let watched = self.loop_handle.insert_source(ended, |event, _, state: &mut State| {
             if let calloop::channel::Event::Msg(status) = event {
