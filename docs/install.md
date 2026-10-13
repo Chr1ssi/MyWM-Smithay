@@ -36,7 +36,9 @@ richtet das Modul greetd mit dem Anmeldebildschirm aus mywm-shell ein. Er läuft
 greetd die gewählte Sitzung startet. `greeter.user` füllt den Benutzernamen vor,
 `greeter.settings` ist die mywm-Konfiguration dafür (Ausgänge, Tastatur, Eingabe; Xwayland und
 die Idle-Sperre sind aus), `greeter.environment` setzt z. B. das Cursor-Theme. Wallpaper und
-Farben (`theme.json`) spiegelt die Sitzung bei jedem Themewechsel in `greeterDirectory`.
+Farben (`theme.json`) spiegelt die Sitzung bei jedem Themewechsel in `greeterDirectory`. Mit
+Plymouth beendet greetd den Bootsplash selbst (`plymouth quit --retain-splash`), so bleibt dessen
+letztes Bild stehen, bis mywm den Bildschirm übernimmt, statt eines schwarzen Bildschirms.
 
 Logging: Die Sitzung „mywm“ schreibt nur Warnungen, Fehler und Abstürze nach
 `~/.local/state/mywm/compositor.log`. Mit `programs.mywm.devSession = true` gibt es zusätzlich

@@ -169,6 +169,21 @@ in
         command = "${greeterLaunch}";
         user = "greeter";
       };
+      # Plymouth ends only as greetd starts (below), not before it.
+      greeterManagesPlymouth = config.boot.plymouth.enable;
+    };
+
+    # Plymouth's last picture stays until mywm takes the display, instead of a black screen while the login
+    # screen starts. Only root may tell Plymouth to quit, so greetd does it rather than the greeter; like GDM.
+    systemd.services.greetd = lib.mkIf (cfg.greeter.enable && config.boot.plymouth.enable) {
+      after = [ "plymouth-start.service" ];
+      conflicts = [ "plymouth-quit.service" ];
+      onFailure = [ "plymouth-quit.service" ];
+      serviceConfig.ExecStartPre = [ "-${config.boot.plymouth.package}/bin/plymouth quit --retain-splash" ];
+    };
+    # Otherwise starting multi-user.target (nixos-rebuild switch) would stop greetd for plymouth-quit.
+    systemd.services.plymouth-quit = lib.mkIf (cfg.greeter.enable && config.boot.plymouth.enable) {
+      wantedBy = lib.mkForce [ ];
     };
 
     environment.systemPackages = [ cfg.package cfg.settingsPackage ];
