@@ -12,15 +12,20 @@ use smithay::{
         renderer::{
             damage::OutputDamageTracker,
             element::{Id, Kind, solid::SolidColorRenderElement},
-            gles::GlesRenderer,
+            gles::{GlesRenderer, GlesTexture},
             utils::CommitCounter,
         },
     },
     output::Output,
-    utils::{Physical, Point, Rectangle},
+    utils::{Physical, Point, Rectangle, Size, Transform},
 };
 
-use crate::{State, render::OutputElement, screencopy::render_to_pixels, screenshot::ModalKey};
+use crate::{
+    State,
+    render::OutputElement,
+    screencopy::{offscreen_texture, render_region_into},
+    screenshot::ModalKey,
+};
 
 const BTN_LEFT: u32 = 0x110;
 /// Pixels shown each way around the middle one.
@@ -32,6 +37,19 @@ const OFFSET: f64 = 24.0;
 
 pub struct Picking {
     sample: Option<Sample>,
+    /// The composed frame sampled last, kept so the next sample only redraws what changed since.
+    frame: Option<Frame>,
+}
+
+/// An output's frame without cursor and overlays, in a texture of its own.
+struct Frame {
+    output: Output,
+    size: Size<i32, Physical>,
+    transform: Transform,
+    scale: f64,
+    clear: [f32; 4],
+    texture: GlesTexture,
+    tracker: OutputDamageTracker,
 }
 
 /// The pixels around the pointer from the last frame of its output.
@@ -56,7 +74,7 @@ impl State {
         if self.session_lock.is_active() || self.selecting.is_some() || self.overview_open() {
             return;
         }
-        self.picking = Some(Picking { sample: None });
+        self.picking = Some(Picking { sample: None, frame: None });
         self.ipc_dirty = true;
         self.queue_redraw_all();
     }
@@ -149,11 +167,30 @@ impl State {
             .into_iter()
             .filter(|e| !matches!(e, OutputElement::Cursor(_) | OutputElement::Overlay(_)))
             .collect();
-        let mut tracker = OutputDamageTracker::new(geometry.mode_size, scale, geometry.transform);
-        let bgra = match render_to_pixels(renderer, &mut tracker, &visible, self.clear_color(), geometry.size, region) {
+        let clear = self.clear_color();
+        // The same output as last time: its texture holds the previous frame, and only the damage is drawn.
+        let kept = self.picking.as_mut().and_then(|p| p.frame.take()).filter(|f| {
+            &f.output == output && f.size == geometry.mode_size && f.transform == geometry.transform && f.scale == scale && f.clear == clear
+        });
+        let (mut frame, age) = match kept {
+            Some(frame) => (frame, 1),
+            None => {
+                let texture = match offscreen_texture(renderer, geometry.size) {
+                    Ok(texture) => texture,
+                    Err(error) => return tracing::warn!("color picker: {error}"),
+                };
+                let tracker = OutputDamageTracker::new(geometry.mode_size, scale, geometry.transform);
+                let frame = Frame { output: output.clone(), size: geometry.mode_size, transform: geometry.transform, scale, clear, texture, tracker };
+                (frame, 0)
+            }
+        };
+        let bgra = match render_region_into(renderer, &mut frame.tracker, &mut frame.texture, age, &visible, clear, region) {
             Ok(bgra) => bgra,
             Err(error) => return tracing::warn!("color picker: {error}"),
         };
+        if let Some(picking) = &mut self.picking {
+            picking.frame = Some(frame);
+        }
         // Place the region's pixels into the full square; the part beyond the output stays empty.
         let mut pixels = vec![None; (SIDE * SIDE) as usize];
         for row in 0..region.size.h {

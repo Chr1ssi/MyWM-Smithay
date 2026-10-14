@@ -45,6 +45,14 @@ try:
     assert x_pixel(400 + 24 - 1, 300 + 24 + 30) == "#FFFFFF", "no border around the magnifier"
     print("magnifier OK")
 
+    # The picture changes while picking: the sample follows it both ways (each sample redraws only what changed).
+    blue = subprocess.Popen(["./target/debug/mywm-test-client", "fullscreen", "0000ff", "30"], env=comp.env())
+    assert wait(lambda: (bar.poll(), bar.picking == "#0000ff")[1]), bar.picking
+    blue.kill()
+    blue.wait()
+    assert wait(lambda: (bar.poll(), bar.picking == ORANGE)[1]), bar.picking
+    print("sample follows changes OK")
+
     subprocess.run(["xdotool", "click", "1"], check=True)
     assert wait(lambda: (bar.poll(), bar.picking is None)[1]), "picking did not end with the click"
     assert wait(lambda: clipboard(comp) == ORANGE), clipboard(comp)

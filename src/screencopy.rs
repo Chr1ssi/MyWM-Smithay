@@ -462,16 +462,24 @@ pub fn render_to_pixels<E: smithay::backend::renderer::element::RenderElement<Gl
     size: Size<i32, Physical>,
     region: Rectangle<i32, Physical>,
 ) -> Result<Vec<u8>, String> {
-    let buffer_size: Size<i32, BufferCoords> = (size.w, size.h).into();
-    let mut texture = Offscreen::<smithay::backend::renderer::gles::GlesTexture>::create_buffer(
-        renderer,
-        Fourcc::Argb8888,
-        buffer_size,
-    )
-    .map_err(|e| format!("offscreen buffer: {e}"))?;
-    let mut target = renderer.bind(&mut texture).map_err(|e| format!("bind: {e}"))?;
+    let mut texture = offscreen_texture(renderer, size)?;
+    render_region_into(renderer, tracker, &mut texture, 0, elements, clear, region)
+}
+
+/// Render `elements` with `tracker` into `texture` and read back `region` as ARGB8888 bytes. `age` is 1 when
+/// `texture` still holds the tracker's previous frame (then only what changed is drawn), else 0.
+pub fn render_region_into<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
+    renderer: &mut GlesRenderer,
+    tracker: &mut OutputDamageTracker,
+    texture: &mut GlesTexture,
+    age: usize,
+    elements: &[E],
+    clear: [f32; 4],
+    region: Rectangle<i32, Physical>,
+) -> Result<Vec<u8>, String> {
+    let mut target = renderer.bind(texture).map_err(|e| format!("bind: {e}"))?;
     tracker
-        .render_output(renderer, &mut target, 0, elements, clear)
+        .render_output(renderer, &mut target, age, elements, clear)
         .map_err(|e| format!("render: {e:?}"))?;
     let region = Rectangle::<i32, BufferCoords>::new(
         (region.loc.x, region.loc.y).into(),
