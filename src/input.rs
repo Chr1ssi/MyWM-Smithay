@@ -133,7 +133,7 @@ impl State {
     }
 
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>, output: Option<&Output>) {
-        self.idle_notifier_state.notify_activity(&self.seat);
+        self.input_activity = true;
         match event {
             InputEvent::Keyboard { event } => {
                 let serial = SERIAL_COUNTER.next_serial();
@@ -364,6 +364,14 @@ impl State {
         }
     }
 
+    /// Tell idle clients of the input since the last call: each one's timer restarts once per event loop
+    /// iteration, and a resume reaches it before the clients are flushed.
+    pub fn notify_input_activity(&mut self) {
+        if std::mem::take(&mut self.input_activity) {
+            self.idle_notifier_state.notify_activity(&self.seat);
+        }
+    }
+
     /// Move the pointer to `location` as if the user did.
     pub fn warp_pointer(&mut self, location: Point<f64, Logical>) {
         self.pointer_location = location;
@@ -376,21 +384,31 @@ impl State {
         if self.session_lock.is_active() {
             return self.lock_surface_at_pointer();
         }
+        self.pointer_focus_over(self.window_at(self.pointer_location).as_ref())
+    }
+
+    /// `pointer_focus` with the window under the pointer (`window_at`) already looked up.
+    fn pointer_focus_over(
+        &self,
+        window_hit: Option<&(smithay::desktop::Window, Point<i32, Logical>)>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        if self.session_lock.is_active() {
+            return self.lock_surface_at_pointer();
+        }
         // Same order as drawn: overlays, popups and menus and fullscreen windows, panels, the
         // other windows, then wallpapers and the like.
-        let window_hit = self.window_at(self.pointer_location);
         let surface_of = |(window, loc): &(smithay::desktop::Window, Point<i32, Logical>)| {
             window
                 .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
                 .map(|(surface, origin)| (surface, (origin + *loc).to_f64()))
         };
-        let in_front = window_hit.as_ref().filter(|(window, _)| {
+        let in_front = window_hit.filter(|(window, _)| {
             self.desktop.windows.iter().find(|m| &m.window == window).is_none_or(|m| m.shown_fullscreen)
         });
         self.layer_surface_at(&[Layer::Overlay])
             .or_else(|| in_front.and_then(surface_of))
             .or_else(|| self.layer_surface_at(&[Layer::Top]))
-            .or_else(|| window_hit.as_ref().and_then(surface_of))
+            .or_else(|| window_hit.and_then(surface_of))
             .or_else(|| self.layer_surface_at(&[Layer::Bottom, Layer::Background]))
     }
 
@@ -398,11 +416,13 @@ impl State {
         self.update_pointer_monitor();
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
-        let under = self.pointer_focus();
+        // One lookup per motion event serves the pointer focus and focus follows mouse.
+        let window_hit = self.window_at(self.pointer_location);
+        let under = self.pointer_focus_over(window_hit.as_ref());
         // Focus follows mouse, unless a panel holds the keyboard.
         if self.keyboard_layer().is_none()
-            && let Some((window, _)) = self.window_at(self.pointer_location)
-            && let Some(id) = self.desktop.windows.iter().find(|m| m.window == window).map(|m| m.id)
+            && let Some((window, _)) = &window_hit
+            && let Some(id) = self.desktop.windows.iter().find(|m| &m.window == window).map(|m| m.id)
         {
             self.focus_window(id);
         }

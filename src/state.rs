@@ -116,6 +116,9 @@ pub struct State {
     pub lock_manager_state: SessionLockManagerState,
     pub session_lock: SessionLock,
     pub idle_notifier_state: IdleNotifierState<State>,
+    /// Input arrived in this event loop iteration; idle clients hear of it once at its end
+    /// (`notify_input_activity`), not once per event (a mouse sends up to thousands per second).
+    pub input_activity: bool,
     /// Surfaces that ask the desktop not to go idle (video players), with the number of live
     /// inhibitor objects on each: a client may replace an inhibitor by creating the new one first.
     pub idle_inhibitors: HashMap<WlSurface, usize>,
@@ -312,6 +315,7 @@ impl State {
             lock_manager_state: SessionLockManagerState::new::<State, _>(&dh, |_| true),
             session_lock: SessionLock::new(&loop_handle),
             idle_notifier_state: IdleNotifierState::new(&dh, loop_handle.clone()),
+            input_activity: false,
             idle_inhibitors: HashMap::new(),
             output_power_objects: Vec::new(),
             layer_focus: None,

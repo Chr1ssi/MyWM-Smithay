@@ -152,6 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.run(None, &mut state, |state| {
         state.space.refresh();
         state.popups.cleanup();
+        state.notify_input_activity();
         state.ipc_flush();
         let _ = state.display_handle.flush_clients();
     })?;
