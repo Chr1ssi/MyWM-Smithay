@@ -371,9 +371,8 @@ fn state_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Replace this process by the Quickshell wallpaper picker (`--wallpaper`); the compositor draws the image.
-pub fn run_wallpaper(config: &mywm_config::Config) -> Result<()> {
-    use std::os::unix::process::CommandExt;
+/// The Quickshell wallpaper picker with the helpers and paths it needs; the compositor draws the image.
+fn picker_process(config: &mywm_config::Config) -> Result<Command> {
     let exe = std::env::current_exe()?;
     let mut command = Command::new("qs");
     command
@@ -385,6 +384,27 @@ pub fn run_wallpaper(config: &mywm_config::Config) -> Result<()> {
         .env("MYWM_WALLPAPER_DIRECTORY", &config.wallpaper_directory)
         .env("MYWM_WALLPAPER_STATE", state_dir()?.join("wallpaper.json"))
         .envs(config.theme_env());
+    Ok(command)
+}
+
+/// Replace this process by a resident wallpaper picker (`--wallpaper`) that waits for `openPicker` calls.
+pub fn run_wallpaper(config: &mywm_config::Config) -> Result<()> {
+    Err(picker_process(config)?.exec().into())
+}
+
+/// Show the picker at `(x, y)` (`--wallpaper-picker`): a running one moves there; otherwise this process
+/// becomes a picker that ends once it is closed, so nothing of it stays in memory between uses.
+pub fn open_picker(config: &mywm_config::Config, x: i32, y: i32) -> Result<()> {
+    let running = picker_command(x, y)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if running {
+        return Ok(());
+    }
+    let mut command = picker_process(config)?;
+    command.env("MYWM_WALLPAPER_OPEN_AT", format!("{x},{y}"));
     Err(command.exec().into())
 }
 
@@ -414,11 +434,13 @@ pub fn client_mode(args: &[String], config: &mywm_config::Config) -> Option<Resu
         },
         "--wallpaper-list" => list(config),
         "--wallpaper" => run_wallpaper(config),
-        "--wallpaper-picker" => match picker_command(0, 0).status() {
-            Ok(status) if status.success() => Ok(()),
-            Ok(_) => Err("wallpaper picker exited unsuccessfully".into()),
-            Err(error) => Err(error.into()),
-        },
+        "--wallpaper-picker" => {
+            let coordinate = |n: usize| arg(n).map_or(Ok(0), |value| value.parse::<i32>());
+            match (coordinate(2), coordinate(3)) {
+                (Ok(x), Ok(y)) => open_picker(config, x, y),
+                _ => Err("--wallpaper-picker takes the position as two integers: X Y".into()),
+            }
+        }
         "--bar" => {
             let mut command = Command::new("qs");
             command.arg("--path").arg(mywm_config::shell_qml("bar.qml")).arg("--no-duplicate").envs(config.theme_env());

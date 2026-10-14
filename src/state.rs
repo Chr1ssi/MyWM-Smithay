@@ -473,17 +473,25 @@ impl State {
         }
     }
 
-    /// Open the wallpaper picker of the running wallpaper layer at the pointer.
+    /// Open the wallpaper picker at the pointer; it starts on demand (`--wallpaper-picker`) and ends when closed.
     pub fn open_wallpaper_picker(&self) {
-        let mut cmd = mywm_theme::picker_command(self.pointer_location.x as i32, self.pointer_location.y as i32);
-        cmd.env("WAYLAND_DISPLAY", &self.socket_name).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+        let exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(error) => return tracing::warn!("cannot find the own binary for the wallpaper picker: {error}"),
+        };
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg("--wallpaper-picker")
+            .args([(self.pointer_location.x as i32).to_string(), (self.pointer_location.y as i32).to_string()])
+            .env("WAYLAND_DISPLAY", &self.socket_name)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped());
         match cmd.spawn() {
             Ok(child) => {
-                // Say why when it fails (most often: the wallpaper layer is not running).
+                // Say why when it fails.
                 std::thread::spawn(move || match child.wait_with_output() {
                     Ok(output) if !output.status.success() => {
                         tracing::warn!(
-                            "the wallpaper picker could not be opened ({}): {} (is `mywm-compositor --wallpaper` running?)",
+                            "the wallpaper picker could not be opened ({}): {}",
                             output.status,
                             String::from_utf8_lossy(&output.stderr).trim()
                         );

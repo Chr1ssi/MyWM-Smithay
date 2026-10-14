@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Session entry point (started by the display manager): runs the compositor as the session
-# leader and, inside it, the shell (wallpaper, bar), a polkit agent and the portal environment.
+# leader and, inside it, the shell's bar, a polkit agent and the portal environment (the wallpaper
+# picker starts on demand).
 #
 # Environment (all optional): MYWM_BINARY, MYWM_SHELL_DIR, MYWM_POLKIT_AGENT,
 # MYWM_SESSION_ENVIRONMENT, MYWM_CONFIG, MYWM_GREETER_DIR.
@@ -36,7 +37,6 @@ cat > "$startup" <<STARTUP
 #!/usr/bin/env bash
 children=()
 "$session_environment" || echo 'Warning: portal environment incomplete' >&2
-"$binary" --wallpaper & children+=(\$!)
 "$binary" --bar & children+=(\$!)
 if [ -n "\${MYWM_POLKIT_AGENT:-}" ]; then "\$MYWM_POLKIT_AGENT" & children+=(\$!); fi
 parent=\$PPID
