@@ -48,6 +48,9 @@ Quickshell-Picker (`mywm-shell`) sieht aus wie bisher, zeichnet aber keinen eige
 
 Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-Blur; siehe
 `docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).
+Ragen gekachelte Fenster über den linken oder rechten Rand eines Monitors hinaus, zeichnet der Compositor dort
+einen 5 Pixel breiten Streifen in der Farbe des aktiven Rahmens und hält ihn frei von Fenstern (früher zwei
+Panel-Fenster der Shell pro Monitor).
 
 Screen-Sharing ohne `xdg-desktop-portal-wlr`: `mywm-portal` fragt im Compositor nach Fenster oder Monitor
 und streamt über PipeWire (`docs/streaming.md`). Es übernimmt auch das Inhibit-Portal, damit Programme wie
@@ -100,6 +103,7 @@ PYTHONPATH=tests python3 tests/clipboard_smoke.py     # Kopieren/Einfügen (wl-c
 PYTHONPATH=tests python3 tests/layer_smoke.py         # Layer-Shell-Client mit Größe 0 (Quickshell-Marker)
 PYTHONPATH=tests python3 tests/x11_focus_smoke.py     # Tastatur in X11-Fenstern (xev)
 PYTHONPATH=tests python3 tests/scroll_clip_smoke.py   # herausgescrollte Fenster erscheinen nicht auf dem Nachbarmonitor
+PYTHONPATH=tests python3 tests/edge_markers_smoke.py  # Randstreifen, wenn Fenster über den Rand hinausragen
 PYTHONPATH=tests python3 tests/output_management_smoke.py  # wlr-randr: Position/Skalierung
 PYTHONPATH=tests python3 tests/image_capture_smoke.py # Fenster-/Monitoraufnahme (crates/mywm-capture-test)
 PYTHONPATH=tests python3 tests/effects_smoke.py       # runde Ecken, Transparenz, Schatten, Fade, Blur (braucht swaybg)

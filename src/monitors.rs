@@ -1,12 +1,20 @@
 //! Outputs as monitors: hotplug, pointer/monitor focus and the workspace commands that span monitors.
 use mywm_layout::{Direction, GAMING, Rect};
 use smithay::{
+    backend::renderer::element::{
+        Kind,
+        solid::{SolidColorBuffer, SolidColorRenderElement},
+        utils::CropRenderElement,
+    },
     desktop::{Window, layer_map_for_output, space::SpaceElement},
     output::Output,
-    utils::{Logical, Point},
+    utils::{Logical, Physical, Point, Rectangle},
 };
 
-use crate::{State, desktop::WindowId};
+use crate::{State, desktop::WindowId, render::OutputElement};
+
+/// Width of the strip at a monitor's edge that says windows are scrolled out beyond it (logical pixels).
+const EDGE_MARKER: i32 = 5;
 
 /// An output known to the compositor; its index equals its monitor's index in the `Desk`.
 pub struct OutputEntry {
@@ -17,6 +25,10 @@ pub struct OutputEntry {
     pub powered: bool,
     /// Windows kept out of captures as last drawn here (see `State::capture_view`).
     pub capture_blanks: Vec<crate::render::Blank>,
+    /// Tiled windows lie beyond the left and the right edge: a strip there says so and keeps its width
+    /// free of windows. (Drawn here: as panels of the shell each one cost a window and a GL context.)
+    pub edges: (bool, bool),
+    edge_markers: [SolidColorBuffer; 2],
 }
 
 impl State {
@@ -36,6 +48,15 @@ impl State {
                 } else {
                     monitor.area
                 };
+                // The edge markers reserve their strips like panels.
+                let (left, right) = entry.edges;
+                if left {
+                    monitor.usable.x += EDGE_MARKER;
+                    monitor.usable.width -= EDGE_MARKER;
+                }
+                if right {
+                    monitor.usable.width -= EDGE_MARKER;
+                }
             }
         }
     }
@@ -69,7 +90,14 @@ impl State {
         );
         let monitor = self.desktop.desk.add_monitor(Some(output.name()), area);
         debug_assert_eq!(monitor, self.outputs.len());
-        self.outputs.push(OutputEntry { output, id, powered: true, capture_blanks: Vec::new() });
+        self.outputs.push(OutputEntry {
+            output,
+            id,
+            powered: true,
+            capture_blanks: Vec::new(),
+            edges: (false, false),
+            edge_markers: Default::default(),
+        });
         self.place_all_pending();
         self.end_drag();
         self.refresh();
@@ -300,18 +328,8 @@ impl State {
             config_error: self.config_error.clone(),
             ..Default::default()
         };
-        for (entry, monitor) in self.outputs.iter().zip(&d.desk.monitors) {
-            let area = monitor.usable;
-            let tiled = monitor
-                .workspaces
-                .current()
-                .windows
-                .iter()
-                .filter_map(|id| d.get(*id))
-                .filter(|m| !m.floating)
-                .filter_map(|m| m.frame)
-                .map(|(f, b)| Rect { x: f.x + b, y: f.y + b, width: f.width - 2 * b, height: f.height - 2 * b });
-            let (overflow_left, overflow_right) = mywm_ipc::overflow_directions(area, tiled);
+        for (index, (entry, monitor)) in self.outputs.iter().zip(&d.desk.monitors).enumerate() {
+            let (overflow_left, overflow_right) = self.overflow(index);
             snapshot.outputs.push(mywm_ipc::OutputState {
                 id: entry.id,
                 x: monitor.area.x,
@@ -325,6 +343,64 @@ impl State {
             });
         }
         snapshot
+    }
+
+    /// Whether tiled windows of `monitor`'s workspace lie beyond the left and the right edge of its usable area.
+    fn overflow(&self, monitor: usize) -> (bool, bool) {
+        let d = &self.desktop;
+        let Some(monitor) = d.desk.monitors.get(monitor) else { return (false, false) };
+        let tiled = monitor
+            .workspaces
+            .current()
+            .windows
+            .iter()
+            .filter_map(|id| d.get(*id))
+            .filter(|m| !m.floating)
+            .filter_map(|m| m.frame)
+            .map(|(f, b)| Rect { x: f.x + b, y: f.y + b, width: f.width - 2 * b, height: f.height - 2 * b });
+        mywm_ipc::overflow_directions(monitor.usable, tiled)
+    }
+
+    /// Show or hide the edge markers after a layout change; true if one changed (the usable areas then
+    /// changed with them).
+    pub fn update_edges(&mut self) -> bool {
+        let edges: Vec<_> = (0..self.outputs.len()).map(|index| self.overflow(index)).collect();
+        let mut changed = false;
+        for (entry, edges) in self.outputs.iter_mut().zip(edges) {
+            changed |= entry.edges != edges;
+            entry.edges = edges;
+        }
+        if changed {
+            self.sync_monitor_areas();
+        }
+        changed
+    }
+
+    /// The edge markers of `output` (see `OutputEntry::edges`) in the active border's color.
+    pub fn edge_marker_elements(&mut self, output: &Output) -> Vec<OutputElement> {
+        let Some(index) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
+        let (Some(geo), Some(usable)) = (self.space.output_geometry(output), self.desktop.desk.monitors.get(index).map(|m| m.usable))
+        else {
+            return Vec::new();
+        };
+        let scale = output.current_scale().fractional_scale();
+        let visible_area = Rectangle::<i32, Physical>::from_size(geo.size.to_physical_precise_round(scale));
+        let color = self.desktop.appearance.active_border.0;
+        let entry = &mut self.outputs[index];
+        let sides = [(entry.edges.0, usable.x - EDGE_MARKER), (entry.edges.1, usable.x + usable.width)];
+        let mut elements = Vec::new();
+        for ((shown, x), buffer) in sides.into_iter().zip(&mut entry.edge_markers) {
+            if !shown {
+                continue;
+            }
+            buffer.update((EDGE_MARKER, usable.height), color);
+            let local = (((x - geo.loc.x) as f64 * scale).round() as i32, ((usable.y - geo.loc.y) as f64 * scale).round() as i32);
+            let element = SolidColorRenderElement::from_buffer(buffer, local, scale, 1.0, Kind::Unspecified);
+            if let Some(cropped) = CropRenderElement::from_element(element, scale, visible_area) {
+                elements.push(OutputElement::from(cropped));
+            }
+        }
+        elements
     }
 }
 

@@ -99,8 +99,36 @@ pub struct ImageCaptureState {
     readbacks: Vec<InFlight>,
     /// Whether the timer that completes `readbacks` is armed.
     readback_timer: bool,
-    /// Per session, the offscreen texture its frames are rendered into (reused while the size stays).
-    textures: Vec<(std::sync::Weak<SessionShared>, Size<i32, Physical>, GlesTexture)>,
+    /// Per session, the offscreen texture its shared-memory frames are rendered into (reused while the size stays).
+    targets: Vec<SessionTarget>,
+}
+
+/// A session's offscreen texture and the damage tracker that drew into it last.
+struct SessionTarget {
+    owner: std::sync::Weak<SessionShared>,
+    size: Size<i32, Physical>,
+    texture: GlesTexture,
+    /// Scale, transform and clear color the tracker draws with; frames of another kind start over.
+    drawn: Option<(f64, Transform, [f32; 4], OutputDamageTracker)>,
+}
+
+impl SessionTarget {
+    /// The tracker for frames of `mode_size`, `scale`, `transform` and `clear`, the texture, and the age of
+    /// its content for the tracker: 1 when it holds the tracker's previous frame, so only what changed is drawn.
+    fn drawing(
+        &mut self,
+        mode_size: Size<i32, Physical>,
+        scale: f64,
+        transform: Transform,
+        clear: [f32; 4],
+    ) -> (&mut OutputDamageTracker, &mut GlesTexture, usize) {
+        let same = matches!(&self.drawn, Some((s, t, c, _)) if *s == scale && *t == transform && *c == clear);
+        if !same {
+            self.drawn = None;
+        }
+        let (_, _, _, tracker) = self.drawn.get_or_insert_with(|| (scale, transform, clear, OutputDamageTracker::new(mode_size, scale, transform)));
+        (tracker, &mut self.texture, usize::from(same))
+    }
 }
 
 struct InFlight {
@@ -398,15 +426,30 @@ impl State {
         frame: &PendingFrame,
         size: Size<i32, Physical>,
     ) -> Result<Option<Readback>, String> {
-        let region = Rectangle::from_size(size);
         // Shared memory goes through a read-back that completes later; GPU buffers are drawn into.
-        let mut texture = if get_dmabuf(&frame.buffer).is_err() { Some(self.capture_texture(renderer, &frame.session, size)?) } else { None };
+        let mut target = if get_dmabuf(&frame.buffer).is_err() { Some(self.take_capture_target(renderer, &frame.session, size)?) } else { None };
+        let result = self.render_capture(renderer, elements, frame, size, target.as_mut());
+        // A frame that failed may have left the texture half drawn: the next one starts with a new target.
+        if let (Ok(_), Some(target)) = (&result, target) {
+            self.image_capture.targets.push(target);
+        }
+        result
+    }
+
+    fn render_capture(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        elements: &[OutputElement],
+        frame: &PendingFrame,
+        size: Size<i32, Physical>,
+        target: Option<&mut SessionTarget>,
+    ) -> Result<Option<Readback>, String> {
+        let region = Rectangle::from_size(size);
         match &frame.session.source {
             Source::Output(output) => {
                 let mode_size = output.current_mode().ok_or("the output has no mode")?.size;
                 let transform = if self.udev.is_some() { output.current_transform() } else { Transform::Normal };
                 let scale = output.current_scale().fractional_scale();
-                let mut tracker = OutputDamageTracker::new(mode_size, scale, transform);
                 let blanks = self.capture_blanks(output);
                 let visible: Vec<&OutputElement> = self
                     .capture_view(output, elements, &blanks)
@@ -414,9 +457,16 @@ impl State {
                     .filter(|e| !matches!(e, OutputElement::Overlay(_)))
                     .filter(|e| frame.session.paint_cursors || !matches!(e, OutputElement::Cursor(_)))
                     .collect();
-                match texture.as_mut() {
-                    Some(texture) => start_readback(renderer, &mut tracker, &visible, self.clear_color(), texture, region).map(Some),
-                    None => render_to_buffer(renderer, &mut tracker, &visible, self.clear_color(), &frame.buffer, size, region).map(|()| None),
+                let clear = self.clear_color();
+                match target {
+                    Some(target) => {
+                        let (tracker, texture, age) = target.drawing(mode_size, scale, transform, clear);
+                        start_readback(renderer, tracker, age, &visible, clear, texture, region).map(Some)
+                    }
+                    None => {
+                        let mut tracker = OutputDamageTracker::new(mode_size, scale, transform);
+                        render_to_buffer(renderer, &mut tracker, &visible, clear, &frame.buffer, size, region).map(|()| None)
+                    }
                 }
             }
             Source::Toplevel(handle) => {
@@ -430,10 +480,16 @@ impl State {
                         [0.0, 0.0, 0.0, 1.0],
                         Kind::Unspecified,
                     )];
-                    let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
-                    return match texture.as_mut() {
-                        Some(texture) => start_readback(renderer, &mut tracker, &black, [0.0, 0.0, 0.0, 1.0], texture, region).map(Some),
-                        None => render_elements_to_buffer(renderer, &mut tracker, &black, &frame.buffer, size, region).map(|()| None),
+                    let clear = [0.0, 0.0, 0.0, 1.0];
+                    return match target {
+                        Some(target) => {
+                            let (tracker, texture, age) = target.drawing(size, 1.0, Transform::Normal, clear);
+                            start_readback(renderer, tracker, age, &black, clear, texture, region).map(Some)
+                        }
+                        None => {
+                            let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+                            render_elements_to_buffer(renderer, &mut tracker, &black, &frame.buffer, size, region).map(|()| None)
+                        }
                     };
                 }
                 let scale = managed.surface().map_or(1.0, |s| self.scale_for_surface(&s));
@@ -448,26 +504,33 @@ impl State {
                     Scale::from(scale),
                     1.0,
                 );
-                let mut tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
-                match texture.as_mut() {
-                    Some(texture) => start_readback(renderer, &mut tracker, &elements, [0.0, 0.0, 0.0, 0.0], texture, region).map(Some),
-                    None => render_elements_to_buffer(renderer, &mut tracker, &elements, &frame.buffer, size, region).map(|()| None),
+                let clear = [0.0, 0.0, 0.0, 0.0];
+                match target {
+                    Some(target) => {
+                        let (tracker, texture, age) = target.drawing(size, scale, Transform::Normal, clear);
+                        start_readback(renderer, tracker, age, &elements, clear, texture, region).map(Some)
+                    }
+                    None => {
+                        let mut tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
+                        render_elements_to_buffer(renderer, &mut tracker, &elements, &frame.buffer, size, region).map(|()| None)
+                    }
                 }
             }
         }
     }
 
-    /// The session's offscreen texture for frames of `size`, created when missing or resized.
-    fn capture_texture(&mut self, renderer: &mut GlesRenderer, session: &Arc<SessionShared>, size: Size<i32, Physical>) -> Result<GlesTexture, String> {
-        let textures = &mut self.image_capture.textures;
-        textures.retain(|(owner, _, _)| owner.strong_count() > 0);
-        if let Some((_, _, texture)) = textures.iter().find(|(owner, s, _)| owner.as_ptr() == Arc::as_ptr(session) && *s == size) {
-            return Ok(texture.clone());
+    /// The session's offscreen target for frames of `size`, taken out while a frame is drawn into it; created
+    /// when missing or resized.
+    fn take_capture_target(&mut self, renderer: &mut GlesRenderer, session: &Arc<SessionShared>, size: Size<i32, Physical>) -> Result<SessionTarget, String> {
+        let targets = &mut self.image_capture.targets;
+        targets.retain(|t| t.owner.strong_count() > 0);
+        if let Some(index) = targets.iter().position(|t| t.owner.as_ptr() == Arc::as_ptr(session)) {
+            let target = targets.swap_remove(index);
+            if target.size == size {
+                return Ok(target);
+            }
         }
-        let texture = offscreen_texture(renderer, size)?;
-        textures.retain(|(owner, _, _)| owner.as_ptr() != Arc::as_ptr(session));
-        textures.push((Arc::downgrade(session), size, texture.clone()));
-        Ok(texture)
+        Ok(SessionTarget { owner: Arc::downgrade(session), size, texture: offscreen_texture(renderer, size)?, drawn: None })
     }
 
     /// Hand finished read-backs to their clients; with `block`, wait for the unfinished ones too.

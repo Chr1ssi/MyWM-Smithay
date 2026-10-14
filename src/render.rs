@@ -161,10 +161,12 @@ impl State {
             // The top layer stays on top: notifications, and what to do while picking what to share.
             elements.extend(layer_elements(renderer, output, &[Layer::Overlay]));
             elements.extend(overview);
-            elements.extend(self.scene_elements(renderer, output, false, Vec::new(), Vec::new(), blanks));
+            let markers = self.edge_marker_elements(output);
+            elements.extend(self.scene_elements(renderer, output, false, Vec::new(), markers, blanks));
             return elements;
         }
-        let borders = self.border_elements(renderer, output);
+        let mut borders = self.edge_marker_elements(output);
+        borders.extend(self.border_elements(renderer, output));
         let mut shadows = self.blur_elements(renderer, output);
         shadows.extend(self.shadow_elements(renderer, output));
         elements.extend(self.scene_elements(renderer, output, true, shadows, borders, blanks));

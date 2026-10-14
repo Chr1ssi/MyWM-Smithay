@@ -24,6 +24,7 @@
   xwayland,
   dbus,
   coreutils,
+  util-linux, # waitpid: the session's startup script follows the compositor without polling
   shellSrc,
 }:
 
@@ -108,7 +109,7 @@ rustPlatform.buildRustPackage {
     wrapProgram $out/bin/mywm-session \
       --set-default MYWM_BINARY $out/bin/mywm-compositor \
       --set-default MYWM_SESSION_ENVIRONMENT $out/bin/session-environment \
-      --prefix PATH : ${lib.makeBinPath [ dbus systemd coreutils ]}
+      --prefix PATH : ${lib.makeBinPath [ dbus systemd coreutils util-linux ]}
   '';
 
   meta = {

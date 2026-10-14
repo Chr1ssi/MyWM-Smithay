@@ -40,7 +40,8 @@ children=()
 "$binary" --bar & children+=(\$!)
 if [ -n "\${MYWM_POLKIT_AGENT:-}" ]; then "\$MYWM_POLKIT_AGENT" & children+=(\$!); fi
 parent=\$PPID
-while kill -0 "\$parent" 2>/dev/null; do sleep 1; done
+# waitpid (util-linux) sleeps until the compositor ends; without it (or if it fails) poll instead.
+waitpid -e "\$parent" 2>/dev/null || while kill -0 "\$parent" 2>/dev/null; do sleep 1; done
 kill "\${children[@]}" 2>/dev/null || true
 STARTUP
 
