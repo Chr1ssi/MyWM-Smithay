@@ -590,6 +590,11 @@ impl State {
         self.carry_sticky();
         self.sync_monitor_areas();
         self.apply_layout();
+        // An edge marker that comes or goes narrows or widens the usable area: lay out once more, and only once,
+        // so a layout that would flip a marker back cannot loop (it settles with the next refresh).
+        if self.update_edges() {
+            self.apply_layout();
+        }
         self.sync_focus();
         self.refresh_pointer_focus();
         self.update_fractional_scales();
