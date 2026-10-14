@@ -60,28 +60,65 @@ fn dark_scheme(source: Argb) -> Scheme {
 }
 
 pub fn apply(wallpaper: &Path) -> Result<()> {
-    let mut image = ImageReader::open(wallpaper)?;
-    image.resize(112, 112, FilterType::Triangle);
-    let source = ImageReader::extract_color(&image);
-    let state = state_from_scheme(wallpaper, source, &dark_scheme(source));
     let state_path = state_path().ok_or("HOME or XDG_STATE_HOME is required for theme persistence")?;
+    // Decoding a large wallpaper is the expensive part (about 150 ms at every session start); the
+    // scheme and the files are always derived again, so new templates still reach them.
+    let cached = cached_source(&state_path, wallpaper);
+    let source = match cached {
+        Some(source) => source,
+        None => {
+            let mut image = ImageReader::open(wallpaper)?;
+            image.resize(112, 112, FilterType::Triangle);
+            ImageReader::extract_color(&image)
+        }
+    };
+    let state = state_from_scheme(wallpaper, source, &dark_scheme(source));
     let directory = state_path
         .parent()
         .ok_or("theme state path has no parent directory")?;
     fs::create_dir_all(directory)?;
 
     let serialized = serde_json::to_string_pretty(&state)? + "\n";
-    write_atomic(&state_path, &serialized)?;
-    render(directory.join("kitty.conf"), KITTY, &state)?;
-    render(directory.join("foot.ini"), FOOT, &state)?;
-    render(directory.join("gtk-3.css"), GTK3, &state)?;
-    render(directory.join("gtk-4.css"), GTK4, &state)?;
-    render(directory.join("nvim.lua"), NVIM, &state)?;
-    render(directory.join("vesktop.css"), VESKTOP, &state)?;
+    let mut changed = write_atomic(&state_path, &serialized)?;
+    if cached.is_none() && !changed {
+        // The same colors from a changed image: mark the theme as newer, so the next start skips decoding.
+        fs::File::options().write(true).open(&state_path)?.set_modified(std::time::SystemTime::now())?;
+    }
+    changed |= render(directory.join("kitty.conf"), KITTY, &state)?;
+    changed |= render(directory.join("foot.ini"), FOOT, &state)?;
+    changed |= render(directory.join("gtk-3.css"), GTK3, &state)?;
+    changed |= render(directory.join("gtk-4.css"), GTK4, &state)?;
+    changed |= render(directory.join("nvim.lua"), NVIM, &state)?;
+    changed |= render(directory.join("vesktop.css"), VESKTOP, &state)?;
     sync_greeter(wallpaper, &state);
-    notify_consumers(directory);
+    // Consumers already show an unchanged theme (and at session start none runs yet).
+    if changed {
+        notify_consumers(directory);
+    }
     println!("Theme generated from {}", wallpaper.display());
     Ok(())
+}
+
+/// The source color of the theme in `state_path` if it was generated from `wallpaper` after the image last
+/// changed.
+fn cached_source(state_path: &Path, wallpaper: &Path) -> Option<Argb> {
+    let generated = fs::metadata(state_path).ok()?.modified().ok()?;
+    // A symlinked wallpaper (home-manager) can point at a new image whose Nix store time never changes;
+    // the link itself is recreated then.
+    let image_changed = [fs::metadata(wallpaper), fs::symlink_metadata(wallpaper)]
+        .into_iter()
+        .map(|metadata| metadata.ok()?.modified().ok())
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .max()?;
+    if image_changed >= generated {
+        return None;
+    }
+    let saved: serde_json::Value = serde_json::from_str(&fs::read_to_string(state_path).ok()?).ok()?;
+    if saved["source"].as_str()? != wallpaper.to_string_lossy() {
+        return None;
+    }
+    saved["source_color"].as_str()?.parse().ok()
 }
 
 pub fn apply_from_wallpaper_state(state: &Path, wallpaper_directory: &Path) -> Result<()> {
@@ -142,18 +179,23 @@ fn decode_file_url(url: &str) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
 }
 
-fn render(path: PathBuf, source: &str, state: &ThemeState) -> Result<()> {
+/// Render the template into `path`; true if that changed the file.
+fn render(path: PathBuf, source: &str, state: &ThemeState) -> Result<bool> {
     let mut env = Environment::new();
     env.add_template("theme", source)?;
     let output = env.get_template("theme")?.render(state)?;
     write_atomic(&path, &output)
 }
 
-fn write_atomic(path: &Path, contents: &str) -> Result<()> {
+/// Replace `path` with `contents` unless it holds them already; true if it was written.
+fn write_atomic(path: &Path, contents: &str) -> Result<bool> {
+    if fs::read(path).is_ok_and(|current| current == contents.as_bytes()) {
+        return Ok(false);
+    }
     let temporary = path.with_extension("tmp");
     fs::write(&temporary, contents)?;
     fs::rename(temporary, path)?;
-    Ok(())
+    Ok(true)
 }
 
 /// Mirrors wallpaper and colors into a directory the greeter user can read.
@@ -517,6 +559,38 @@ mod tests {
             PathBuf::from("/tmp/Bild #1% ä.png")
         );
         assert!(decode_file_url("https://example.com/wallpaper.png").is_none());
+    }
+
+    #[test]
+    fn cached_source_needs_the_same_image_unchanged_since() {
+        use std::time::{Duration, SystemTime};
+        let dir = std::env::temp_dir().join(format!("mywm-theme-cache-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("wall.png");
+        let state = dir.join("theme.json");
+        fs::write(&image, b"image").unwrap();
+        let age = |path: &Path, time: SystemTime| fs::File::options().write(true).open(path).unwrap().set_modified(time).unwrap();
+        age(&image, SystemTime::now() - Duration::from_secs(60));
+        let saved = |source: &Path| {
+            let json = serde_json::json!({ "source": source.to_string_lossy(), "source_color": "#336699" });
+            fs::write(&state, json.to_string()).unwrap();
+        };
+        saved(&image);
+        assert_eq!(cached_source(&state, &image), "#336699".parse().ok());
+        // Another image, or this one changed after the theme was generated.
+        let other = dir.join("other.png");
+        fs::write(&other, b"other").unwrap();
+        age(&other, SystemTime::now() - Duration::from_secs(60));
+        assert_eq!(cached_source(&state, &other), None);
+        age(&image, SystemTime::now() + Duration::from_secs(60));
+        assert_eq!(cached_source(&state, &image), None);
+        // A link made after the theme counts as a new image, however old its target is.
+        let link = dir.join("link.png");
+        age(&other, SystemTime::now() - Duration::from_secs(60));
+        saved(&link);
+        std::os::unix::fs::symlink(&other, &link).unwrap();
+        assert_eq!(cached_source(&state, &link), None);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
