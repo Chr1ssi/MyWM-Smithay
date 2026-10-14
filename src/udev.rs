@@ -937,12 +937,14 @@ impl State {
         if queued {
             surface.redraw = Redraw::WaitingForVBlank { again: animating };
         } else {
-            // No vblank will arrive for an unchanged frame: pretend one does.
-            let refresh = output.current_mode().map_or(60_000, |m| m.refresh.max(1000)) as u64;
-            let interval = Duration::from_nanos(1_000_000_000_000 / refresh);
+            // No vblank will arrive for an unchanged frame: pretend one does, at the next vblank the
+            // display would have had. A full interval from now could hold back a frame that comes
+            // meanwhile (a game's) by almost a whole interval more than needed.
+            let interval = surface.interval();
+            let delay = surface.last_vblank.map_or(interval, |last| late_delay(now(), last, interval, Duration::ZERO, Duration::ZERO));
             let dev_id = *dev_id;
             surface.redraw = Redraw::WaitingForEstimatedVBlank { again: false };
-            let _ = handle.insert_source(Timer::from_duration(interval), move |_, _, state| {
+            let _ = handle.insert_source(Timer::from_duration(delay), move |_, _, state| {
                 state.on_estimated_vblank(dev_id, crtc);
                 TimeoutAction::Drop
             });

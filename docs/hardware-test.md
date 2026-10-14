@@ -143,6 +143,29 @@ Prüfen:
    (`WAYLAND_DEBUG=client` zeigt seine Fenster), kann die Variable weg.
 6. `perf`-Zeilen (siehe oben) mit und ohne Spiel vergleichen: keine zusätzlichen langsamen Frames.
 
+## Leere Frames, gezieltes Neuzeichnen und Cursor-Plane
+
+Ein Frame ohne Änderung bekommt kein Vblank; ein Timer steht dafür ein. Er läuft jetzt bis zum
+nächsten Vblank im Raster des Ausgangs statt ein volles Intervall ab jetzt, denn ein Spiel-Frame, der
+in dieser Zeit kommt, wartet mit. Leere Frames entstehen seltener: Popups, Tooltips und Menüs zeichnen
+nur die Ausgänge ihres Fensters (bzw. ihrer Leiste) neu, ein neues Cursorbild nur den Ausgang des
+Cursors, und solange ein Spiel den Cursor versteckt, löst Mausbewegung gar kein Neuzeichnen aus. Auf
+gedrehten Ausgängen (DP-1) nutzt der Cursor die Cursor-Plane (smithays `renderer_pixman`), statt bei
+jeder Bewegung zusammengesetzt zu werden.
+
+Prüfen:
+
+1. Spiel im Vollbild auf DP-3 mit VRR, nebenher auf einem anderen Monitor ein Programm mit Tooltips
+   oder Menüs (Discord, Browser) bedienen: das Spiel läuft gleichmäßig, `perf`-Zeilen ohne neue
+   langsame Frames; subjektiv keine zusätzliche Eingabeverzögerung.
+2. Ein Spiel, das den Cursor versteckt, ohne ihn zu sperren (viele Menüs, manche Strategiespiele):
+   Mausbewegung ruckelt nicht; beim Verlassen des Spielfensters erscheint der Cursor sofort wieder.
+3. Cursor auf DP-1: erscheint richtig gedreht und mit Hotspot an der richtigen Stelle (Klick auf
+   kleine Ziele, Textauswahl), wechselt seine Form (Text, Hand, Größenänderung) sofort, und die
+   Bewegung dort erzeugt keine Last (`perf`-Zeilen von DP-1 zählen bei reiner Mausbewegung kaum Frames).
+4. Rechtsklick-Menüs und Tooltips, auch an Monitorgrenzen und in der Bar (Tray-Menüs): erscheinen
+   und verschwinden ohne Reste.
+
 ## Bekannte Lücken
 
 - Fensteraufnahme über das Portal (nur Monitore) und der Wallpaper-Picker fehlen noch.

@@ -337,13 +337,17 @@ impl State {
     }
 
     fn pointer_moved(&mut self, time: u32) {
-        // Only the outputs the cursor leaves and enters change.
+        // Only the outputs the cursor leaves and enters change, and nothing moves on them while a client
+        // (a game) hides the cursor; an empty frame there would hold back the game's next one.
         let current = self.space.output_under(self.pointer_location).next().cloned();
-        if let Some(previous) = self.cursor_output.take().filter(|p| Some(p) != current.as_ref()) {
-            self.queue_redraw_output(&previous);
-        }
-        if let Some(output) = &current {
-            self.queue_redraw_output(output);
+        let previous = self.cursor_output.take().filter(|p| Some(p) != current.as_ref());
+        if !matches!(self.cursor_status, smithay::input::pointer::CursorImageStatus::Hidden) || self.picking.is_some() {
+            if let Some(previous) = &previous {
+                self.queue_redraw_output(previous);
+            }
+            if let Some(output) = &current {
+                self.queue_redraw_output(output);
+            }
         }
         self.cursor_output = current;
         if self.overview_open() {

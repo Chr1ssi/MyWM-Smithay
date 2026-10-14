@@ -132,6 +132,7 @@ impl State {
         // one; a client that wants its own cursor sets it on enter.
         if old != new && matches!(self.cursor_status, smithay::input::pointer::CursorImageStatus::Hidden) {
             self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
+            self.queue_redraw_cursor();
         }
         if let Some(new) = new {
             self.activate_constraint(new);

@@ -13,6 +13,7 @@
   systemd, # libudev
   libglvnd,
   pipewire,
+  pixman, # cursor plane on rotated outputs (smithay's renderer_pixman)
   quickshell,
   swayidle,
   wlopm,
@@ -37,6 +38,7 @@ let
     systemd
     libglvnd
     pipewire
+    pixman
   ];
 in
 rustPlatform.buildRustPackage {

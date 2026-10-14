@@ -30,6 +30,8 @@ smithay = { version = "0.7", default-features = false, features = [
     "backend_udev",
     "backend_libinput",
     "backend_session_libseat",
+    # The cursor plane on rotated or scaled outputs (else the cursor is composited there on every move).
+    "renderer_pixman",
     "xwayland",
     "desktop",
     "wayland_frontend",

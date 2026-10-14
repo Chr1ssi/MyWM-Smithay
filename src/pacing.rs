@@ -69,6 +69,13 @@ mod tests {
     }
 
     #[test]
+    fn estimated_vblank_is_the_next_one_on_the_grid() {
+        // An empty frame 3 ms after a vblank: the estimate stands in 7 ms later, not a whole interval.
+        assert_eq!(late_delay(103 * MS, 100 * MS, 10 * MS, Duration::ZERO, Duration::ZERO), 7 * MS);
+        assert_eq!(late_delay(110 * MS, 100 * MS, 10 * MS, Duration::ZERO, Duration::ZERO), 10 * MS);
+    }
+
+    #[test]
     fn slow_render_never_waits_more_than_an_interval() {
         assert_eq!(late_delay(100 * MS, 100 * MS, 10 * MS, Duration::ZERO, Duration::ZERO), 10 * MS);
         assert_eq!(late_delay(100 * MS, 100 * MS, Duration::ZERO, MS, MS), Duration::ZERO);

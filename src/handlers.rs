@@ -4,7 +4,8 @@ use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::utils::on_commit_buffer_handler},
     delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat, delegate_shm,
     delegate_xdg_shell,
-    desktop::{PopupKind, Window},
+    desktop::{PopupKind, Window, WindowSurfaceType, find_popup_root_surface, layer_map_for_output},
+    output::Output,
     input::{keyboard::LedState, pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
     reexports::wayland_server::{
         protocol::{wl_buffer, wl_output::WlOutput, wl_seat, wl_surface::WlSurface},
@@ -110,19 +111,59 @@ impl State {
         popup.with_pending_state(|s| s.geometry = s.positioner.get_unconstrained_geometry(target));
     }
 
-    /// A surface changed: redraw the outputs it shows on (all of them if it is not a plain window).
+    /// A surface changed: redraw the outputs it shows on (all of them if that is unknown).
+    ///
+    /// Outputs that redraw for nothing cost more than the frame: with nothing new to show they wait an
+    /// estimated vblank, and a game's frame that comes meanwhile waits along.
     fn queue_redraw_for(&mut self, surface: &WlSurface) {
         let mut root = surface.clone();
         while let Some(parent) = get_parent(&root) {
             root = parent;
         }
+        // A popup (menu, tooltip) shows where its window or panel is, and may reach beyond it.
+        let popup = self.popups.find_popup(&root);
+        if let Some(popup) = &popup
+            && let Ok(popup_root) = find_popup_root_surface(popup)
+        {
+            root = popup_root;
+        }
         let window = self.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == root)).cloned();
-        match window {
-            Some(window) => {
-                for output in self.space.outputs_for_element(&window) {
-                    self.queue_redraw_output(&output);
-                }
+        if let Some(window) = window {
+            let outputs = match popup {
+                // The space's outputs of the window follow its popups only at the next refresh.
+                Some(_) => self.space.element_bbox(&window).map_or_else(Vec::new, |bbox| self.outputs_overlapping(bbox)),
+                None => self.space.outputs_for_element(&window),
+            };
+            for output in outputs {
+                self.queue_redraw_output(&output);
             }
+            return;
+        }
+        let panel_output = self
+            .outputs
+            .iter()
+            .map(|e| &e.output)
+            .find(|o| layer_map_for_output(o).layer_for_surface(&root, WindowSurfaceType::TOPLEVEL).is_some())
+            .cloned();
+        if let Some(output) = panel_output {
+            self.queue_redraw_output(&output);
+            return;
+        }
+        if matches!(&self.cursor_status, CursorImageStatus::Surface(cursor) if *cursor == root) {
+            self.queue_redraw_cursor();
+            return;
+        }
+        self.queue_redraw_all();
+    }
+
+    fn outputs_overlapping(&self, area: smithay::utils::Rectangle<i32, smithay::utils::Logical>) -> Vec<Output> {
+        self.space.outputs().filter(|o| self.space.output_geometry(o).is_some_and(|g| g.overlaps(area))).cloned().collect()
+    }
+
+    /// Redraw the output the cursor is on (all of them while it is on none).
+    pub fn queue_redraw_cursor(&mut self) {
+        match self.cursor_output.clone() {
+            Some(output) => self.queue_redraw_output(&output),
             None => self.queue_redraw_all(),
         }
     }
@@ -222,7 +263,7 @@ impl SeatHandler for State {
     }
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.cursor_status = image;
-        self.queue_redraw_all();
+        self.queue_redraw_cursor();
     }
     fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: LedState) {
         if let Some(udev) = &mut self.udev {
