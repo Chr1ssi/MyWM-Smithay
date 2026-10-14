@@ -1,6 +1,8 @@
 //! Captures one frame of an output or of the first toplevel through `ext-image-copy-capture`
-//! and prints `WxH center=RRGGBB` (or fails). Usage: `mywm-capture-test output|toplevel [shm] [hold <seconds>]`;
-//! `hold` keeps the session open that long afterwards, like a stream that goes on.
+//! and prints `WxH center=RRGGBB alpha=AA hash=<whole frame>` (or fails). Usage:
+//! `mywm-capture-test output|toplevel [shm] [hold <seconds>] [frames <n>]`; `hold` keeps the session open that
+//! long afterwards, like a stream that goes on; `frames` captures that many frames in the same session into the
+//! same buffer, each further one after a line on stdin, and prints each one's line.
 use std::{fs::File, os::fd::AsFd, os::unix::fs::FileExt};
 
 use wayland_client::{
@@ -136,22 +138,40 @@ fn main() {
     let pool = shm.create_pool(file.as_fd(), (stride * h) as i32, &qh, ());
     let buffer = pool.create_buffer(0, w as i32, h as i32, stride as i32, wl_shm::Format::Argb8888, &qh, ());
 
-    let frame = session.create_frame(&qh, ());
-    frame.attach_buffer(&buffer);
-    frame.damage_buffer(0, 0, w as i32, h as i32);
-    frame.capture();
-    while !app.ready && app.failed.is_none() {
-        queue.blocking_dispatch(&mut app).unwrap();
-    }
-    if let Some(reason) = app.failed {
-        eprintln!("capture failed: {reason}");
-        std::process::exit(2);
-    }
-    let mut pixel = [0u8; 4];
-    file.read_exact_at(&mut pixel, u64::from((h / 2) * stride + (w / 2) * 4)).unwrap();
-    // Argb8888 is little endian: B, G, R, A.
-    println!("{w}x{h} center={:02X}{:02X}{:02X} alpha={:02X}", pixel[2], pixel[1], pixel[0], pixel[3]);
     let args: Vec<String> = std::env::args().collect();
+    let frames: u32 = args.iter().position(|a| a == "frames").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(1);
+    for index in 0..frames {
+        if index > 0 {
+            use std::io::{BufRead, Write};
+            let _ = std::io::stdout().flush();
+            let mut line = String::new();
+            std::io::stdin().lock().read_line(&mut line).unwrap();
+        }
+        app.ready = false;
+        let frame = session.create_frame(&qh, ());
+        frame.attach_buffer(&buffer);
+        frame.damage_buffer(0, 0, w as i32, h as i32);
+        frame.capture();
+        while !app.ready && app.failed.is_none() {
+            queue.blocking_dispatch(&mut app).unwrap();
+        }
+        if let Some(reason) = app.failed {
+            eprintln!("capture failed: {reason}");
+            std::process::exit(2);
+        }
+        frame.destroy();
+        let mut pixels = vec![0u8; (stride * h) as usize];
+        file.read_exact_at(&mut pixels, 0).unwrap();
+        let at = ((h / 2) * stride + (w / 2) * 4) as usize;
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::hash::DefaultHasher::new();
+            pixels.hash(&mut hasher);
+            hasher.finish()
+        };
+        // Argb8888 is little endian: B, G, R, A.
+        println!("{w}x{h} center={:02X}{:02X}{:02X} alpha={:02X} hash={hash:016x}", pixels[at + 2], pixels[at + 1], pixels[at], pixels[at + 3]);
+    }
     let hold = args.iter().position(|a| a == "hold").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
     if let Some(seconds) = hold {
         use std::io::Write;

@@ -348,7 +348,7 @@ pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<Gl
 
     // Shared memory: render into a texture, read it back and copy the wanted part.
     let mut texture = offscreen_texture(renderer, size)?;
-    start_readback(renderer, tracker, elements, clear, &mut texture, region)?.finish(renderer, buffer)
+    start_readback(renderer, tracker, 0, elements, clear, &mut texture, region)?.finish(renderer, buffer)
 }
 
 /// An offscreen texture of `size` pixels to render captures into.
@@ -368,10 +368,12 @@ pub struct Readback {
     region: Rectangle<i32, Physical>,
 }
 
-/// Render `elements` into `texture` and start reading back `region`; see [`Readback`].
+/// Render `elements` into `texture` and start reading back `region`; see [`Readback`]. `age` is 1 when
+/// `texture` still holds `tracker`'s previous frame (then only what changed is drawn), else 0.
 pub fn start_readback<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
     renderer: &mut GlesRenderer,
     tracker: &mut OutputDamageTracker,
+    age: usize,
     elements: &[E],
     clear: [f32; 4],
     texture: &mut GlesTexture,
@@ -379,7 +381,7 @@ pub fn start_readback<E: smithay::backend::renderer::element::RenderElement<Gles
 ) -> Result<Readback, String> {
     let mut target = renderer.bind(texture).map_err(|e| format!("bind: {e}"))?;
     tracker
-        .render_output(renderer, &mut target, 0, elements, clear)
+        .render_output(renderer, &mut target, age, elements, clear)
         .map_err(|e| format!("render: {e:?}"))?;
     let buffer_region = Rectangle::<i32, BufferCoords>::new(
         (region.loc.x, region.loc.y).into(),
