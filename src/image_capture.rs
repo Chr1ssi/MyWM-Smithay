@@ -50,7 +50,7 @@ use smithay::backend::allocator::Buffer as _;
 use crate::{
     State,
     render::OutputElement,
-    screencopy::{Readback, offscreen_texture, render_to_buffer, start_readback},
+    screencopy::{Readback, capture_tracker, offscreen_texture, render_to_buffer, start_readback},
 };
 
 smithay::delegate_foreign_toplevel_list!(State);
@@ -108,25 +108,20 @@ struct SessionTarget {
     owner: std::sync::Weak<SessionShared>,
     size: Size<i32, Physical>,
     texture: GlesTexture,
-    /// Scale, transform and clear color the tracker draws with; frames of another kind start over.
-    drawn: Option<(f64, Transform, [f32; 4], OutputDamageTracker)>,
+    /// Scale and clear color the tracker draws with; frames of another kind start over.
+    drawn: Option<(f64, [f32; 4], OutputDamageTracker)>,
 }
 
 impl SessionTarget {
-    /// The tracker for frames of `mode_size`, `scale`, `transform` and `clear`, the texture, and the age of
+    /// The tracker for upright frames of the target's size, `scale` and `clear`, the texture, and the age of
     /// its content for the tracker: 1 when it holds the tracker's previous frame, so only what changed is drawn.
-    fn drawing(
-        &mut self,
-        mode_size: Size<i32, Physical>,
-        scale: f64,
-        transform: Transform,
-        clear: [f32; 4],
-    ) -> (&mut OutputDamageTracker, &mut GlesTexture, usize) {
-        let same = matches!(&self.drawn, Some((s, t, c, _)) if *s == scale && *t == transform && *c == clear);
+    fn drawing(&mut self, scale: f64, clear: [f32; 4]) -> (&mut OutputDamageTracker, &mut GlesTexture, usize) {
+        let same = matches!(&self.drawn, Some((s, c, _)) if *s == scale && *c == clear);
         if !same {
             self.drawn = None;
         }
-        let (_, _, _, tracker) = self.drawn.get_or_insert_with(|| (scale, transform, clear, OutputDamageTracker::new(mode_size, scale, transform)));
+        let size = self.size;
+        let (_, _, tracker) = self.drawn.get_or_insert_with(|| (scale, clear, capture_tracker(size, scale)));
         (tracker, &mut self.texture, usize::from(same))
     }
 }
@@ -238,10 +233,7 @@ impl State {
     /// Size in pixels of what a source currently shows.
     fn source_size(&self, source: &Source) -> Option<Size<i32, Physical>> {
         match source {
-            Source::Output(output) => output.current_mode().map(|mode| {
-                let transform = if self.udev.is_some() { output.current_transform() } else { Transform::Normal };
-                transform.transform_size(mode.size)
-            }),
+            Source::Output(output) => self.capture_geometry(output).map(|geometry| geometry.size),
             Source::Toplevel(handle) => {
                 let managed = self.managed_for_handle(handle)?;
                 let scale = managed.surface().map_or(1.0, |s| self.scale_for_surface(&s));
@@ -447,8 +439,6 @@ impl State {
         let region = Rectangle::from_size(size);
         match &frame.session.source {
             Source::Output(output) => {
-                let mode_size = output.current_mode().ok_or("the output has no mode")?.size;
-                let transform = if self.udev.is_some() { output.current_transform() } else { Transform::Normal };
                 let scale = output.current_scale().fractional_scale();
                 let blanks = self.capture_blanks(output);
                 let visible: Vec<&OutputElement> = self
@@ -460,11 +450,12 @@ impl State {
                 let clear = self.clear_color();
                 match target {
                     Some(target) => {
-                        let (tracker, texture, age) = target.drawing(mode_size, scale, transform, clear);
+                        let (tracker, texture, age) = target.drawing(scale, clear);
                         start_readback(renderer, tracker, age, &visible, clear, texture, region).map(Some)
                     }
                     None => {
-                        let mut tracker = OutputDamageTracker::new(mode_size, scale, transform);
+                        // The session's size is the output's as displayed (`source_size`).
+                        let mut tracker = capture_tracker(size, scale);
                         render_to_buffer(renderer, &mut tracker, &visible, clear, &frame.buffer, size, region).map(|()| None)
                     }
                 }
@@ -483,7 +474,7 @@ impl State {
                     let clear = [0.0, 0.0, 0.0, 1.0];
                     return match target {
                         Some(target) => {
-                            let (tracker, texture, age) = target.drawing(size, 1.0, Transform::Normal, clear);
+                            let (tracker, texture, age) = target.drawing(1.0, clear);
                             start_readback(renderer, tracker, age, &black, clear, texture, region).map(Some)
                         }
                         None => {
@@ -507,7 +498,7 @@ impl State {
                 let clear = [0.0, 0.0, 0.0, 0.0];
                 match target {
                     Some(target) => {
-                        let (tracker, texture, age) = target.drawing(size, scale, Transform::Normal, clear);
+                        let (tracker, texture, age) = target.drawing(scale, clear);
                         start_readback(renderer, tracker, age, &elements, clear, texture, region).map(Some)
                     }
                     None => {

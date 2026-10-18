@@ -9,7 +9,6 @@ use smithay::{
     backend::{
         input::ButtonState,
         renderer::{
-            damage::OutputDamageTracker,
             element::{Id, Kind, solid::SolidColorRenderElement},
             gles::GlesRenderer,
             utils::CommitCounter,
@@ -198,7 +197,7 @@ impl State {
             .filter(|e| !matches!(e, OutputElement::Cursor(_) | OutputElement::Overlay(_)))
             .collect();
         for shot in ready {
-            let mut tracker = OutputDamageTracker::new(geometry.mode_size, scale, geometry.transform);
+            let mut tracker = crate::screencopy::capture_tracker(geometry.size, scale);
             match render_to_pixels(renderer, &mut tracker, &visible, self.clear_color(), geometry.size, shot.region) {
                 Ok(pixels) => save(
                     PathBuf::from(&self.config.screenshot_directory),

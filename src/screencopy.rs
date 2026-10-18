@@ -46,9 +46,7 @@ pub struct FrameData {
 }
 
 pub(crate) struct CaptureGeometry {
-    pub mode_size: Size<i32, Physical>,
     pub size: Size<i32, Physical>,
-    pub transform: Transform,
 }
 
 /// A `copy` request waiting for the next frame of its output.
@@ -73,12 +71,14 @@ impl State {
         display.create_global::<State, ZwlrScreencopyManagerV1, ()>(3, ())
     }
 
-    /// Mode size, size as displayed (after rotation) and the transform a capture of `output` is rendered with.
+    /// The size of `output` as displayed (after rotation). Captures show it so: upright, rendered with
+    /// [`capture_tracker`] at this size, as the elements are laid out, and never with the output's transform
+    /// (which turns the picture for scanout and needs a target of the mode's size).
     pub(crate) fn capture_geometry(&self, output: &Output) -> Option<CaptureGeometry> {
         let mode = output.current_mode()?;
-        // The nested window renders upside down internally (see `winit.rs`); real outputs do not.
+        // The nested window renders upside down internally (see `winit.rs`), which a capture must not copy.
         let transform = if self.udev.is_some() { output.current_transform() } else { Transform::Normal };
-        Some(CaptureGeometry { mode_size: mode.size, size: transform.transform_size(mode.size), transform })
+        Some(CaptureGeometry { size: transform.transform_size(mode.size) })
     }
 
     /// Answer requests that came in since the last frame using the elements just drawn.
@@ -123,10 +123,9 @@ impl State {
         clear: [f32; 4],
         pending: &PendingCopy,
     ) -> Result<(), String> {
-        let CaptureGeometry { mode_size, size, transform } =
-            self.capture_geometry(&pending.output).ok_or("the output has no mode")?;
+        let CaptureGeometry { size } = self.capture_geometry(&pending.output).ok_or("the output has no mode")?;
         let scale = pending.output.current_scale().fractional_scale();
-        let mut tracker = OutputDamageTracker::new(mode_size, scale, transform);
+        let mut tracker = capture_tracker(size, scale);
         // Without the cursor overlay, leave the cursor elements out.
         let blanks = self.capture_blanks(&pending.output);
         let visible: Vec<&OutputElement> = self
@@ -349,6 +348,11 @@ pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<Gl
     // Shared memory: render into a texture, read it back and copy the wanted part.
     let mut texture = offscreen_texture(renderer, size)?;
     start_readback(renderer, tracker, 0, elements, clear, &mut texture, region)?.finish(renderer, buffer)
+}
+
+/// A damage tracker that draws a capture of an output upright at its displayed `size` (see `capture_geometry`).
+pub fn capture_tracker(size: Size<i32, Physical>, scale: f64) -> OutputDamageTracker {
+    OutputDamageTracker::new(size, scale, Transform::Normal)
 }
 
 /// An offscreen texture of `size` pixels to render captures into.

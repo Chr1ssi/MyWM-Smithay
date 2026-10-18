@@ -17,7 +17,7 @@ use smithay::{
         },
     },
     output::Output,
-    utils::{Physical, Point, Rectangle, Size, Transform},
+    utils::{Physical, Point, Rectangle, Size},
 };
 
 use crate::{
@@ -45,7 +45,6 @@ pub struct Picking {
 struct Frame {
     output: Output,
     size: Size<i32, Physical>,
-    transform: Transform,
     scale: f64,
     clear: [f32; 4],
     texture: GlesTexture,
@@ -170,7 +169,7 @@ impl State {
         let clear = self.clear_color();
         // The same output as last time: its texture holds the previous frame, and only the damage is drawn.
         let kept = self.picking.as_mut().and_then(|p| p.frame.take()).filter(|f| {
-            &f.output == output && f.size == geometry.mode_size && f.transform == geometry.transform && f.scale == scale && f.clear == clear
+            &f.output == output && f.size == geometry.size && f.scale == scale && f.clear == clear
         });
         let (mut frame, age) = match kept {
             Some(frame) => (frame, 1),
@@ -179,8 +178,8 @@ impl State {
                     Ok(texture) => texture,
                     Err(error) => return tracing::warn!("color picker: {error}"),
                 };
-                let tracker = OutputDamageTracker::new(geometry.mode_size, scale, geometry.transform);
-                let frame = Frame { output: output.clone(), size: geometry.mode_size, transform: geometry.transform, scale, clear, texture, tracker };
+                let tracker = crate::screencopy::capture_tracker(geometry.size, scale);
+                let frame = Frame { output: output.clone(), size: geometry.size, scale, clear, texture, tracker };
                 (frame, 0)
             }
         };

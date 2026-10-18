@@ -166,6 +166,20 @@ Prüfen:
 4. Rechtsklick-Menüs und Tooltips, auch an Monitorgrenzen und in der Bar (Tray-Menüs): erscheinen
    und verschwinden ohne Reste.
 
+## Aufnahmen gedrehter Monitore
+
+Aufnahmen eines Monitors (Streams über das Portal, `wlr-screencopy`, Screenshots, Farbwähler) zeigen
+ihn aufrecht in seiner angezeigten Größe; bisher wurden sie wie für die Ausgabe auf dem Panel gedreht
+und dabei abgeschnitten.
+
+Prüfen:
+
+1. DP-1 (hochkant) streamen (Vesktop/OBS, in der Übersicht die Kachel daneben anklicken): das Bild ist
+   1440×2560, aufrecht, vollständig, ohne leere Fläche; Fenster und Cursor stehen an der richtigen Stelle.
+2. Dasselbe für DP-3 und HDMI-A-1 (ungedreht): unverändert richtig.
+3. Screenshot einer Auswahl auf DP-1 und der Farbwähler dort: zeigen bzw. treffen, was unter der
+   Auswahl bzw. dem Zeiger liegt.
+
 ## Bekannte Lücken
 
 - Fensteraufnahme über das Portal (nur Monitore) und der Wallpaper-Picker fehlen noch.
