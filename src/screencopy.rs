@@ -76,9 +76,9 @@ impl State {
     /// (which turns the picture for scanout and needs a target of the mode's size).
     pub(crate) fn capture_geometry(&self, output: &Output) -> Option<CaptureGeometry> {
         let mode = output.current_mode()?;
-        // The nested window renders upside down internally (see `winit.rs`), which a capture must not copy.
-        let transform = if self.udev.is_some() { output.current_transform() } else { Transform::Normal };
-        Some(CaptureGeometry { size: transform.transform_size(mode.size) })
+        // Not `self.udev` for "real output": the udev backend is taken out of the state while it redraws, which is
+        // when captures and the overview ask. The nested window's `Flipped180` (see `winit.rs`) keeps the size.
+        Some(CaptureGeometry { size: output.current_transform().transform_size(mode.size) })
     }
 
     /// Answer requests that came in since the last frame using the elements just drawn.

@@ -169,16 +169,22 @@ Prüfen:
 ## Aufnahmen gedrehter Monitore
 
 Aufnahmen eines Monitors (Streams über das Portal, `wlr-screencopy`, Screenshots, Farbwähler) zeigen
-ihn aufrecht in seiner angezeigten Größe; bisher wurden sie wie für die Ausgabe auf dem Panel gedreht
-und dabei abgeschnitten.
+ihn aufrecht in seiner angezeigten Größe. Bisher galt auf der Hardware während des Zeichnens die
+ungedrehte Größe (2560×1440 statt 1440×2560): Streams von DP-1 waren quer, abgeschnitten und daneben
+leer, und die Übersicht dort endete mit Abdunklung und Kacheln auf 1440 Pixeln Höhe. Nested lässt sich
+das mit einem gedrehten virtuellen Ausgang nachstellen (Smoke-Test `rotated`); auf DP-1 bleibt es zu
+bestätigen.
 
 Prüfen:
 
 1. DP-1 (hochkant) streamen (Vesktop/OBS, in der Übersicht die Kachel daneben anklicken): das Bild ist
    1440×2560, aufrecht, vollständig, ohne leere Fläche; Fenster und Cursor stehen an der richtigen Stelle.
 2. Dasselbe für DP-3 und HDMI-A-1 (ungedreht): unverändert richtig.
-3. Screenshot einer Auswahl auf DP-1 und der Farbwähler dort: zeigen bzw. treffen, was unter der
+3. Übersicht auf DP-1: die Abdunklung reicht bis unten, die Kacheln sind ganz und hochkant.
+4. Screenshot einer Auswahl auf DP-1 und der Farbwähler dort: zeigen bzw. treffen, was unter der
    Auswahl bzw. dem Zeiger liegt.
+5. Mit `[effects] blur`: ein durchscheinendes Fenster im unteren Teil von DP-1 zeigt den unscharfen
+   Hintergrund wie im oberen Teil.
 
 ## Bekannte Lücken
 
