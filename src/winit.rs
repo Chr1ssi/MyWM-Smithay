@@ -28,6 +28,8 @@ fn new_output(name: &str, model: &str, mode: Mode, state: &State) -> Output {
 
 pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), Box<dyn std::error::Error>> {
     let (mut backend, winit) = winit::init::<GlesRenderer>()?;
+    // The renderer belongs to the window and is only at hand while it redraws.
+    state.image_capture.finish_in_redraw = true;
 
     let mode = Mode { size: backend.window_size(), refresh: 60_000 };
     let output = new_output("winit", "Winit", mode, state);

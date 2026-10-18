@@ -77,6 +77,9 @@ pub struct DmabufConstraints {
 pub struct SessionShared {
     source: Source,
     paint_cursors: bool,
+    /// The GPU buffers offered at the start, offered again when the size changes: that happens during a redraw,
+    /// when the udev backend (which knows them) is taken out of the state.
+    dmabuf: Option<DmabufConstraints>,
     inner: Mutex<SessionInner>,
 }
 
@@ -99,6 +102,9 @@ pub struct ImageCaptureState {
     readbacks: Vec<InFlight>,
     /// Whether the timer that completes `readbacks` is armed.
     readback_timer: bool,
+    /// The backend has no renderer outside its redraw (nested), so read-backs finish within it. Set once by the
+    /// backend: during a redraw `State::udev` is taken out and cannot tell.
+    pub(crate) finish_in_redraw: bool,
     /// Per session, the offscreen texture its shared-memory frames are rendered into (reused while the size stays).
     targets: Vec<SessionTarget>,
 }
@@ -244,20 +250,6 @@ impl State {
         }
     }
 
-    fn send_constraints(&self, session: &ExtImageCopyCaptureSessionV1, size: Size<i32, Physical>) {
-        session.buffer_size(size.w as u32, size.h as u32);
-        session.shm_format(wl_shm::Format::Argb8888);
-        session.shm_format(wl_shm::Format::Xrgb8888);
-        if let Some(dmabuf) = self.udev.as_ref().and_then(|u| u.capture_dmabuf_constraints()) {
-            session.dmabuf_device(dmabuf.device.to_ne_bytes().to_vec());
-            for (format, modifiers) in dmabuf.formats {
-                let bytes = modifiers.iter().flat_map(|m| m.to_ne_bytes()).collect();
-                session.dmabuf_format(format, bytes);
-            }
-        }
-        session.done();
-    }
-
     fn frame_belongs_to(&self, pending: &PendingFrame, output: &Output) -> bool {
         match &pending.session.source {
             Source::Output(o) => o == output,
@@ -347,7 +339,7 @@ impl State {
                 inner.size = size;
                 drop(inner);
                 if let Some((resource, _)) = self.image_capture.sessions.iter().find(|(_, s)| Arc::ptr_eq(s, &frame.session)) {
-                    self.send_constraints(resource, size);
+                    send_constraints(resource, size, frame.session.dmabuf.as_ref());
                 }
                 frame.frame.failed(FailureReason::BufferConstraints);
                 continue;
@@ -382,11 +374,10 @@ impl State {
             }
         }
         if !self.image_capture.readbacks.is_empty() {
-            if self.udev.is_some() {
-                self.arm_readback_timer();
-            } else {
-                // The nested backend has no renderer outside its redraw: finish right away.
+            if self.image_capture.finish_in_redraw {
                 self.complete_readbacks(renderer, true);
+            } else {
+                self.arm_readback_timer();
             }
         }
         waiting.append(&mut self.image_capture.pending);
@@ -577,6 +568,20 @@ impl State {
     }
 }
 
+fn send_constraints(session: &ExtImageCopyCaptureSessionV1, size: Size<i32, Physical>, dmabuf: Option<&DmabufConstraints>) {
+    session.buffer_size(size.w as u32, size.h as u32);
+    session.shm_format(wl_shm::Format::Argb8888);
+    session.shm_format(wl_shm::Format::Xrgb8888);
+    if let Some(dmabuf) = dmabuf {
+        session.dmabuf_device(dmabuf.device.to_ne_bytes().to_vec());
+        for (format, modifiers) in &dmabuf.formats {
+            let bytes = modifiers.iter().flat_map(|m| m.to_ne_bytes()).collect();
+            session.dmabuf_format(*format, bytes);
+        }
+    }
+    session.done();
+}
+
 fn send_ready(frame: &ExtImageCopyCaptureFrameV1, size: Size<i32, Physical>, timestamp: std::time::Duration) {
     frame.transform(WlTransform::Normal);
     frame.damage(0, 0, size.w, size.h);
@@ -684,18 +689,19 @@ impl Dispatch<ExtImageCopyCaptureManagerV1, (), State> for State {
                 let paint_cursors = options.into_result().is_ok_and(|o| o.contains(Options::PaintCursors));
                 let Some(source) = source.data::<Option<Source>>().cloned().flatten() else {
                     // The source's output or window is already gone.
-                    let shared = Arc::new(SessionShared { source: dead_source(), paint_cursors, inner: stopped_inner() });
+                    let shared = Arc::new(SessionShared { source: dead_source(), paint_cursors, dmabuf: None, inner: stopped_inner() });
                     init.init(session, shared).stopped();
                     return;
                 };
                 let Some(size) = state.source_size(&source) else {
-                    let shared = Arc::new(SessionShared { source, paint_cursors, inner: stopped_inner() });
+                    let shared = Arc::new(SessionShared { source, paint_cursors, dmabuf: None, inner: stopped_inner() });
                     init.init(session, shared).stopped();
                     return;
                 };
                 let shared = Arc::new(SessionShared {
                     source,
                     paint_cursors,
+                    dmabuf: state.udev.as_ref().and_then(|u| u.capture_dmabuf_constraints()),
                     inner: Mutex::new(SessionInner { size, has_frame: false, stopped: false, captured: None }),
                 });
                 tracing::info!(
@@ -706,7 +712,7 @@ impl Dispatch<ExtImageCopyCaptureManagerV1, (), State> for State {
                     if shared.paint_cursors { ", with cursor" } else { "" }
                 );
                 let resource = init.init(session, shared.clone());
-                state.send_constraints(&resource, size);
+                send_constraints(&resource, size, shared.dmabuf.as_ref());
                 state.image_capture.sessions.push((resource, shared));
                 state.captures_changed();
             }
@@ -757,7 +763,7 @@ impl Dispatch<ExtImageCopyCaptureCursorSessionV1, (), State> for State {
         init: &mut DataInit<'_, State>,
     ) {
         if let ext_image_copy_capture_cursor_session_v1::Request::GetCaptureSession { session } = request {
-            let shared = Arc::new(SessionShared { source: dead_source(), paint_cursors: false, inner: stopped_inner() });
+            let shared = Arc::new(SessionShared { source: dead_source(), paint_cursors: false, dmabuf: None, inner: stopped_inner() });
             init.init(session, shared).stopped();
         }
     }

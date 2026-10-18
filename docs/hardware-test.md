@@ -186,6 +186,23 @@ Prüfen:
 5. Mit `[effects] blur`: ein durchscheinendes Fenster im unteren Teil von DP-1 zeigt den unscharfen
    Hintergrund wie im oberen Teil.
 
+## Streams lesen ohne Warten aus
+
+Das Auslesen eines Stream-Bildes (Portal, gemeinsamer Speicher) wartete auf der Hardware bisher doch
+innerhalb des Zeichnens auf die GPU: Der Compositor hielt sich dabei für nested, weil das Backend
+während des Zeichnens aus dem Zustand genommen ist. Jetzt stößt er die Kopie an, zeichnet weiter und
+übergibt das Bild, wenn die Fence meldet, dass sie fertig ist (wie in `docs/streaming.md` beschrieben).
+Nach einer Größenänderung der Quelle bietet er wieder dieselben GPU-Puffer an wie beim Start.
+
+Prüfen:
+
+1. Spiel im Vollbild auf DP-3, denselben Monitor über Vesktop/OBS streamen (`RUST_LOG=info,perf=debug`):
+   die `perf`-Zeilen von DP-3 zeigen keine neuen langsamen Frames gegenüber ohne Stream, das Spiel läuft
+   gleichmäßig.
+2. Der Stream selbst läuft flüssig, ohne hängende oder doppelte Bilder, auch bei stillem Bild
+   (Keepalive) und nach dem Wechsel eines geteilten Fensters zu einer anderen Größe.
+3. Ende des Streams und Monitor-Aus während eines Streams: keine Warnungen `image capture failed`.
+
 ## Bekannte Lücken
 
 - Fensteraufnahme über das Portal (nur Monitore) und der Wallpaper-Picker fehlen noch.
