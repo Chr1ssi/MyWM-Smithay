@@ -162,14 +162,14 @@ impl State {
             elements.extend(layer_elements(renderer, output, &[Layer::Overlay]));
             elements.extend(overview);
             let markers = self.edge_marker_elements(output);
-            elements.extend(self.scene_elements(renderer, output, false, Vec::new(), markers, blanks));
+            elements.extend(self.scene_elements(renderer, output, false, Vec::new(), markers, Vec::new(), blanks));
             return elements;
         }
-        let mut borders = self.edge_marker_elements(output);
-        borders.extend(self.border_elements(renderer, output));
+        let markers = self.edge_marker_elements(output);
+        let borders = self.border_elements(renderer, output);
         let mut shadows = self.blur_elements(renderer, output);
         shadows.extend(self.shadow_elements(renderer, output));
-        elements.extend(self.scene_elements(renderer, output, true, shadows, borders, blanks));
+        elements.extend(self.scene_elements(renderer, output, true, shadows, markers, borders, blanks));
         elements
     }
 
@@ -179,15 +179,18 @@ impl State {
     /// Tiles scrolled out of view lie beyond the edge in the shared coordinate space, where the
     /// neighbouring monitor would otherwise show them.
     /// Stacking, front to back: `Overlay` layer, popups and menus of unmanaged windows, fullscreen
-    /// windows, `Top` layer (the bar), the windows' borders, the other windows, `behind` (shadows,
+    /// windows, `Top` layer (the bar), the edge `markers`, the other windows each behind its own
+    /// border (so a dialog in front covers the border of the window behind it), `behind` (shadows,
     /// blur), `Bottom` and `Background` layers, the wallpaper.
+    #[allow(clippy::too_many_arguments)]
     fn scene_elements(
         &self,
         renderer: &mut GlesRenderer,
         output: &Output,
         with_windows: bool,
         behind: Vec<OutputElement>,
-        borders: Vec<OutputElement>,
+        markers: Vec<OutputElement>,
+        mut borders: Vec<(crate::desktop::WindowId, OutputElement)>,
         blanks: &mut Vec<Blank>,
     ) -> Vec<OutputElement> {
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
@@ -227,6 +230,10 @@ impl State {
                 Some(m) if m.shown_fullscreen => &mut fullscreen,
                 Some(_) => &mut regular,
             };
+            if let Some(m) = managed {
+                // Before `start`: a window kept out of captures is blanked, its border still shows (as before).
+                bucket.extend(borders.extract_if(.., |(id, _)| *id == m.id).map(|(_, border)| border));
+            }
             let start = bucket.len();
             if owner.is_some() {
                 let rounded = managed.is_some_and(|m| !m.fullscreen) && self.config.effects.corner_radius > 0;
@@ -271,7 +278,7 @@ impl State {
         elements.extend(unmanaged);
         elements.extend(fullscreen);
         elements.extend(layer_elements(renderer, &[Layer::Top]));
-        elements.extend(borders);
+        elements.extend(markers);
         elements.extend(regular);
         elements.extend(behind);
         elements.extend(layer_elements(renderer, &[Layer::Bottom, Layer::Background]));

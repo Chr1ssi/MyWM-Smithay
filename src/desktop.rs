@@ -826,13 +826,13 @@ impl State {
         self.effect_shaders.is_some()
     }
 
-    /// Borders of the windows on `output`, top-most first: four strips, or one rounded ring
+    /// Borders of the windows on `output`, each with its window: four strips, or one rounded ring
     /// when `[effects] corner_radius` is set.
     pub fn border_elements(
         &mut self,
         renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
         output: &Output,
-    ) -> Vec<crate::render::OutputElement> {
+    ) -> Vec<(WindowId, crate::render::OutputElement)> {
         use crate::render::OutputElement;
         let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
@@ -884,7 +884,7 @@ impl State {
                 if let Some((element, _)) = &m.ring
                     && let Some(cropped) = CropRenderElement::from_element(element.clone(), scale, visible_area)
                 {
-                    elements.push(OutputElement::from(cropped));
+                    elements.push((m.id, OutputElement::from(cropped)));
                 }
                 continue;
             }
@@ -901,7 +901,7 @@ impl State {
                 );
                 let element = SolidColorRenderElement::from_buffer(buffer, local, scale, fade, Kind::Unspecified);
                 if let Some(cropped) = CropRenderElement::from_element(element, scale, visible_area) {
-                    elements.push(OutputElement::from(cropped));
+                    elements.push((m.id, OutputElement::from(cropped)));
                 }
             }
         }
