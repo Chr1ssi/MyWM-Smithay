@@ -1,6 +1,9 @@
 //! `wlr-gamma-control`: lets night-light tools (gammastep, wlsunset) set a color ramp per
 //! output. Only offered on hardware; the ramp goes to the CRTC's gamma table.
-use std::{io::Read, os::fd::OwnedFd};
+use std::{
+    io::{ErrorKind, Read},
+    os::fd::{AsRawFd, OwnedFd},
+};
 
 use smithay::{
     output::Output,
@@ -116,13 +119,23 @@ impl Dispatch<ZwlrGammaControlV1, GammaData, State> for State {
 
 /// The three tables (`size` entries each, native endian) a client wrote into `fd`.
 fn read_ramp(fd: OwnedFd, size: usize) -> Option<Ramp> {
+    // Read during dispatch: a pipe the client has not filled must not block the compositor. As in
+    // wlroots, the ramp has to be there already.
+    // SAFETY: `fd` is a valid descriptor owned here.
+    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return None;
+    }
     let mut file = std::fs::File::from(fd);
     let mut bytes = vec![0u8; size * 3 * 2];
     file.read_exact(&mut bytes).ok()?;
-    // Exactly three tables: anything more is a broken client.
+    // Exactly three tables: anything more is a broken client. A pipe still open for writing has
+    // nothing more for now.
     let mut extra = [0u8; 1];
-    if file.read(&mut extra).ok()? != 0 {
-        return None;
+    match file.read(&mut extra) {
+        Ok(0) => {}
+        Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+        _ => return None,
     }
     let values: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|c| u16::from_ne_bytes(*c)).collect();
     Some((values[..size].to_vec(), values[size..2 * size].to_vec(), values[2 * size..].to_vec()))
@@ -163,6 +176,29 @@ mod tests {
         let mut long = bytes.clone();
         long.extend_from_slice(&[0, 0]);
         assert_eq!(read_ramp(fd_with(&long), 2), None);
+    }
+
+    /// A pipe with `bytes` in it, and its write end, still open.
+    fn pipe_with(bytes: &[u8]) -> (OwnedFd, std::fs::File) {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let (read, mut write) = unsafe {
+            (<OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fds[0]), <std::fs::File as std::os::fd::FromRawFd>::from_raw_fd(fds[1]))
+        };
+        write.write_all(bytes).unwrap();
+        (read, write)
+    }
+
+    #[test]
+    fn a_pipe_without_the_whole_ramp_fails_instead_of_blocking() {
+        let (empty, _writer) = pipe_with(&[]);
+        assert_eq!(read_ramp(empty, 2), None);
+        let (short, _writer) = pipe_with(&[0; 10]);
+        assert_eq!(read_ramp(short, 2), None);
+        let (full, _writer) = pipe_with(&[0; 12]);
+        assert_eq!(read_ramp(full, 2), Some((vec![0, 0], vec![0, 0], vec![0, 0])));
+        let (long, _writer) = pipe_with(&[0; 14]);
+        assert_eq!(read_ramp(long, 2), None);
     }
 
     #[test]
