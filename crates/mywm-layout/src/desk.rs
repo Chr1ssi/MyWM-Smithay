@@ -248,9 +248,9 @@ impl<T: Clone + Eq> Desk<T> {
         let mut best: Option<(f64, (f64, f64))> = None;
         for monitor in &self.monitors {
             let a = monitor.area;
-            // The last valid pixel is `right - 1`; stay just inside.
-            let cx = x.clamp(f64::from(a.x), f64::from(a.x + a.width) - 1.0);
-            let cy = y.clamp(f64::from(a.y), f64::from(a.y + a.height) - 1.0);
+            // The last valid pixel is `right - 1`; stay just inside (of at least one pixel).
+            let cx = x.clamp(f64::from(a.x), f64::from(a.x + a.width.max(1)) - 1.0);
+            let cy = y.clamp(f64::from(a.y), f64::from(a.y + a.height.max(1)) - 1.0);
             let distance = (cx - x).powi(2) + (cy - y).powi(2);
             if best.is_none_or(|(d, _)| distance < d) {
                 best = Some((distance, (cx, cy)));
@@ -437,6 +437,13 @@ mod tests {
         assert_eq!(desk.clamp_to_monitors((150.0, 10.0)), (150.0, 50.0));
         assert_eq!(desk.clamp_to_monitors((500.0, 500.0)), (199.0, 149.0));
         assert_eq!(Desk::<u32>::new(vec![], None).clamp_to_monitors((3.0, 4.0)), (3.0, 4.0));
+    }
+
+    #[test]
+    fn a_zero_sized_monitor_holds_the_pointer_at_its_corner() {
+        let mut desk = desk(&[]);
+        desk.add_monitor(Some("A".into()), area(10, 20, 0, 0));
+        assert_eq!(desk.clamp_to_monitors((50.0, 50.0)), (10.0, 20.0));
     }
 
     #[test]
