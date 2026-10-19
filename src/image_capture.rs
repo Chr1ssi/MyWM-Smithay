@@ -50,7 +50,7 @@ use smithay::backend::allocator::Buffer as _;
 use crate::{
     State,
     render::OutputElement,
-    screencopy::{Readback, capture_tracker, offscreen_texture, render_to_buffer, start_readback},
+    screencopy::{PendingCopy, Readback, capture_tracker, offscreen_texture, render_to_buffer, start_readback},
 };
 
 smithay::delegate_foreign_toplevel_list!(State);
@@ -98,7 +98,7 @@ pub struct ImageCaptureState {
     pending: Vec<PendingFrame>,
     /// Outputs with a redraw timer for waiting frames.
     timers: std::collections::HashSet<String>,
-    /// Shared-memory frames whose pixels the GPU is still copying.
+    /// Frames (also of wlr-screencopy) the GPU is still rendering or copying.
     readbacks: Vec<InFlight>,
     /// Whether the timer that completes `readbacks` is armed.
     readback_timer: bool,
@@ -133,11 +133,43 @@ impl SessionTarget {
 }
 
 struct InFlight {
-    frame: PendingFrame,
+    answer: Answer,
     readback: Readback,
     /// When the picture was rendered: its presentation time and the limit for waiting on the GPU.
     captured_at: std::time::Instant,
     timestamp: std::time::Duration,
+}
+
+/// The frame a read-back answers.
+enum Answer {
+    Image(PendingFrame),
+    Screencopy(PendingCopy),
+}
+
+impl Answer {
+    fn is_alive(&self) -> bool {
+        match self {
+            Self::Image(frame) => frame.frame.is_alive(),
+            Self::Screencopy(copy) => copy.is_alive(),
+        }
+    }
+
+    fn buffer(&self) -> &WlBuffer {
+        match self {
+            Self::Image(frame) => &frame.buffer,
+            Self::Screencopy(copy) => copy.buffer(),
+        }
+    }
+
+    fn failed(&self, error: &str) {
+        match self {
+            Self::Image(frame) => {
+                tracing::warn!("image capture failed: {error}");
+                frame.frame.failed(FailureReason::Unknown);
+            }
+            Self::Screencopy(copy) => copy.failed(error),
+        }
+    }
 }
 
 /// How long a read-back may take before the event loop waits for it (a hung GPU, not a busy one).
@@ -363,9 +395,8 @@ impl State {
             drop(inner);
             let timestamp: std::time::Duration = Clock::<Monotonic>::new().now().into();
             match self.capture_frame(renderer, elements, &frame, size) {
-                Ok(None) => send_ready(&frame.frame, size, timestamp),
-                Ok(Some(readback)) => {
-                    self.image_capture.readbacks.push(InFlight { frame, readback, captured_at: std::time::Instant::now(), timestamp });
+                Ok(readback) => {
+                    self.image_capture.readbacks.push(InFlight { answer: Answer::Image(frame), readback, captured_at: std::time::Instant::now(), timestamp });
                 }
                 Err(error) => {
                     tracing::warn!("image capture failed: {error}");
@@ -373,13 +404,7 @@ impl State {
                 }
             }
         }
-        if !self.image_capture.readbacks.is_empty() {
-            if self.image_capture.finish_in_redraw {
-                self.complete_readbacks(renderer, true);
-            } else {
-                self.arm_readback_timer();
-            }
-        }
+        self.readbacks_started(renderer);
         waiting.append(&mut self.image_capture.pending);
         // Frames still waiting for a change on this output get a redraw when their keepalive is due.
         let due = waiting.iter().filter(|f| self.frame_belongs_to(f, output)).map(|f| KEEPALIVE.saturating_sub(f.requested.elapsed())).min();
@@ -408,8 +433,8 @@ impl State {
         elements: &[OutputElement],
         frame: &PendingFrame,
         size: Size<i32, Physical>,
-    ) -> Result<Option<Readback>, String> {
-        // Shared memory goes through a read-back that completes later; GPU buffers are drawn into.
+    ) -> Result<Readback, String> {
+        // Shared memory goes through a read-back, GPU buffers are drawn into; both complete once the GPU is done.
         let mut target = if get_dmabuf(&frame.buffer).is_err() { Some(self.take_capture_target(renderer, &frame.session, size)?) } else { None };
         let result = self.render_capture(renderer, elements, frame, size, target.as_mut());
         // A frame that failed may have left the texture half drawn: the next one starts with a new target.
@@ -426,7 +451,7 @@ impl State {
         frame: &PendingFrame,
         size: Size<i32, Physical>,
         target: Option<&mut SessionTarget>,
-    ) -> Result<Option<Readback>, String> {
+    ) -> Result<Readback, String> {
         let region = Rectangle::from_size(size);
         match &frame.session.source {
             Source::Output(output) => {
@@ -442,12 +467,12 @@ impl State {
                 match target {
                     Some(target) => {
                         let (tracker, texture, age) = target.drawing(scale, clear);
-                        start_readback(renderer, tracker, age, &visible, clear, texture, region).map(Some)
+                        start_readback(renderer, tracker, age, &visible, clear, texture, region)
                     }
                     None => {
                         // The session's size is the output's as displayed (`source_size`).
                         let mut tracker = capture_tracker(size, scale);
-                        render_to_buffer(renderer, &mut tracker, &visible, clear, &frame.buffer, size, region).map(|()| None)
+                        render_to_buffer(renderer, &mut tracker, &visible, clear, &frame.buffer, size, region)
                     }
                 }
             }
@@ -466,11 +491,11 @@ impl State {
                     return match target {
                         Some(target) => {
                             let (tracker, texture, age) = target.drawing(1.0, clear);
-                            start_readback(renderer, tracker, age, &black, clear, texture, region).map(Some)
+                            start_readback(renderer, tracker, age, &black, clear, texture, region)
                         }
                         None => {
                             let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
-                            render_elements_to_buffer(renderer, &mut tracker, &black, &frame.buffer, size, region).map(|()| None)
+                            render_elements_to_buffer(renderer, &mut tracker, &black, &frame.buffer, size, region)
                         }
                     };
                 }
@@ -490,11 +515,11 @@ impl State {
                 match target {
                     Some(target) => {
                         let (tracker, texture, age) = target.drawing(scale, clear);
-                        start_readback(renderer, tracker, age, &elements, clear, texture, region).map(Some)
+                        start_readback(renderer, tracker, age, &elements, clear, texture, region)
                     }
                     None => {
                         let mut tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
-                        render_elements_to_buffer(renderer, &mut tracker, &elements, &frame.buffer, size, region).map(|()| None)
+                        render_elements_to_buffer(renderer, &mut tracker, &elements, &frame.buffer, size, region)
                     }
                 }
             }
@@ -522,7 +547,7 @@ impl State {
         }
         let mut still = Vec::new();
         for flight in std::mem::take(&mut self.image_capture.readbacks) {
-            if !flight.frame.frame.is_alive() {
+            if !flight.answer.is_alive() {
                 flight.readback.discard(renderer);
                 continue;
             }
@@ -531,15 +556,33 @@ impl State {
                 continue;
             }
             let size = flight.readback.size();
-            match flight.readback.finish(renderer, &flight.frame.buffer) {
-                Ok(()) => send_ready(&flight.frame.frame, size, flight.timestamp),
-                Err(error) => {
-                    tracing::warn!("image capture failed: {error}");
-                    flight.frame.frame.failed(FailureReason::Unknown);
+            match (flight.readback.finish(renderer, flight.answer.buffer()), &flight.answer) {
+                (Ok(()), Answer::Image(frame)) => send_ready(&frame.frame, size, flight.timestamp),
+                (Ok(()), Answer::Screencopy(copy)) => {
+                    copy.ready(flight.timestamp);
+                    self.note_screencopy();
                 }
+                (Err(error), answer) => answer.failed(&error),
             }
         }
         self.image_capture.readbacks = still;
+    }
+
+    /// A wlr-screencopy frame rendered at `timestamp` on the GPU: answered when the GPU is done.
+    pub(crate) fn screencopy_in_flight(&mut self, copy: PendingCopy, readback: Readback, timestamp: std::time::Duration) {
+        self.image_capture.readbacks.push(InFlight { answer: Answer::Screencopy(copy), readback, captured_at: std::time::Instant::now(), timestamp });
+    }
+
+    /// Read-backs were started in a redraw: finish them there when the backend has no renderer outside its redraw,
+    /// else as the GPU gets done with them.
+    pub(crate) fn readbacks_started(&mut self, renderer: &mut GlesRenderer) {
+        if !self.image_capture.readbacks.is_empty() {
+            if self.image_capture.finish_in_redraw {
+                self.complete_readbacks(renderer, true);
+            } else {
+                self.arm_readback_timer();
+            }
+        }
     }
 
     /// Poll the GPU for finished read-backs every millisecond while some are in flight.
@@ -555,7 +598,7 @@ impl State {
             if !polled {
                 // The GPU went away: these frames will not be filled.
                 for flight in std::mem::take(&mut state.image_capture.readbacks) {
-                    flight.frame.frame.failed(FailureReason::Unknown);
+                    flight.answer.failed("the GPU went away");
                 }
             }
             if state.image_capture.readbacks.is_empty() {
@@ -596,7 +639,7 @@ fn render_elements_to_buffer<E: RenderElement<GlesRenderer>>(
     buffer: &WlBuffer,
     size: Size<i32, Physical>,
     region: Rectangle<i32, Physical>,
-) -> Result<(), String> {
+) -> Result<Readback, String> {
     render_to_buffer(renderer, tracker, elements, [0.0, 0.0, 0.0, 0.0], buffer, size, region)
 }
 

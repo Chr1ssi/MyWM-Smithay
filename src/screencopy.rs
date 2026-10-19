@@ -64,6 +64,25 @@ impl PendingCopy {
     pub fn output(&self) -> &Output {
         &self.output
     }
+
+    pub(crate) fn is_alive(&self) -> bool {
+        self.frame.is_alive()
+    }
+
+    pub(crate) fn buffer(&self) -> &WlBuffer {
+        &self.buffer
+    }
+
+    /// The buffer holds the picture rendered at `timestamp`.
+    pub(crate) fn ready(&self, timestamp: std::time::Duration) {
+        self.frame.flags(zwlr_screencopy_frame_v1::Flags::empty());
+        self.frame.ready((timestamp.as_secs() >> 32) as u32, timestamp.as_secs() as u32, timestamp.subsec_nanos());
+    }
+
+    pub(crate) fn failed(&self, error: &str) {
+        tracing::warn!("screen capture of {} failed: {error}", self.output.name());
+        self.frame.failed();
+    }
 }
 
 impl State {
@@ -101,19 +120,14 @@ impl State {
             if !pending.frame.is_alive() {
                 continue;
             }
+            let timestamp: std::time::Duration = Clock::<Monotonic>::new().now().into();
             match self.capture(renderer, elements, clear, &pending) {
-                Ok(()) => {
-                    let now: std::time::Duration = Clock::<Monotonic>::new().now().into();
-                    pending.frame.flags(zwlr_screencopy_frame_v1::Flags::empty());
-                    pending.frame.ready((now.as_secs() >> 32) as u32, now.as_secs() as u32, now.subsec_nanos());
-                    self.note_screencopy();
-                }
-                Err(error) => {
-                    tracing::warn!("screen capture of {} failed: {error}", pending.output.name());
-                    pending.frame.failed();
-                }
+                // Answered once the GPU is done, like the frames of `ext-image-copy-capture`.
+                Ok(readback) => self.screencopy_in_flight(pending, readback, timestamp),
+                Err(error) => pending.failed(&error),
             }
         }
+        self.readbacks_started(renderer);
     }
 
     fn capture(
@@ -122,7 +136,7 @@ impl State {
         elements: &[OutputElement],
         clear: [f32; 4],
         pending: &PendingCopy,
-    ) -> Result<(), String> {
+    ) -> Result<Readback, String> {
         let CaptureGeometry { size } = self.capture_geometry(&pending.output).ok_or("the output has no mode")?;
         let scale = pending.output.current_scale().fractional_scale();
         let mut tracker = capture_tracker(size, scale);
@@ -323,8 +337,9 @@ impl Dispatch<ZwlrScreencopyFrameV1, FrameData, State> for State {
     }
 }
 
-/// Render `elements` with `tracker` into a client buffer: straight into a dmabuf, or through
-/// one GPU read-back of `region` (pixels of the `size` rendered) into shared memory.
+/// Start rendering `elements` with `tracker` into a client buffer: straight into a dmabuf, or through
+/// one GPU read-back of `region` (pixels of the `size` rendered) into shared memory. The client may have
+/// the buffer once the [`Readback`] is finished.
 pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
     renderer: &mut GlesRenderer,
     tracker: &mut OutputDamageTracker,
@@ -333,21 +348,21 @@ pub fn render_to_buffer<E: smithay::backend::renderer::element::RenderElement<Gl
     buffer: &WlBuffer,
     size: Size<i32, Physical>,
     region: Rectangle<i32, Physical>,
-) -> Result<(), String> {
+) -> Result<Readback, String> {
     if let Ok(dmabuf) = get_dmabuf(buffer) {
         let mut dmabuf = dmabuf.clone();
         let mut target = renderer.bind(&mut dmabuf).map_err(|e| format!("bind: {e}"))?;
-        let result = tracker
+        tracker
             .render_output(renderer, &mut target, 0, elements, clear)
             .map_err(|e| format!("render: {e:?}"))?;
-        // The client reads the buffer as soon as it gets `ready`.
-        let _ = result.sync.wait();
-        return Ok(());
+        drop(target);
+        // The client reads the buffer as soon as it gets `ready`: not before the GPU is done with it.
+        return Ok(Readback { mapping: None, fence: submit_fence(renderer)?, region });
     }
 
     // Shared memory: render into a texture, read it back and copy the wanted part.
     let mut texture = offscreen_texture(renderer, size)?;
-    start_readback(renderer, tracker, 0, elements, clear, &mut texture, region)?.finish(renderer, buffer)
+    start_readback(renderer, tracker, 0, elements, clear, &mut texture, region)
 }
 
 /// A damage tracker that draws a capture of an output upright at its displayed `size` (see `capture_geometry`).
@@ -361,13 +376,15 @@ pub fn offscreen_texture(renderer: &mut GlesRenderer, size: Size<i32, Physical>)
         .map_err(|e| format!("offscreen buffer: {e}"))
 }
 
-/// A capture rendered on the GPU whose pixels are on their way into a pixel buffer.
+/// A capture rendered on the GPU whose pixels are on their way into a pixel buffer, or (rendered into
+/// a client's dmabuf) into the client's buffer itself.
 ///
 /// Mapping the pixel buffer waits until the GPU has finished the copy (and everything queued
 /// before it). The fence lets the event loop check for that without blocking, so the copy for a
 /// stream never holds up the frames of other clients (a game on the same output).
 pub struct Readback {
-    mapping: GlesMapping,
+    /// `None` for a dmabuf, which needs no copy.
+    mapping: Option<GlesMapping>,
     fence: ffi::types::GLsync,
     region: Rectangle<i32, Physical>,
 }
@@ -393,15 +410,19 @@ pub fn start_readback<E: smithay::backend::renderer::element::RenderElement<Gles
     );
     let mapping = renderer.copy_framebuffer(&target, buffer_region, Fourcc::Argb8888).map_err(|e| format!("read back: {e}"))?;
     drop(target);
+    Ok(Readback { mapping: Some(mapping), fence: submit_fence(renderer)?, region })
+}
+
+/// A fence that signals when the GPU has done everything queued so far.
+fn submit_fence(renderer: &mut GlesRenderer) -> Result<ffi::types::GLsync, String> {
     // Flush so the fence is submitted: an unflushed fence would never signal while polling.
-    let fence = renderer
+    renderer
         .with_context(|gl| unsafe {
             let fence = gl.FenceSync(ffi::SYNC_GPU_COMMANDS_COMPLETE, 0);
             gl.Flush();
             fence
         })
-        .map_err(|e| format!("fence: {e}"))?;
-    Ok(Readback { mapping, fence, region })
+        .map_err(|e| format!("fence: {e}"))
 }
 
 impl Readback {
@@ -420,14 +441,29 @@ impl Readback {
         self.region.size
     }
 
-    /// Copy the pixels into the client's shared-memory `buffer`.
+    /// Copy the pixels into the client's shared-memory `buffer`; for a dmabuf, wait until the GPU is done with it.
     pub fn finish(self, renderer: &mut GlesRenderer, buffer: &WlBuffer) -> Result<(), String> {
-        let result = renderer
-            .map_texture(&self.mapping)
-            .map_err(|e| format!("map: {e}"))
-            .and_then(|pixels| copy_to_shm(pixels, buffer, self.region.size));
+        let result = match &self.mapping {
+            Some(mapping) => renderer
+                .map_texture(mapping)
+                .map_err(|e| format!("map: {e}"))
+                .and_then(|pixels| copy_to_shm(pixels, buffer, self.region.size)),
+            None => self.wait(renderer),
+        };
         self.discard(renderer);
         result
+    }
+
+    fn wait(&self, renderer: &mut GlesRenderer) -> Result<(), String> {
+        if self.fence.is_null() {
+            // No fence to wait for: wait for everything (as smithay does without fences).
+            return renderer.with_context(|gl| unsafe { gl.Finish() }).map_err(|e| format!("wait: {e}"));
+        }
+        let fence = self.fence;
+        let status = renderer
+            .with_context(|gl| unsafe { gl.ClientWaitSync(fence, ffi::SYNC_FLUSH_COMMANDS_BIT, ffi::TIMEOUT_IGNORED) })
+            .map_err(|e| format!("wait: {e}"))?;
+        if status == ffi::WAIT_FAILED { Err("wait: failed".into()) } else { Ok(()) }
     }
 
     /// Release the fence without using the pixels (the frame went away).

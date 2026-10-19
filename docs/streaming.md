@@ -9,7 +9,8 @@ Der Compositor bietet `wlr-screencopy-unstable-v1` an, das Protokoll, das
 
 GPU-Puffer (dmabuf) werden direkt beschrieben, ohne Umweg über die CPU; Shared-Memory-Puffer
 brauchen einmal Auslesen der GPU. Auf der Hardware verwendet der Portal-Dienst automatisch den
-dmabuf-Weg, wenn OBS/der Browser ihn versteht.
+dmabuf-Weg, wenn OBS/der Browser ihn versteht. In beiden Fällen wartet der Compositor nicht auf
+die GPU: Das Bild geht an den Client, sobald eine GPU-Fence meldet, dass es fertig ist.
 
 ## Dynamischer Stream
 
