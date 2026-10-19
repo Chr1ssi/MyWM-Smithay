@@ -78,8 +78,10 @@ cargo run -- "foot"       # nested (in X/Wayland); optionales Kommando nach dem 
 cargo test --workspace    # Layout, Config, Protokoll
 ```
 
-Die nested Smoke-Tests (`tests/*_smoke.py`) laufen unter NixOS alle zusammen gegen ein eigenes Xvfb, das die echte
-Sitzung in Ruhe lässt (sie bewegen den X-Zeiger und tippen ins Fenster):
+Die nested Smoke-Tests (`tests/*_smoke.py`) laufen unter NixOS gegen eigene Xvfb-Server, die die echte
+Sitzung in Ruhe lassen (sie bewegen den X-Zeiger und tippen ins Fenster). Vier Tests laufen gleichzeitig, jeder
+auf seinem eigenen Xvfb; `MYWM_SMOKE_JOBS` ändert die Zahl (`1`: nacheinander). Ein Test darf deshalb nur seine
+eigenen Prozesse beenden, nie per Name alle:
 
 ```sh
 nix develop .#smoke -c tests/run-smoke              # alle

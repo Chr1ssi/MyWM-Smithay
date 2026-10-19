@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Runs the nested smoke tests against a private Xvfb, so that the real session is left alone
+# Runs the nested smoke tests against private Xvfb servers, so that the real session is left alone
 # (the tests move the X pointer and type into the nested window).
 #
 #   nix develop .#smoke -c tests/run-smoke            # all tests
 #   nix develop .#smoke -c tests/run-smoke popup ipc  # some of them (names without _smoke.py)
+#
+# The tests run side by side, each on an X server of its own (pointer, focus and keys are per server);
+# MYWM_SMOKE_JOBS sets how many (default 4, 1 runs them one after the other).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,34 +19,57 @@ if [ ${#tests[@]} -eq 0 ]; then
         tests+=("${name%_smoke.py}")
     done
 fi
+jobs=${MYWM_SMOKE_JOBS:-4}
+[ "$jobs" -gt ${#tests[@]} ] && jobs=${#tests[@]}
 
-# Xvfb picks a free display number and reports it on the given descriptor.
-exec {display_fd}<> <(:)
-Xvfb -displayfd "$display_fd" -screen 0 1280x800x24 +extension GLX >/dev/null 2>&1 &
-xvfb=$!
-trap 'kill "$xvfb" 2>/dev/null' EXIT
-read -r -t 10 -u "$display_fd" display_number || { echo 'Xvfb did not start' >&2; exit 1; }
-export DISPLAY=":$display_number" PYTHONPATH=tests
+results=$(mktemp -d)
+servers=()
+trap 'kill "${servers[@]}" 2>/dev/null; rm -rf "$results"' EXIT
+# The free X servers, by display number: a test takes one and hands it back when it ends.
+exec {pool}<> <(:)
+for _ in $(seq "$jobs"); do
+    # Xvfb picks a free display number and reports it on the given descriptor.
+    exec {display_fd}<> <(:)
+    Xvfb -displayfd "$display_fd" -screen 0 1280x800x24 +extension GLX >/dev/null 2>&1 &
+    servers+=($!)
+    read -r -t 10 -u "$display_fd" display_number || { echo 'Xvfb did not start' >&2; exit 1; }
+    exec {display_fd}>&-
+    echo "$display_number" >&"$pool"
+done
+export PYTHONPATH=tests
 unset WAYLAND_DISPLAY
+
+run() {
+    local name=$1 display=$2 log="$results/$1.log" result
+    if DISPLAY=":$display" timeout 300 python3 "tests/${name}_smoke.py" >"$log" 2>&1; then
+        # A test that cannot run (a tool is missing from this shell) did not pass either.
+        if skip=$(grep -m1 '^SKIP:' "$log"); then result="SKIPPED (${skip#SKIP: })"; else result=ok; fi
+    else
+        result=FAILED
+    fi
+    echo "$result" >"$results/$name.result"
+    printf '%-18s%s\n' "$name" "$result"
+    echo "$display" >&"$pool"
+}
+
+running=()
+for name in "${tests[@]}"; do
+    read -r -u "$pool" display
+    run "$name" "$display" &
+    running+=($!)
+done
+# Only the tests: the X servers run on until the end.
+wait "${running[@]}"
 
 failed=()
 for name in "${tests[@]}"; do
-    log=$(mktemp)
-    printf '%-18s' "$name"
-    if timeout 300 python3 "tests/${name}_smoke.py" >"$log" 2>&1; then
-        # A test that cannot run (a tool is missing from this shell) did not pass either.
-        if skip=$(grep -m1 '^SKIP:' "$log"); then
-            echo "SKIPPED (${skip#SKIP: })"
-            failed+=("$name")
-        else
-            echo ok
-        fi
-    else
-        echo FAILED
-        tail -n 5 "$log" | sed 's/^/    /'
-        failed+=("$name")
+    result=$(cat "$results/$name.result")
+    [ "$result" = ok ] && continue
+    failed+=("$name")
+    if [ "$result" = FAILED ]; then
+        echo "$name:"
+        tail -n 5 "$results/$name.log" | sed 's/^/    /'
     fi
-    rm -f "$log"
 done
 
 if [ ${#failed[@]} -gt 0 ]; then

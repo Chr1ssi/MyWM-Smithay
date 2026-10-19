@@ -165,8 +165,10 @@ try:
     assert closed.returncode == 0, closed.stderr
 
     # A still picture keeps delivering frames (keepalive): no window is animating any more.
-    # Anchored: the compositor's own command line contains the client command it started.
-    subprocess.run(["pkill", "-f", "^" + re.escape(WINDOW_CLIENT)])
+    # Anchored: the compositor's own command line contains the client command it started. Only this
+    # test's windows (children of the compositor's shell, or of this script): other tests run side by side.
+    parents = subprocess.run(["pgrep", "-P", str(comp.process.pid)], capture_output=True, text=True).stdout.split()
+    subprocess.run(["pkill", "-P", ",".join([*parents, str(os.getpid())]), "-f", "^" + re.escape(WINDOW_CLIENT)])
     time.sleep(1)
     session, node, size, source_type = stream(lambda: comp.key("Return"), "still")
     start = time.time()
