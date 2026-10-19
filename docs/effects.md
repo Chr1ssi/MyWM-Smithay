@@ -22,7 +22,8 @@ opacity = 0.92
   berechnet, wenn sich das Wallpaper ändert. Ein Fenster ist durchsichtig, wenn eine Regel
   `opacity` setzt oder `inactive_opacity` < 1 ist und es keinen Fokus hat.
 - Die Shader wurden nested (Mesa) getestet; auf der NVIDIA-Hardware bitte kurz ansehen. Kompilieren
-  sie nicht, steht eine Warnung im Log und der Effekt bleibt einfach aus.
+  sie nicht oder schlägt die Berechnung fehl, steht einmal eine Warnung im Log und der Effekt bleibt
+  bis zum nächsten Neuladen der Konfiguration aus.
 
 ## Screenshots
 

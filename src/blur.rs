@@ -28,12 +28,42 @@ pub struct Programs {
 
 /// The blurred wallpaper of one output.
 pub struct BlurCache {
-    /// Half the output's size in pixels.
-    texture: GlesTexture,
-    size: Size<i32, Physical>,
+    targets: Targets,
     strength: u32,
     id: Id,
     dirty: bool,
+}
+
+/// The textures the blur is drawn through, kept while the output's size stays: a wallpaper commit
+/// (an animated wallpaper commits every frame) only draws into them again.
+struct Targets {
+    /// The output's size in pixels.
+    size: Size<i32, Physical>,
+    /// The wallpaper at full size.
+    full: GlesTexture,
+    /// 1/2, 1/4, 1/8 of the size; the result ends up in the first.
+    levels: Vec<GlesTexture>,
+}
+
+impl Targets {
+    fn new(renderer: &mut GlesRenderer, size: Size<i32, Physical>) -> Result<Self, String> {
+        let mut create = |size: Size<i32, Physical>| {
+            Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Argb8888, (size.w, size.h).into())
+                .map_err(|e| format!("texture: {e}"))
+        };
+        let full = create(size)?;
+        let levels = level_sizes(size).into_iter().map(&mut create).collect::<Result<_, _>>()?;
+        Ok(Self { size, full, levels })
+    }
+
+    /// The blurred result, at half the size.
+    fn result(&self) -> &GlesTexture {
+        &self.levels[0]
+    }
+}
+
+fn level_sizes(size: Size<i32, Physical>) -> Vec<Size<i32, Physical>> {
+    (1..=LEVELS).map(|level| ((size.w >> level).max(1), (size.h >> level).max(1)).into()).collect()
 }
 
 fn shader(body: &str) -> String {
@@ -114,8 +144,8 @@ fn pass(
     frame
         .render_texture_from_to(from, src, dst, &[dst], &[], Transform::Normal, 1.0, Some(program), &[Uniform::new("half_pixel", half_pixel)])
         .map_err(|e| format!("draw: {e}"))?;
-    let sync = frame.finish().map_err(|e| format!("finish: {e}"))?;
-    let _ = sync.wait();
+    // No wait: the passes, and the frames that sample the result, run in order on this GL context.
+    let _ = frame.finish().map_err(|e| format!("finish: {e}"))?;
     Ok(())
 }
 
@@ -131,7 +161,8 @@ impl State {
         self.blur.clear();
     }
 
-    fn blur_render(&mut self, renderer: &mut GlesRenderer, output: &Output, size: Size<i32, Physical>) -> Result<GlesTexture, String> {
+    fn blur_render(&mut self, renderer: &mut GlesRenderer, output: &Output, targets: &mut Targets) -> Result<(), String> {
+        let size = targets.size;
         let scale = output.current_scale().fractional_scale();
         let strength = self.config.effects.blur;
         let offset = 1.0 + strength as f32 * 0.25;
@@ -140,10 +171,8 @@ impl State {
 
         // 1. The wallpaper (layers below the windows) at full size.
         let background = self.background_elements(renderer, output);
-        let mut full = Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Argb8888, (size.w, size.h).into())
-            .map_err(|e| format!("texture: {e}"))?;
         {
-            let mut target = renderer.bind(&mut full).map_err(|e| format!("bind: {e}"))?;
+            let mut target = renderer.bind(&mut targets.full).map_err(|e| format!("bind: {e}"))?;
             let mut tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
             tracker
                 .render_output(renderer, &mut target, 0, &background, self.clear_color())
@@ -151,16 +180,9 @@ impl State {
         }
 
         // 2. Down to 1/2, 1/4, 1/8 of the size, then back up to 1/2.
-        let sizes: Vec<Size<i32, Physical>> =
-            (1..=LEVELS).map(|level| ((size.w >> level).max(1), (size.h >> level).max(1)).into()).collect();
-        let mut levels = Vec::new();
-        for level in &sizes {
-            levels.push(
-                Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Argb8888, (level.w, level.h).into())
-                    .map_err(|e| format!("texture: {e}"))?,
-            );
-        }
-        let mut from = full.clone();
+        let sizes = level_sizes(size);
+        let levels = &mut targets.levels;
+        let mut from = targets.full.clone();
         let mut from_size = size;
         for (texture, level_size) in levels.iter_mut().zip(&sizes) {
             pass(renderer, &from, from_size, texture, *level_size, &down, offset)?;
@@ -171,13 +193,14 @@ impl State {
             let source = levels[index + 1].clone();
             pass(renderer, &source, sizes[index + 1], &mut levels[index], sizes[index], &up, offset)?;
         }
-        Ok(levels.swap_remove(0))
+        Ok(())
     }
 
     /// Backdrops of the translucent windows on `output`, front to back, behind the windows.
     pub fn blur_elements(&mut self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
         let strength = self.config.effects.blur;
-        if strength == 0 {
+        // After a failure the blur stays off until the configuration is reloaded, instead of failing every frame.
+        if strength == 0 || self.blur_failed {
             return Vec::new();
         }
         let Some(size) = self.capture_geometry(output).map(|g| g.size) else { return Vec::new() };
@@ -212,7 +235,7 @@ impl State {
             return Vec::new();
         }
 
-        if self.blur_programs.is_none() && !self.blur_failed {
+        if self.blur_programs.is_none() {
             match compile(renderer) {
                 Ok(programs) => self.blur_programs = Some(programs),
                 Err(error) => {
@@ -225,14 +248,18 @@ impl State {
             return Vec::new();
         }
         let name = output.name();
-        let stale = self.blur.get(&name).is_none_or(|c| c.dirty || c.size != size || c.strength != strength);
+        let stale = self.blur.get(&name).is_none_or(|c| c.dirty || c.targets.size != size || c.strength != strength);
         if stale {
-            match self.blur_render(renderer, output, size) {
-                Ok(texture) => {
-                    self.blur.insert(name.clone(), BlurCache { texture, size, strength, id: Id::new(), dirty: false });
+            let targets = match self.blur.remove(&name) {
+                Some(cache) if cache.targets.size == size => Ok(cache.targets),
+                _ => Targets::new(renderer, size),
+            };
+            match targets.and_then(|mut targets| self.blur_render(renderer, output, &mut targets).map(|()| targets)) {
+                Ok(targets) => {
+                    self.blur.insert(name.clone(), BlurCache { targets, strength, id: Id::new(), dirty: false });
                 }
                 Err(error) => {
-                    tracing::warn!("blur failed: {error}");
+                    tracing::warn!("blur failed, it stays off until the configuration is reloaded: {error}");
                     self.blur_failed = true;
                     return Vec::new();
                 }
@@ -253,7 +280,7 @@ impl State {
                 cache.id.clone(),
                 renderer.context_id(),
                 Point::<f64, Physical>::from((f64::from(phys.loc.x), f64::from(phys.loc.y))),
-                cache.texture.clone(),
+                cache.targets.result().clone(),
                 1,
                 Transform::Normal,
                 Some(1.0),
