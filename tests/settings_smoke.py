@@ -3,16 +3,26 @@ configured layout names them.
 
 Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/settings_smoke.py
 """
-import os, subprocess, tempfile, time
+import os, random, subprocess, time
 from smoke_support import wait
 
 # A short path: the settings window sizes its sidebar by the config path, and the clicks below are positions.
-work = tempfile.mkdtemp(dir="/tmp")
+# Digits only, as mkdtemp's letters differ in width: a wide random name moved the buttons away from the clicks.
+while True:
+    work = f"/tmp/mywm-{random.randrange(10 ** 8):08d}"
+    try:
+        os.mkdir(work, 0o700)
+        break
+    except FileExistsError:
+        pass
 config = f"{work}/config.toml"
 with open(config, "w") as f:
     f.write("# my settings\n[effects]\ncorner_radius = 12 # round\n")
 
 env = dict(os.environ, XDG_CONFIG_HOME=work, MYWM_SOCKET=f"{work}/none.sock")
+# On X only: with a Wayland session in the environment the window would open there, in the user's session.
+for name in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET"):
+    env.pop(name, None)
 app = subprocess.Popen(["./target/debug/mywm-settings", "--config", config, "--page", "0"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
 
@@ -37,7 +47,7 @@ try:
     # "+ Taste" of the first action (Konfiguration neu laden), then F5 with Super ticked by default.
     # The first inputs can get lost while the window is still starting: try a few times.
     for attempt in range(4):
-        xdo("mousemove", "--window", window, "295", "89", "click", "1")
+        xdo("mousemove", "--window", window, "336", "89", "click", "1")
         time.sleep(1)
         xdo("key", "F5")
         time.sleep(1)
@@ -53,7 +63,7 @@ try:
     # A second, conflicting key is refused: Super+q belongs to "close"; adding it to reload marks a duplicate
     # and the save button stays disabled, so the file is unchanged.
     before = open(config).read()
-    xdo("mousemove", "--window", window, "400", "89", "click", "1")
+    xdo("mousemove", "--window", window, "443", "89", "click", "1")
     time.sleep(0.7)
     xdo("key", "q")
     time.sleep(0.5)
@@ -80,7 +90,7 @@ try:
     assert wait(drawn, 30), "the window was never drawn"
     xdo("windowfocus", window)
     for attempt in range(4):
-        xdo("mousemove", "--window", window, "295", "89", "click", "1")
+        xdo("mousemove", "--window", window, "336", "89", "click", "1")
         time.sleep(1)
         # The X server's layout is us: this is the key right of p.
         xdo("key", "bracketleft")
