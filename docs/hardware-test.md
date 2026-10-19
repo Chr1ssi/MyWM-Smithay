@@ -84,6 +84,9 @@ Prüfen:
    die GPU-Last im Vollbild kaum über den Wert ohne Compositor liegt; im Log mit
    `RUST_LOG=smithay::backend::drm=debug` erscheinen Zeilen zur Plane-Zuweisung.
 2. VRR: Monitor-OSD bzw. `cat /sys/kernel/debug/dri/*/vrr_range` / Anzeige der Bildrate.
+   Nach dem Spiel steht `DP-3: adaptive sync off` im Log. Schlägt das Umschalten fehl (in eine
+   der beiden Richtungen), steht `cannot switch adaptive sync` einmal pro Spielstart bzw. -ende im
+   Log, nicht in jedem Frame.
 3. Maus in Spielen: Mauszeiger sperrt sich (`pointer-constraints`) und liefert rohe Deltas
    (`relative-pointer`); Spiele unter XWayland brauchen dafür M4.
 

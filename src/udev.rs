@@ -158,8 +158,9 @@ struct Surface {
     vrr: bool,
     /// The display is on; while off nothing is drawn.
     powered: bool,
-    /// Adaptive sync was requested but cannot be enabled on this output.
-    vrr_failed: bool,
+    /// The adaptive sync state a switch failed to reach (`true`: on). It is not tried again until the policy
+    /// has wanted the other state.
+    vrr_failed: Option<bool>,
     /// Every mode the display offers, for mode switches requested at runtime.
     modes: Vec<smithay::reexports::drm::control::Mode>,
     /// The color ramp a night-light client set, and whether it must be written again.
@@ -733,7 +734,7 @@ impl State {
                 feedback,
                 vrr: false,
                 powered: true,
-                vrr_failed: false,
+                vrr_failed: None,
                 modes: info.modes().to_vec(),
                 gamma: None,
                 gamma_dirty: false,
@@ -850,10 +851,10 @@ impl State {
 
         // Adaptive sync only while a game owns the output.
         let policy = self.presentation_policy(&output);
-        if policy.vrr != surface.vrr && !surface.vrr_failed {
+        if vrr_switch_due(policy.vrr, surface.vrr, &mut surface.vrr_failed) {
             surface.vrr = set_vrr(&mut surface.compositor, surface.connector, policy.vrr, &output.name());
-            // Not supported (or refused): do not ask again every frame.
-            surface.vrr_failed = policy.vrr && !surface.vrr;
+            // Not supported (or refused, either way): do not ask again every frame.
+            surface.vrr_failed = (surface.vrr != policy.vrr).then_some(policy.vrr);
         }
 
         let started = Instant::now();
@@ -1079,6 +1080,15 @@ fn write_gamma(drm: &DrmDevice, crtc: crtc::Handle, ramp: Option<&crate::gamma::
     }
 }
 
+/// Whether adaptive sync, now `current`, is to be switched to `wanted`. After a failed switch (`failed`: the
+/// state it was meant to reach) only once the policy has wanted the other state in between.
+fn vrr_switch_due(wanted: bool, current: bool, failed: &mut Option<bool>) -> bool {
+    if failed.is_some_and(|state| state != wanted) {
+        *failed = None;
+    }
+    wanted != current && failed.is_none()
+}
+
 /// Turn adaptive sync on or off; returns whether it is on afterwards.
 fn set_vrr(compositor: &mut GbmCompositor, connector: connector::Handle, on: bool, name: &str) -> bool {
     if on {
@@ -1195,5 +1205,31 @@ mod tests {
         assert_eq!(transform(OutputTransform::Rotate270), Transform::_270);
         assert_eq!(transform(OutputTransform::Flipped90), Transform::Flipped90);
         assert_eq!(transform(OutputTransform::Normal), Transform::Normal);
+    }
+
+    #[test]
+    fn vrr_switch_failed_either_way_waits_for_the_policy_to_change() {
+        // Enabling failed: not again while the game stays, again for the next one.
+        let mut failed = Some(true);
+        assert!(!vrr_switch_due(true, false, &mut failed));
+        assert!(!vrr_switch_due(false, false, &mut failed));
+        assert_eq!(failed, None);
+        assert!(vrr_switch_due(true, false, &mut failed));
+
+        // Disabling failed after the game left: VRR stays on without asking every frame.
+        let mut failed = Some(false);
+        assert!(!vrr_switch_due(false, true, &mut failed));
+        assert!(!vrr_switch_due(false, true, &mut failed));
+        // A game again (nothing to switch), then gone: disabling is tried once more.
+        assert!(!vrr_switch_due(true, true, &mut failed));
+        assert!(vrr_switch_due(false, true, &mut failed));
+    }
+
+    #[test]
+    fn vrr_switches_when_the_policy_differs() {
+        let mut failed = None;
+        assert!(vrr_switch_due(true, false, &mut failed));
+        assert!(vrr_switch_due(false, true, &mut failed));
+        assert!(!vrr_switch_due(true, true, &mut failed));
     }
 }
