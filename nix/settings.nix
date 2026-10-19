@@ -28,9 +28,18 @@ rustPlatform.buildRustPackage {
   pname = "mywm-settings";
   version = "0.1.0";
 
-  src = lib.cleanSourceWith {
-    src = ../.;
-    filter = path: _type: !(builtins.elem (builtins.baseNameOf path) [ ".git" "target" "quickshell" ]);
+  # Only what cargo reads and the desktop entry, so that changes to the tests, docs or flake inputs
+  # do not rebuild it.
+  src = lib.fileset.toSource {
+    root = ../.;
+    fileset = lib.fileset.unions [
+      ../Cargo.toml
+      ../Cargo.lock
+      ../src
+      ../crates
+      ../vendor/smithay
+      ../scripts/mywm-settings.desktop
+    ];
   };
 
   cargoLock.lockFile = ../Cargo.lock;
