@@ -92,7 +92,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: nothing else runs yet.
     unsafe { cursor::export_theme() };
     let mut state = State::new(&mut event_loop, display, config, remap_super);
-    state.config_error = config_error;
+    // `State::new` may have found an unknown keymap already; a file that does not load has none.
+    if config_error.is_some() {
+        state.config_error = config_error;
+    }
 
     if nested {
         winit::init(&mut event_loop, &mut state)?;

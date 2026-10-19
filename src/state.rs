@@ -200,7 +200,19 @@ impl State {
             options: (!config.keyboard.options.is_empty()).then(|| config.keyboard.options.clone()),
             ..Default::default()
         };
-        seat.add_keyboard(xkb, config.input.repeat_delay, config.input.repeat_rate).expect("keyboard");
+        // The config file does not check names against xkb: a typo in them must not stop the session.
+        let keyboard_error = match seat.add_keyboard(xkb, config.input.repeat_delay, config.input.repeat_rate) {
+            Ok(_) => None,
+            Err(error) => {
+                let default = mywm_config::KeyboardConfig::default();
+                let error = format!("{}; using layout {:?}", keymap_error(&config.keyboard, &error), default.layout);
+                tracing::error!("{error}");
+                let xkb = XkbConfig { layout: &default.layout, ..Default::default() };
+                seat.add_keyboard(xkb, config.input.repeat_delay, config.input.repeat_rate)
+                    .expect("keyboard with the default keymap");
+                Some(error)
+            }
+        };
         seat.add_pointer();
 
         let socket = ListeningSocketSource::new_auto().expect("wayland socket");
@@ -345,7 +357,7 @@ impl State {
             ipc_dirty: false,
             logout_handler: None,
             ipc_idle_inhibitors: Default::default(),
-            config_error: None,
+            config_error: keyboard_error,
             floating_memory: crate::floating_memory::load(),
             last_screencopy: None,
             cast_target: Default::default(),
@@ -404,7 +416,9 @@ impl State {
         if let Some(keyboard) = self.seat.get_keyboard()
             && let Err(error) = keyboard.set_xkb_config(self, xkb)
         {
-            tracing::warn!("keyboard layout not applied: {error:?}");
+            let error = format!("{}; the previous keymap stays", keymap_error(&new.keyboard, &error));
+            tracing::warn!("{error}");
+            self.config_error = Some(error);
         }
         // Monitor and session settings need a restart; everything else applies live.
         let Config { workspace_outputs, gaming_output, idle, vrr, .. } =
@@ -519,4 +533,12 @@ impl State {
         }
     }
 
+}
+
+/// Why `keyboard`'s keymap is not in use, for the log and the bar.
+fn keymap_error(keyboard: &mywm_config::KeyboardConfig, error: &smithay::input::keyboard::Error) -> String {
+    format!(
+        "[keyboard] layout {:?}, variant {:?}, options {:?}: {error}",
+        keyboard.layout, keyboard.variant, keyboard.options
+    )
 }

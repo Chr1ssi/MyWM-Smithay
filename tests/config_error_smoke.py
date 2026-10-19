@@ -1,4 +1,5 @@
-"""A broken configuration file neither keeps the session nor the lock screen from starting, and the bar learns why.
+"""A broken configuration file (or keyboard layout) neither keeps the session nor the lock screen from starting, and the bar
+learns why.
 
 Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/config_error_smoke.py
 """
@@ -38,5 +39,19 @@ try:
 except BaseException:
     comp.process.kill()
     print(open(comp.dir + "/log").read()[-3000:])
+    raise
+
+# A keyboard layout xkb does not know: the session starts with the default one, and the bar is told.
+typo = Compositor(layout="dee")
+try:
+    bar = Bar(typo.sock)
+    bar.until(lambda s: len(s) == 1)
+    assert wait(lambda: (bar.poll(), bar.config_error)[1]), "the bar was not told about the unknown layout"
+    print("unknown layout, bar told:", bar.config_error)
+    assert '"dee"' in bar.config_error, bar.config_error
+    assert typo.stop()
+except BaseException:
+    typo.process.kill()
+    print(open(typo.dir + "/log").read()[-3000:])
     raise
 print("OK")
