@@ -63,7 +63,7 @@ latency** (especially for gaming). Primary target is **NixOS**.
 ## Testing
 
 - Run before every commit, inside `nix develop`: `cargo clippy --workspace --all-targets` (no new
-  warnings), `cargo test --workspace`, and `nix build` (which also runs the unit tests).
+  warnings), `cargo test --workspace`, and `nix build` (which does not run the tests).
 - Run the nested smoke tests with `nix develop .#smoke -c tests/run-smoke [name ...]`: the
   ones for what you touched, and `globals` when protocols change; the whole suite for larger
   changes. They run against their own Xvfb and never touch the real session. Add or extend a

@@ -64,16 +64,9 @@ let
 
     # The compositor and the screen-cast portal; the test clients are not installed.
     cargoBuildFlags = [ "-p" "mywm-compositor" "-p" "mywm-portal" ];
-    # The unit tests that need neither a display nor hardware; the smoke tests in `tests/` run
-    # against a nested session in development.
-    doCheck = true;
-    cargoTestFlags = [
-      "-p" "mywm-compositor"
-      "-p" "mywm-layout"
-      "-p" "mywm-config"
-      "-p" "mywm-ipc"
-      "-p" "mywm-theme"
-    ];
+    # The tests run in development (`cargo test --workspace`, the smoke tests in `tests/`) before
+    # a dependent flake.lock follows a commit; here they would only compile everything a second time.
+    doCheck = false;
 
     nativeBuildInputs = [
       pkg-config
