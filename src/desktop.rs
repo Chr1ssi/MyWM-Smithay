@@ -352,6 +352,11 @@ impl State {
     }
 
     fn place(&mut self, id: WindowId) {
+        self.place_after_parents(id, &mut Vec::new());
+    }
+
+    /// `children` are the windows waiting for `id` to be placed first, as their parent.
+    fn place_after_parents(&mut self, id: WindowId, children: &mut Vec<WindowId>) {
         let Some(m) = self.desktop.get(id) else { return };
         if m.placed || self.desktop.desk.monitors.is_empty() {
             return;
@@ -394,9 +399,14 @@ impl State {
                 (app_id, parent, false)
             }
         };
+        // X11 takes WM_TRANSIENT_FOR as the client sets it: a window may name itself, or a window transient
+        // for it. Such a parent cannot be placed first, so the window has none.
+        let parent = parent.filter(|p| *p != id && !children.contains(p));
         // A child may be announced before its parent; place the parent first.
         if let Some(parent) = parent {
-            self.place(parent);
+            children.push(id);
+            self.place_after_parents(parent, children);
+            children.pop();
         }
         let dialog = parent.is_some() || x11_float;
         // No title: it may say more about the user than the log should.
@@ -1095,7 +1105,7 @@ impl State {
             return;
         }
         let current = m.frame.map(|(f, _)| f.width).unwrap_or(viewport.width / 2);
-        m.tiled_width = Some((current + viewport.width * permille / 1000).clamp(100, viewport.width));
+        m.tiled_width = Some((current + viewport.width * permille / 1000).clamp(100, viewport.width.max(100)));
         self.refresh();
     }
 
@@ -1135,7 +1145,7 @@ impl State {
         if m.floating {
             m.floating_rect = Some(start_rect.dragged(kind, dx, dy, area.width, area.height));
         } else if let DragKind::Resize(Edges { right: true, .. }) = kind {
-            m.tiled_width = Some((start_width + dx).clamp(100, viewport_width));
+            m.tiled_width = Some((start_width + dx).clamp(100, viewport_width.max(100)));
         }
         self.refresh();
     }

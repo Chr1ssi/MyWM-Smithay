@@ -1,6 +1,6 @@
 """X11 clients through Xwayland, and switching Xwayland off.
 
-Needs Xwayland, xterm and xeyes. Run from the repository root with $DISPLAY set:
+Needs Xwayland, xterm, xeyes and libX11. Run from the repository root with $DISPLAY set:
     PYTHONPATH=tests python3 tests/xwayland_smoke.py
 """
 import time
@@ -27,6 +27,19 @@ try:
 except BaseException:
     comp.process.kill()
     print(log(comp)[-3000:])
+    raise
+
+# WM_TRANSIENT_FOR is the client's to set: a window transient for itself is just a floating window.
+looped = Compositor(extra_args="python3 tests/x11_self_transient.py & ")
+try:
+    assert wait(lambda: 'app_id=Some("SelfTransient")' in log(looped), 15), "the window was not managed"
+    time.sleep(0.5)
+    assert looped.process.poll() is None, "the compositor died"
+    assert looped.stop()
+    print("window transient for itself OK")
+except BaseException:
+    looped.process.kill()
+    print(log(looped)[-3000:])
     raise
 
 off = Compositor(top="xwayland = false\n", extra_args="sleep 2 & ")
