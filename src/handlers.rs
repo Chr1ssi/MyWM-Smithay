@@ -139,6 +139,19 @@ impl State {
             }
             return;
         }
+        // A managed window out of the space is on a hidden workspace or in the hidden scratchpad: no output
+        // shows it. Only the overview (thumbnails of every workspace and the scratchpad, on every monitor) and
+        // a capture of the window draw it; nothing else must redraw for a video or a game in the background.
+        if let Some(window) = self.desktop.by_surface(&root).map(|m| m.window.clone()) {
+            if self.overview.is_some() {
+                self.queue_redraw_all();
+            } else if self.window_captured(&window)
+                && let Some(output) = self.capture_output(&window)
+            {
+                self.queue_redraw_output(&output);
+            }
+            return;
+        }
         let panel_output = self
             .outputs
             .iter()
