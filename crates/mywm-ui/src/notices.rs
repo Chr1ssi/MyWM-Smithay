@@ -1,7 +1,12 @@
 //! The cards at the top right of the first monitor (the toast column of `bar.qml`): what to do while an app
-//! asks what to share, the color under the pointer while the color picker is on, and why the configuration
-//! file did not load.
-use crate::{Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme, bar::button_shape, i18n::Language};
+//! asks what to share, the color under the pointer while the color picker is on, why the configuration
+//! file did not load, and the newest notifications (toasts).
+use crate::{
+    Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme,
+    bar::button_shape,
+    i18n::Language,
+    notifications::{CardTarget, NotificationView, card},
+};
 
 /// Distance from the top of the monitor (below the bar) and from its right edge.
 pub const TOP: f32 = crate::theme::BAR_HEIGHT + 6.0;
@@ -18,6 +23,8 @@ pub struct NoticesModel {
     /// The color picker is on, with the color under the pointer once it has one (`#rrggbb`).
     pub picking: Option<Option<String>>,
     pub config_error: Option<String>,
+    /// Newest first.
+    pub toasts: Vec<NotificationView>,
     pub hover: Option<NoticeTarget>,
     pub language: Language,
 }
@@ -27,6 +34,7 @@ pub enum NoticeTarget {
     /// Anywhere on the column: nothing, and the click does not reach a window either.
     Background,
     DismissConfigError,
+    Toast(CardTarget),
 }
 
 /// One card of the column, laid out from its own top.
@@ -43,7 +51,7 @@ pub fn width(output_width: f32) -> f32 {
 
 /// The column's picture and targets, `None` while it has nothing to show.
 pub fn scene(model: &NoticesModel, theme: &Theme, measure: &mut impl Measure) -> Option<Scene<NoticeTarget>> {
-    if !model.choosing && model.picking.is_none() && model.config_error.is_none() {
+    if !model.choosing && model.picking.is_none() && model.config_error.is_none() && model.toasts.is_empty() {
         return None;
     }
     let width = width(model.output_width);
@@ -110,13 +118,23 @@ pub fn scene(model: &NoticesModel, theme: &Theme, measure: &mut impl Measure) ->
         cards.push(Card { height, nodes, targets: vec![(close, NoticeTarget::DismissConfigError)] });
     }
 
+    let toast_hover = match model.hover {
+        Some(NoticeTarget::Toast(target)) => Some(target),
+        _ => None,
+    };
+    for toast in &model.toasts {
+        let toast = card(toast, theme, measure, width, true, toast_hover, model.language);
+        let targets = toast.targets.into_iter().map(|(rect, target)| (rect, NoticeTarget::Toast(target))).collect();
+        cards.push(Card { height: toast.height, nodes: toast.nodes, targets });
+    }
+
     let height = cards.iter().map(|card| card.height).sum::<f32>() + SPACING * cards.len().saturating_sub(1) as f32;
     let mut scene = Scene::new(width, height);
     scene.target(Rect::new(0.0, 0.0, width, height), NoticeTarget::Background);
     let mut y = 0.0;
     for card in cards {
         for node in card.nodes {
-            scene.push(shifted(node, y));
+            scene.push(node.translated(0.0, y));
         }
         for (rect, target) in card.targets {
             scene.target(rect.translated(0.0, y), target);
@@ -130,18 +148,6 @@ fn label(x: f32, y: f32, w: f32, h: f32, text: String, style: TextStyle, color: 
     Node::Label { rect: Rect::new(x, y, w, h), text, style, color, align: Align::Left }
 }
 
-/// `node` moved down by `dy`.
-fn shifted(node: Node, dy: f32) -> Node {
-    match node {
-        Node::Rect { rect, radius, fill, border } => Node::Rect { rect: rect.translated(0.0, dy), radius, fill, border },
-        Node::Label { rect, text, style, color, align } => Node::Label { rect: rect.translated(0.0, dy), text, style, color, align },
-        Node::Paragraph { rect, text, style, color } => Node::Paragraph { rect: rect.translated(0.0, dy), text, style, color },
-        Node::Arc { center, radius, width, color, start, sweep } => {
-            Node::Arc { center: (center.0, center.1 + dy), radius, width, color, start, sweep }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,7 +159,15 @@ mod tests {
     }
 
     fn model() -> NoticesModel {
-        NoticesModel { output_width: 1280.0, choosing: false, picking: None, config_error: None, hover: None, language: Language::English }
+        NoticesModel {
+            output_width: 1280.0,
+            choosing: false,
+            picking: None,
+            config_error: None,
+            toasts: Vec::new(),
+            hover: None,
+            language: Language::English,
+        }
     }
 
     #[test]

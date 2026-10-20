@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mywm_shell_protocol::{MAX_LINE, Status, decode, encode};
+use mywm_shell_protocol::{Event, MAX_LINE, Status, decode, encode};
 use smithay::reexports::calloop::{
     Interest, Mode, PostAction,
     generic::Generic,
@@ -23,10 +23,15 @@ pub const PROGRAM: &str = "mywm-shell-services";
 const BACKOFF: [u64; 6] = [1, 2, 4, 8, 16, 30];
 /// A process that ran this long counts as healthy: the next restart waits the shortest pause again.
 const HEALTHY: Duration = Duration::from_secs(60);
+/// How long the bar shows a volume it asked for before believing reports that differ.
+const AUDIO_PATIENCE: Duration = Duration::from_secs(1);
 
 #[derive(Default)]
 pub struct Services {
     pub status: Status,
+    /// The volume and mute last asked for, until a report shows them: reports sent before the command
+    /// arrived would set the bar (and the next wheel notch, which counts from it) back.
+    pub asked_audio: Option<(mywm_shell_protocol::Audio, Instant)>,
     stdin: Option<ChildStdin>,
     input: Vec<u8>,
     started: Option<Instant>,
@@ -133,7 +138,6 @@ impl State {
             }
         }
         let services = &mut self.shell.services;
-        // Only the newest complete line matters: every line is the whole status.
         let Some(end) = services.input.iter().rposition(|b| *b == b'\n') else {
             if services.input.len() > MAX_LINE {
                 tracing::warn!("{PROGRAM} wrote an overlong line; starting it again");
@@ -143,15 +147,28 @@ impl State {
             return PostAction::Continue;
         };
         let lines: Vec<u8> = services.input.drain(..=end).collect();
-        let newest = lines[..lines.len() - 1].rsplit(|b| *b == b'\n').next().unwrap_or_default();
-        match std::str::from_utf8(newest).ok().and_then(decode::<Status>) {
-            Some(status) if status != services.status => {
-                tracing::debug!("shell services: {status:?}");
-                services.status = status;
-                self.shell_changed();
+        for line in lines.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
+            match std::str::from_utf8(line).ok().and_then(decode::<Event>) {
+                Some(Event::Status(mut status)) => {
+                    let services = &mut self.shell.services;
+                    if let Some((asked, at)) = services.asked_audio {
+                        let arrived = status.audio.is_some_and(|a| a.muted == asked.muted && (a.volume - asked.volume).abs() < 0.005);
+                        if arrived || at.elapsed() >= AUDIO_PATIENCE || status.audio.is_none() {
+                            services.asked_audio = None;
+                        } else {
+                            status.audio = Some(asked);
+                        }
+                    }
+                    if status != self.shell.services.status {
+                        tracing::debug!("shell services: {status:?}");
+                        self.shell.services.status = status;
+                        self.shell_changed();
+                    }
+                }
+                Some(Event::Notification(notification)) => self.shell_notification(notification),
+                Some(Event::Closed { id }) => self.shell_notification_closed(id),
+                None => tracing::warn!("{PROGRAM} wrote what is no event: {}", String::from_utf8_lossy(&line[..line.len().min(200)])),
             }
-            Some(_) => {}
-            None => tracing::warn!("{PROGRAM} wrote what is no status: {}", String::from_utf8_lossy(newest)),
         }
         PostAction::Continue
     }
@@ -170,6 +187,7 @@ impl State {
             services.status = Status::default();
             self.shell_changed();
         }
+        self.shell_notifications_reset();
         let restart = self.loop_handle.insert_source(Timer::from_duration(pause), |_, _, state| {
             state.services_start();
             TimeoutAction::Drop

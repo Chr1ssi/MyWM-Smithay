@@ -8,7 +8,9 @@
 pub mod bar;
 pub mod clock;
 pub mod i18n;
+pub mod markup;
 pub mod notices;
+pub mod notifications;
 pub mod paint;
 pub mod power;
 pub mod scene;

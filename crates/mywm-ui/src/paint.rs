@@ -1,6 +1,6 @@
 //! Painting a `Scene` into pixels: premultiplied RGBA (byte order R, G, B, A), `scale` physical pixels per
 //! logical one.
-use tiny_skia::{FillRule, LineCap, Paint, Path, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{FillRule, FilterQuality, LineCap, Mask, Paint, Path, PathBuilder, Pattern, Pixmap, SpreadMode, Stroke, Transform};
 
 use crate::{Align, Color, Measure, Node, Rect, Scene, text::Fonts};
 
@@ -9,7 +9,12 @@ pub fn paint<T>(scene: &Scene<T>, fonts: &mut Fonts, scale: f32) -> Option<Pixma
     let (width, height) = pixel_size(scene.width, scene.height, scale);
     let mut pixmap = Pixmap::new(width, height)?;
     let transform = Transform::from_scale(scale, scale);
+    // The current clip: for shapes as a mask, for text as physical bounds.
+    let everything = (0, 0, width as i32, height as i32);
+    let mut clip: Option<(Mask, crate::text::Clip)> = None;
     for node in &scene.nodes {
+        let mask = clip.as_ref().map(|(mask, _)| mask);
+        let bounds = clip.as_ref().map_or(everything, |(_, bounds)| *bounds);
         match node {
             Node::Rect { rect, radius, fill, border } => {
                 let radius = radius.min(rect.w / 2.0).min(rect.h / 2.0).max(0.0);
@@ -17,17 +22,17 @@ pub fn paint<T>(scene: &Scene<T>, fonts: &mut Fonts, scale: f32) -> Option<Pixma
                     Some((width, color)) if *width > 0.0 && rect.w > 2.0 * width && rect.h > 2.0 * width => {
                         let inner = rect.inset(*width);
                         let inner_radius = (radius - width).max(0.0);
-                        fill_path(&mut pixmap, rounded(&inner, inner_radius), *fill, FillRule::Winding, transform);
+                        fill_path(&mut pixmap, rounded(&inner, inner_radius), *fill, FillRule::Winding, transform, mask);
                         // The ring between the outline and the inner edge, so a translucent fill and border do
                         // not add up where they would overlap.
                         let mut ring = PathBuilder::new();
                         push_rounded(&mut ring, rect, radius);
                         push_rounded(&mut ring, &inner, inner_radius);
                         if let Some(ring) = ring.finish() {
-                            fill_path(&mut pixmap, Some(ring), *color, FillRule::EvenOdd, transform);
+                            fill_path(&mut pixmap, Some(ring), *color, FillRule::EvenOdd, transform, mask);
                         }
                     }
-                    _ => fill_path(&mut pixmap, rounded(rect, radius), *fill, FillRule::Winding, transform),
+                    _ => fill_path(&mut pixmap, rounded(rect, radius), *fill, FillRule::Winding, transform, mask),
                 }
             }
             Node::Label { rect, text, style, color, align } => {
@@ -41,17 +46,42 @@ pub fn paint<T>(scene: &Scene<T>, fonts: &mut Fonts, scale: f32) -> Option<Pixma
                     Align::Center => rect.x + (rect.w - width) / 2.0,
                 };
                 let top = rect.y + (rect.h - fonts.line_height(*style)) / 2.0;
-                fonts.draw_line(&mut pixmap, &text, *style, *color, (x, top), scale);
+                fonts.draw_line(&mut pixmap, &text, *style, *color, (x, top), scale, bounds);
             }
             Node::Paragraph { rect, text, style, color } => {
                 if color.a > 0 && !text.is_empty() {
-                    fonts.draw_paragraph(&mut pixmap, text, *style, *color, (rect.x, rect.y), rect.w, scale);
+                    fonts.draw_paragraph(&mut pixmap, text, *style, *color, (rect.x, rect.y), rect.w, scale, bounds);
                 }
             }
             Node::Arc { center, radius, width, color, start, sweep } => {
                 let Some(path) = arc(*center, *radius, *start, *sweep) else { continue };
                 let stroke = Stroke { width: *width, line_cap: LineCap::Round, ..Stroke::default() };
-                pixmap.stroke_path(&path, &paint_of(*color), &stroke, transform, None);
+                pixmap.stroke_path(&path, &paint_of(*color), &stroke, transform, mask);
+            }
+            Node::RichText { rect, spans, style, color, max_lines } => {
+                if color.a > 0 && !spans.is_empty() {
+                    fonts.draw_rich(&mut pixmap, spans, *style, *color, (rect.x, rect.y), (rect.w, *max_lines), scale, bounds);
+                }
+            }
+            Node::Image { rect, picture } => {
+                let (pw, ph) = (picture.0.width() as f32, picture.0.height() as f32);
+                let Some(area) = tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.w, rect.h) else { continue };
+                // Fill the rectangle and cut off what sticks out, around the middle.
+                let cover = (rect.w / pw).max(rect.h / ph);
+                let offset = (rect.x + (rect.w - pw * cover) / 2.0, rect.y + (rect.h - ph * cover) / 2.0);
+                let place = Transform::from_translate(offset.0, offset.1).pre_scale(cover, cover);
+                let shader = Pattern::new((*picture.0).as_ref(), SpreadMode::Pad, FilterQuality::Bicubic, 1.0, place);
+                let paint = Paint { shader, anti_alias: true, ..Paint::default() };
+                pixmap.fill_rect(area, &paint, transform, mask);
+            }
+            Node::Clip(area) => {
+                clip = area.and_then(|area| {
+                    let mut mask = Mask::new(width, height)?;
+                    let path = PathBuilder::from_rect(tiny_skia::Rect::from_xywh(area.x, area.y, area.w.max(0.0), area.h.max(0.0))?);
+                    mask.fill_path(&path, FillRule::Winding, false, transform);
+                    let edge = |v: f32| (v * scale).round() as i32;
+                    Some((mask, (edge(area.x), edge(area.y), edge(area.right()), edge(area.bottom()))))
+                });
             }
         }
     }
@@ -71,9 +101,9 @@ fn paint_of(color: Color) -> Paint<'static> {
     paint
 }
 
-fn fill_path(pixmap: &mut Pixmap, path: Option<Path>, color: Color, rule: FillRule, transform: Transform) {
+fn fill_path(pixmap: &mut Pixmap, path: Option<Path>, color: Color, rule: FillRule, transform: Transform, mask: Option<&Mask>) {
     if let Some(path) = path.filter(|_| color.a > 0) {
-        pixmap.fill_path(&path, &paint_of(color), rule, transform, None);
+        pixmap.fill_path(&path, &paint_of(color), rule, transform, mask);
     }
 }
 
@@ -155,6 +185,23 @@ mod tests {
         let pixmap = paint(&scene, &mut fonts, 2.0).expect("pixels");
         assert_eq!((pixmap.width(), pixmap.height()), (80, 40));
         assert_eq!(pixel(&pixmap, 40, 20), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn clips_cut_shapes_and_pictures_fill_their_box() {
+        let mut scene: Scene<()> = Scene::new(20.0, 10.0);
+        let red = Color::rgba(255, 0, 0, 255);
+        scene.push(Node::Clip(Some(Rect::new(0.0, 0.0, 10.0, 10.0))));
+        scene.push(Node::Rect { rect: Rect::new(0.0, 0.0, 20.0, 10.0), radius: 0.0, fill: red, border: None });
+        scene.push(Node::Clip(None));
+        // A 2×1 picture (blue, green) in a square: cut to its middle, both halves show.
+        let picture = crate::scene::Picture::from_rgba(2, 1, &[0, 0, 255, 255, 0, 255, 0, 255]).unwrap();
+        scene.push(Node::Image { rect: Rect::new(10.0, 0.0, 10.0, 10.0), picture });
+        let pixmap = paint(&scene, &mut Fonts::load(), 1.0).expect("pixels");
+        assert_eq!(pixel(&pixmap, 5, 5), [255, 0, 0, 255]);
+        assert_eq!(pixel(&pixmap, 10, 5)[3], 255);
+        assert!(pixel(&pixmap, 11, 5)[2] > 200, "{:?}", pixel(&pixmap, 11, 5));
+        assert!(pixel(&pixmap, 18, 5)[1] > 200, "{:?}", pixel(&pixmap, 18, 5));
     }
 
     #[test]

@@ -53,12 +53,17 @@ pub fn language_code(locale: &str) -> &str {
 }
 
 const ENGLISH: &[(&str, &str)] = &[
+    ("%1 Benachrichtigungen", "%1 notifications"),
+    ("1 Benachrichtigung", "1 notification"),
     ("Abbrechen", "Cancel"),
     ("Abmelden", "Log out"),
     ("Aktion fehlgeschlagen (%1)", "Action failed (%1)"),
+    ("Alle löschen", "Clear all"),
     ("Aufnahme", "Recording"),
     ("Ausschalten", "Shut down"),
     ("Automatisch in %1 Sekunden", "Automatically in %1 seconds"),
+    ("Benachrichtigung", "Notification"),
+    ("Benachrichtigungen", "Notifications"),
     (
         "Bis zur Korrektur gilt die zuletzt geladene Konfiguration, beim Start die Standardwerte.",
         "Until it is fixed, the last loaded configuration applies, or the defaults at startup.",
@@ -69,6 +74,7 @@ const ENGLISH: &[(&str, &str)] = &[
         "Fenster anklicken · Kachel daneben oder Enter: ganzer Monitor · D: dynamisch, mit den Cast-Tasten umschaltbar · Esc: abbrechen",
         "Click a window · tile beside it or Enter: whole monitor · D: dynamic, switchable with the cast keys · Esc: cancel",
     ),
+    ("Keine Benachrichtigungen", "No notifications"),
     ("Klick kopiert die Farbe · Esc: abbrechen", "Click copies the color · Esc: cancel"),
     ("Konfiguration fehlerhaft", "Configuration error"),
     ("Neu starten", "Restart"),
@@ -111,7 +117,7 @@ mod tests {
     /// Every text the shell asks for has its English entry, and the table has nothing nobody asks for.
     #[test]
     fn every_text_has_english() {
-        let sources = [include_str!("bar.rs"), include_str!("power.rs"), include_str!("notices.rs")];
+        let sources = [include_str!("bar.rs"), include_str!("power.rs"), include_str!("notices.rs"), include_str!("notifications.rs")];
         let mut used = std::collections::BTreeSet::new();
         for source in sources {
             for call in ["tr(\"", "trf(\""] {

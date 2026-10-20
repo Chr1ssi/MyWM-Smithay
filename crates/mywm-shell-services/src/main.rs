@@ -3,11 +3,14 @@
 //! it with pipes on stdin and stdout (see `mywm-shell-protocol`) and starts it again when it ends.
 //!
 //! Every source runs on its own thread and reconnects on its own: `audio` (PipeWire's default output), `media`
-//! (MPRIS players on the session bus) and `bluetooth` (BlueZ on the system bus). Commands run `wpctl`, which
-//! WirePlumber turns into the device's route volume as the Quickshell panel's commands did.
+//! (MPRIS players on the session bus), `bluetooth` (BlueZ on the system bus) and `notifications` (the
+//! notification service). Volume commands run `wpctl`, which WirePlumber turns into the device's route volume as
+//! the Quickshell panel's commands did.
 mod audio;
 mod bluetooth;
+mod icons;
 mod media;
+mod notifications;
 
 use std::{
     io::{BufRead, Write},
@@ -16,7 +19,7 @@ use std::{
     time::Duration,
 };
 
-use mywm_shell_protocol::{Audio, Bluetooth, Command, MAX_LINE, Status, decode, encode};
+use mywm_shell_protocol::{Audio, Bluetooth, Command, Event, MAX_LINE, Notification, Status, decode, encode};
 use tracing_subscriber::EnvFilter;
 
 /// A source's news.
@@ -24,6 +27,8 @@ pub enum Update {
     Audio(Option<Audio>),
     Media(Option<String>),
     Bluetooth(Option<Bluetooth>),
+    Notification(Box<Notification>),
+    Closed(u32),
 }
 
 /// How long a source waits before it tries again after its service went away or never came.
@@ -46,6 +51,14 @@ fn main() {
     if let Err(error) = started {
         tracing::error!("cannot run commands: {error}");
     }
+    let (notification_commands, notification_queue) = mpsc::channel();
+    let notification_updates = updates.clone();
+    let started = std::thread::Builder::new()
+        .name("notifications".into())
+        .spawn(move || notifications::run(notification_updates, notification_queue));
+    if let Err(error) = started {
+        tracing::error!("cannot start the notification service: {error}");
+    }
     // The compositor closes stdin when it ends (or drops the pipe): so does this process.
     let read = std::thread::Builder::new().name("stdin".into()).spawn(move || {
         let stdin = std::io::stdin().lock();
@@ -55,6 +68,9 @@ fn main() {
                 continue;
             }
             match std::str::from_utf8(&line).ok().and_then(decode::<Command>) {
+                Some(command @ (Command::Dismiss { .. } | Command::Invoke { .. })) => {
+                    let _ = notification_commands.send(command);
+                }
                 Some(command) => {
                     let _ = commands.send(command);
                 }
@@ -71,19 +87,34 @@ fn main() {
     let mut status = Status::default();
     let mut stdout = std::io::stdout().lock();
     let mut sent = None;
+    let mut write = |event: &Event| stdout.write_all(encode(event).as_bytes()).and_then(|()| stdout.flush()).is_ok();
     loop {
         if sent.as_ref() != Some(&status) {
-            if stdout.write_all(encode(&status).as_bytes()).and_then(|()| stdout.flush()).is_err() {
+            if !write(&Event::Status(status.clone())) {
                 // The compositor is gone.
                 return;
             }
             sent = Some(status.clone());
         }
         let Ok(update) = news.recv() else { return };
-        match update {
-            Update::Audio(audio) => status.audio = audio,
-            Update::Media(media) => status.media = media,
-            Update::Bluetooth(bluetooth) => status.bluetooth = bluetooth,
+        let event = match update {
+            Update::Audio(audio) => {
+                status.audio = audio;
+                continue;
+            }
+            Update::Media(media) => {
+                status.media = media;
+                continue;
+            }
+            Update::Bluetooth(bluetooth) => {
+                status.bluetooth = bluetooth;
+                continue;
+            }
+            Update::Notification(notification) => Event::Notification(*notification),
+            Update::Closed(id) => Event::Closed { id },
+        };
+        if !write(&event) {
+            return;
         }
     }
 }
@@ -102,6 +133,7 @@ fn run_commands(queue: mpsc::Receiver<Command>) {
                     wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "0"]);
                 }
                 Command::ToggleMute => wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
+                Command::Dismiss { .. } | Command::Invoke { .. } => {}
             }
         }
     }
@@ -111,10 +143,10 @@ fn run_commands(queue: mpsc::Receiver<Command>) {
 fn collapse(commands: Vec<Command>) -> Vec<Command> {
     let mut kept: Vec<Command> = Vec::with_capacity(commands.len());
     for command in commands {
-        match (kept.last_mut(), command) {
-            (Some(last @ Command::SetVolume { .. }), Command::SetVolume { .. }) => *last = command,
-            _ => kept.push(command),
+        if matches!((kept.last(), &command), (Some(Command::SetVolume { .. }), Command::SetVolume { .. })) {
+            kept.pop();
         }
+        kept.push(command);
     }
     kept
 }
@@ -136,6 +168,6 @@ mod tests {
         let set = |volume| Command::SetVolume { volume };
         let batch = vec![set(0.1), set(0.2), Command::ToggleMute, set(0.3), set(0.4)];
         assert_eq!(collapse(batch), vec![set(0.2), Command::ToggleMute, set(0.4)]);
-        assert_eq!(collapse(vec![Command::ToggleMute, Command::ToggleMute]), vec![Command::ToggleMute; 2]);
+        assert_eq!(collapse(vec![Command::ToggleMute, Command::ToggleMute]), vec![Command::ToggleMute, Command::ToggleMute]);
     }
 }

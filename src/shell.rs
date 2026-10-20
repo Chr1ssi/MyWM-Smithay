@@ -16,6 +16,7 @@ use mywm_ui::{
     clock::{self, LocalTime},
     i18n::Language,
     notices::{self, NoticeTarget, NoticesModel},
+    notifications::{CardTarget, PanelTarget},
     power::{self, PowerAction, PowerModel, PowerTarget},
     text::Fonts,
     theme::{BAR_HEIGHT, Palette},
@@ -42,8 +43,8 @@ const BTN_RIGHT: u32 = 0x111;
 const FRAME: Duration = Duration::from_millis(16);
 
 /// A scene and its pixels, ready to be shown.
-struct Painted<T> {
-    scene: Scene<T>,
+pub struct Painted<T> {
+    pub scene: Scene<T>,
     buffer: MemoryRenderBuffer,
     /// Pixels of the buffer, for its whole size.
     pixels: (i32, i32),
@@ -110,13 +111,15 @@ pub enum ShellHit {
     /// The power menu's card (`Some`) or the dimmed monitor around it.
     Power(Option<PowerTarget>),
     Notices(NoticeTarget),
+    /// The notification center.
+    Panel(PanelTarget),
 }
 
 pub struct Shell {
     pub enabled: bool,
     fonts: Option<Fonts>,
-    theme: Theme,
-    language: Language,
+    pub theme: Theme,
+    pub language: Language,
     time_language: Language,
     clock: String,
     bars: Vec<Bar>,
@@ -124,11 +127,11 @@ pub struct Shell {
     notices: Option<(Output, NoticesModel, Painted<NoticeTarget>)>,
     /// The configuration error the user closed; it shows again once the error changes.
     dismissed_config_error: Option<String>,
-    hover: Option<ShellHit>,
+    pub hover: Option<ShellHit>,
     /// A button went down on the shell; its release belongs to the shell too.
     pressed: Option<(u32, Option<ShellHit>)>,
     /// Something only the shell knows of changed (hover, clock, countdown, theme).
-    dirty: bool,
+    pub dirty: bool,
     /// The outcome of `systemctl reboot|poweroff`.
     systemctl: Option<channel::Sender<i32>>,
     menus_opened: u64,
@@ -136,6 +139,8 @@ pub struct Shell {
     pub services: crate::shell_services::Services,
     /// A warm screen: gammastep runs (through the compositor's gamma control) while this is on.
     night_light: bool,
+    /// Notifications, their toasts and the notification center.
+    pub notes: crate::shell_notifications::Notes,
 }
 
 fn palette(config: &mywm_config::Config) -> Palette {
@@ -163,7 +168,7 @@ fn clock_text(language: Language) -> (String, Duration) {
     }
 }
 
-fn paint<T: Clone>(scene: Scene<T>, fonts: &mut Fonts, scale: f64) -> Option<Painted<T>> {
+pub fn paint<T: Clone>(scene: Scene<T>, fonts: &mut Fonts, scale: f64) -> Option<Painted<T>> {
     let pixmap = mywm_ui::paint::paint(&scene, fonts, scale as f32)?;
     let pixels = (pixmap.width() as i32, pixmap.height() as i32);
     let buffer = MemoryRenderBuffer::from_slice(pixmap.data(), Fourcc::Abgr8888, pixels, 1, Transform::Normal, None);
@@ -171,7 +176,7 @@ fn paint<T: Clone>(scene: Scene<T>, fonts: &mut Fonts, scale: f64) -> Option<Pai
 }
 
 /// `painted` at `location` (logical, relative to the output) on an output at `scale`.
-fn element<T>(renderer: &mut GlesRenderer, painted: &Painted<T>, location: (f64, f64), scale: f64) -> Option<OutputElement> {
+pub fn element<T>(renderer: &mut GlesRenderer, painted: &Painted<T>, location: (f64, f64), scale: f64) -> Option<OutputElement> {
     let size = Size::<i32, Logical>::from((painted.scene.width.round() as i32, painted.scene.height.round() as i32));
     stretched(renderer, &painted.buffer, painted.pixels, location, size, scale)
 }
@@ -217,6 +222,7 @@ impl Shell {
             menus_opened: 0,
             services: Default::default(),
             night_light: false,
+            notes: Default::default(),
         }
     }
 }
@@ -325,6 +331,7 @@ impl State {
             if let Some(menu) = &mut self.shell.power {
                 menu.model = None;
             }
+            self.center_repaint();
             self.shell.dirty = true;
         }
     }
@@ -340,6 +347,7 @@ impl State {
         if !self.shell.enabled || self.shell.fonts.is_none() || !(self.ipc_dirty || self.shell.dirty) {
             return;
         }
+        self.toasts_for_gaming();
         self.shell.dirty = false;
         let Some(mut fonts) = self.shell.fonts.take() else { return };
         let now = Instant::now();
@@ -381,6 +389,8 @@ impl State {
                 Some((output, model, painted))
             });
         }
+
+        self.center_refresh(&mut fonts, &mut redraw);
 
         if let Some(menu) = &mut self.shell.power {
             let model = PowerModel {
@@ -432,10 +442,10 @@ impl State {
                 self.shell.services.status.bluetooth.map(|b| (b.powered, b.connected)),
                 self.shell.night_light,
             ),
-            // Notifications and the panels come with their own steps.
-            notifications: 0,
+            notifications: self.notification_count(),
             audio: self.shell.services.status.audio.map(|a| bar::Audio { volume: a.volume, muted: a.muted }),
-            open_panel: None,
+            // The other panels come with their own steps.
+            open_panel: self.center_open_on(output).then_some(bar::Panel::Notifications),
             power_open: self.shell.power.as_ref().is_some_and(|m| &m.output == output),
             hover,
             language: self.shell.language,
@@ -443,6 +453,10 @@ impl State {
     }
 
     fn notices_model(&self, output: &Output) -> Option<NoticesModel> {
+        // The notification center's glass would show them through it.
+        if self.center_open_on(output) {
+            return None;
+        }
         let geo = self.space.output_geometry(output)?;
         let config_error = self.config_error.clone().filter(|error| Some(error) != self.shell.dismissed_config_error.as_ref());
         let hover = match self.shell.hover {
@@ -454,10 +468,11 @@ impl State {
             choosing: self.share_kinds().is_some(),
             picking: self.picked_color(),
             config_error,
+            toasts: self.toast_views(output),
             hover,
             language: self.shell.language,
         };
-        (model.choosing || model.picking.is_some() || model.config_error.is_some()).then_some(model)
+        (model.choosing || model.picking.is_some() || model.config_error.is_some() || !model.toasts.is_empty()).then_some(model)
     }
 
     /// Where the power menu's card is on its output (logical, relative to the output).
@@ -481,12 +496,14 @@ impl State {
         bar.and_then(|painted| element(renderer, painted, (0.0, 0.0), scale)).into_iter().collect()
     }
 
-    /// The notices on `output`, front to back.
+    /// The notification center and the notices on `output`, front to back.
     pub fn shell_notice_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
-        let Some((on, _, painted)) = self.shell.notices.as_ref().filter(|(on, _, _)| on == output) else { return Vec::new() };
+        let mut elements: Vec<OutputElement> = self.center_elements(renderer, output).into_iter().collect();
+        let Some((on, _, painted)) = self.shell.notices.as_ref().filter(|(on, _, _)| on == output) else { return elements };
         let scale = on.current_scale().fractional_scale();
         let origin = self.notices_origin(on, painted);
-        origin.and_then(|origin| element(renderer, painted, origin, scale)).into_iter().collect()
+        elements.extend(origin.and_then(|origin| element(renderer, painted, origin, scale)));
+        elements
     }
 
     /// The power menu on `output` and the dimming behind it, front to back.
@@ -516,8 +533,11 @@ impl State {
         Some(ShellHit::Power(target))
     }
 
-    /// The notices at the pointer (they lie behind the clients' `Overlay` layer).
+    /// The notification center or the notices at the pointer (they lie behind the clients' `Overlay` layer).
     pub fn shell_notices_at_pointer(&self) -> Option<ShellHit> {
+        if let Some(hit) = self.center_at_pointer() {
+            return Some(hit);
+        }
         let (output, _, painted) = self.shell.notices.as_ref()?;
         let geo = self.space.output_geometry(output)?;
         let (x, y) = self.notices_origin(output, painted)?;
@@ -553,6 +573,7 @@ impl State {
             self.queue_redraw_cursor();
         }
         self.shell.hover = hit;
+        self.toasts_hovered(hit);
         if let Some(menu) = &mut self.shell.power {
             menu.hover = match hit {
                 Some(ShellHit::Power(target)) => target.filter(|t| *t != PowerTarget::Card),
@@ -570,6 +591,9 @@ impl State {
                 self.shell.pressed = Some((button, hit));
                 // Like a click on a panel that takes no keyboard: the clients get it back.
                 self.note_click(None);
+                if !matches!(hit, Some(ShellHit::Panel(_) | ShellHit::Bar(..))) {
+                    self.center_pressed_elsewhere();
+                }
             }
             return;
         }
@@ -599,21 +623,28 @@ impl State {
                 self.shell.dismissed_config_error = self.config_error.clone();
                 self.shell.dirty = true;
             }
-            Some(ShellHit::Notices(NoticeTarget::Background)) | None => {}
+            Some(ShellHit::Notices(NoticeTarget::Toast(CardTarget::Dismiss(id)))) => self.notification_dismiss(id),
+            Some(ShellHit::Notices(NoticeTarget::Toast(CardTarget::Action(id, index)))) => self.notification_invoke(id, index),
+            Some(ShellHit::Panel(target)) => self.center_clicked(target),
+            Some(ShellHit::Notices(NoticeTarget::Background | NoticeTarget::Toast(CardTarget::Card(_)))) | None => {}
         }
     }
 
     /// The wheel turned `steps` notches (positive: away from the user) over `hit`: over the audio button that
     /// changes the volume; elsewhere on the shell it does nothing, and no window gets it either.
     pub fn shell_scroll(&mut self, hit: ShellHit, steps: f32) {
+        if matches!(hit, ShellHit::Panel(_)) {
+            return self.center_scroll(steps);
+        }
         if !matches!(hit, ShellHit::Bar(_, BarTarget::Panel(bar::Panel::Audio))) {
             return;
         }
         let Some(audio) = &mut self.shell.services.status.audio else { return };
         let volume = bar::scrolled_volume(audio.volume, steps);
-        // Shown at once; the services' next report confirms it.
+        // Shown at once; the services' report confirms it.
         audio.volume = volume;
         audio.muted = false;
+        self.shell.services.asked_audio = Some((*audio, Instant::now()));
         self.shell_changed();
         self.services_send(mywm_shell_protocol::Command::SetVolume { volume });
     }
@@ -621,6 +652,7 @@ impl State {
     fn audio_toggle_mute(&mut self) {
         let Some(audio) = &mut self.shell.services.status.audio else { return };
         audio.muted = !audio.muted;
+        self.shell.services.asked_audio = Some((*audio, Instant::now()));
         self.shell_changed();
         self.services_send(mywm_shell_protocol::Command::ToggleMute);
     }
@@ -638,19 +670,29 @@ impl State {
                     _ => {}
                 }
             }
-            // The panels come with the shell's services.
+            BarTarget::Panel(bar::Panel::Notifications) => {
+                if let Some(output) = self.outputs.get(monitor).map(|e| e.output.clone()) {
+                    self.center_toggle(output);
+                }
+            }
+            // The other panels come with their own steps.
             BarTarget::Panel(_) | BarTarget::Background => {}
         }
     }
 
-    /// Whether the shell holds the keyboard (the power menu is open).
+    /// Whether the shell holds the keyboard (the power menu is open, or the notification center was clicked).
     pub fn shell_takes_keyboard(&self) -> bool {
-        self.shell.power.is_some()
+        self.shell.power.is_some() || self.center_takes_keyboard()
     }
 
     /// A key pressed while the shell holds the keyboard.
     pub fn shell_key(&mut self, sym: Keysym) {
-        let Some(menu) = &mut self.shell.power else { return };
+        let Some(menu) = &mut self.shell.power else {
+            if sym.raw() == keysyms::KEY_Escape {
+                self.center_close();
+            }
+            return;
+        };
         match sym.raw() {
             keysyms::KEY_Escape => self.power_cancel(),
             keysyms::KEY_Return | keysyms::KEY_KP_Enter => match menu.focus {
