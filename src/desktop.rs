@@ -1229,14 +1229,29 @@ impl State {
     }
 }
 
-/// Send a toplevel its size and fullscreen state from the layout (nothing when they are unchanged).
+/// Send a toplevel its size, fullscreen and tiled state from the layout (nothing when they are unchanged).
 fn configure_toplevel(toplevel: &smithay::wayland::shell::xdg::ToplevelSurface, p: &Placement<WindowId>) {
+    // Tiled columns have no floating rect. Without the tiled states clients such as foot shrink to whole
+    // character cells and leave a gap at the right and bottom edge.
+    let tiled = !p.fullscreen && p.floating_rect.is_none();
     toplevel.with_pending_state(|s| {
         s.size = Some((p.content.width, p.content.height).into());
         if p.fullscreen {
             s.states.set(xdg_toplevel::State::Fullscreen);
         } else {
             s.states.unset(xdg_toplevel::State::Fullscreen);
+        }
+        for state in [
+            xdg_toplevel::State::TiledLeft,
+            xdg_toplevel::State::TiledRight,
+            xdg_toplevel::State::TiledTop,
+            xdg_toplevel::State::TiledBottom,
+        ] {
+            if tiled {
+                s.states.set(state);
+            } else {
+                s.states.unset(state);
+            }
         }
     });
     toplevel.send_pending_configure();
