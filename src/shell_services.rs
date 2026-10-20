@@ -37,6 +37,8 @@ pub struct Services {
     pub status: Status,
     /// The MPRIS players in the order they appeared.
     pub players: Vec<PlayerEntry>,
+    /// The tray items in the order they registered.
+    pub tray: Vec<crate::shell_tray::TrayEntry>,
     /// The volume and mute last asked for, until a report shows them: reports sent before the command
     /// arrived would set the bar (and the next wheel notch, which counts from it) back.
     pub asked_audio: Option<(mywm_shell_protocol::Audio, Instant)>,
@@ -181,6 +183,8 @@ impl State {
                 }
                 Some(Event::Notification(notification)) => self.shell_notification(notification),
                 Some(Event::Closed { id }) => self.shell_notification_closed(id),
+                Some(Event::Tray { items }) => self.shell_tray(items),
+                Some(Event::TrayMenu { address, menu }) => self.shell_tray_menu(address, menu),
                 Some(Event::Players { players }) => {
                     self.shell.services.players = players
                         .into_iter()
@@ -215,6 +219,9 @@ impl State {
         if !self.shell.services.players.is_empty() {
             self.shell.services.players.clear();
             self.shell_changed();
+        }
+        if !self.shell.services.tray.is_empty() {
+            self.shell_tray(Vec::new());
         }
         let restart = self.loop_handle.insert_source(Timer::from_duration(pause), |_, _, state| {
             state.services_start();

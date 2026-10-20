@@ -18,6 +18,7 @@ pub mod power;
 pub mod scene;
 pub mod text;
 pub mod theme;
+pub mod tray_menu;
 
 pub use scene::{Align, Color, Measure, Node, Rect, Scene, TextStyle};
 pub use theme::Theme;

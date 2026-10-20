@@ -93,6 +93,26 @@ fn entity(name: &str) -> Option<char> {
     }
 }
 
+/// A menu label with its mnemonic (`_File`: "File" with the "F" underlined), as Quickshell shows DBusMenu labels.
+pub fn mnemonic(label: &str) -> Vec<Span> {
+    let mut spans: Vec<Span> = Vec::new();
+    let mut push = |text: &str, underline: bool| match spans.last_mut() {
+        Some(last) if last.underline == underline => last.text.push_str(text),
+        _ => spans.push(Span { text: text.to_owned(), underline, ..Span::default() }),
+    };
+    let mut chars = label.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (c, chars.peek()) {
+            ('_', Some(&next)) => {
+                push(next.encode_utf8(&mut [0; 4]), true);
+                chars.next();
+            }
+            _ => push(c.encode_utf8(&mut [0; 4]), false),
+        }
+    }
+    spans
+}
+
 /// The plain text of `spans`.
 pub fn plain(spans: &[Span]) -> String {
     spans.iter().map(|s| s.text.as_str()).collect()
@@ -119,6 +139,13 @@ mod tests {
                 span("underlink", false, false, true),
             ]
         );
+    }
+
+    #[test]
+    fn mnemonics_are_underlined() {
+        assert_eq!(mnemonic("_Quit"), vec![span("Q", false, false, true), span("uit", false, false, false)]);
+        assert_eq!(plain(&mnemonic("Save __as_")), "Save _as_");
+        assert_eq!(mnemonic("plain"), vec![span("plain", false, false, false)]);
     }
 
     #[test]

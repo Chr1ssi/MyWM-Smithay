@@ -38,6 +38,7 @@ impl State {
             return self.panel_close();
         }
         self.panel_close();
+        self.tray_menu_close();
         self.shell.panel = Some(OpenPanel {
             kind,
             output,
@@ -71,6 +72,9 @@ impl State {
     pub fn panel_pressed_elsewhere(&mut self) {
         if self.shell.panel.is_some() {
             self.panel_close();
+        }
+        if self.shell.tray_menu.is_some() {
+            self.tray_menu_close();
         }
     }
 

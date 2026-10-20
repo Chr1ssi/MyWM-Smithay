@@ -10,6 +10,8 @@ pub const MAX_LINE: usize = 4 << 20;
 /// Notification pictures are scaled to fit this many pixels each way: the card shows them 42 logical pixels
 /// large, so this is sharp up to a scale of three.
 pub const IMAGE_SIZE: u32 = 128;
+/// Tray and menu icons are scaled to fit this many pixels each way (they show 18 logical pixels large).
+pub const ICON_SIZE: u32 = 36;
 /// Covers are scaled down to just cover this many pixels (the media panel shows them 150 logical pixels high
 /// across its width, cut to fit), as Quickshell's `sourceSize`.
 pub const COVER_SIZE: (u32, u32) = (400, 200);
@@ -24,6 +26,10 @@ pub enum Event {
     Closed { id: u32 },
     /// The MPRIS players, in the order they appeared.
     Players { players: Vec<Player> },
+    /// The tray's items (StatusNotifierItem), in the order they registered.
+    Tray { items: Vec<TrayItem> },
+    /// The menu of a tray item, after `TrayMenu` or `TrayMenuShow`, or when it changed while shown.
+    TrayMenu { address: String, menu: MenuEntry },
 }
 
 /// What the bar shows of the system.
@@ -48,6 +54,57 @@ pub struct Bluetooth {
     pub powered: bool,
     /// Devices of the adapter that are connected.
     pub connected: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrayStatus {
+    /// Hidden: nothing to say right now.
+    Passive,
+    #[default]
+    Active,
+    NeedsAttention,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TrayItem {
+    /// `bus name/object path`, which commands name.
+    pub address: String,
+    pub id: String,
+    pub title: String,
+    pub status: TrayStatus,
+    pub icon: Option<Image>,
+    pub has_menu: bool,
+    /// It has only a menu: a click opens that instead of activating the item.
+    pub only_menu: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Toggle {
+    #[default]
+    None,
+    Check,
+    Radio,
+}
+
+/// An entry of a tray item's menu (DBusMenu), with its visible children.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MenuEntry {
+    pub id: i32,
+    /// As sent, with `_` before the mnemonic.
+    pub label: String,
+    pub separator: bool,
+    pub enabled: bool,
+    pub icon_name: String,
+    pub icon: Option<Image>,
+    pub toggle: Toggle,
+    pub checked: bool,
+    /// It opens a submenu (`children-display: submenu`).
+    pub submenu: bool,
+    pub children: Vec<MenuEntry>,
 }
 
 /// An MPRIS player.
@@ -129,6 +186,15 @@ pub enum Command {
     /// The user chose one of the notification's actions.
     Invoke { id: u32, action: String },
     Player { bus: String, action: PlayerAction },
+    TrayActivate { address: String },
+    TraySecondaryActivate { address: String },
+    /// `delta` in eighths of a degree, as Qt's `angleDelta` (120 a notch, positive away from the user).
+    TrayScroll { address: String, delta: i32, horizontal: bool },
+    /// The item's menu is about to show: send it.
+    TrayMenu { address: String },
+    /// A submenu of it is about to show.
+    TrayMenuShow { address: String, id: i32 },
+    TrayMenuClick { address: String, id: i32 },
 }
 
 /// `message` as one line, with its newline.
@@ -210,7 +276,21 @@ mod tests {
             image: Some(Image { width: 1, height: 2, rgba: vec![1, 2, 3, 4, 5, 6, 7, 255] }),
         };
         let players = vec![Player { bus: "org.mpris.MediaPlayer2.x".into(), title: "Lied".into(), playing: true, ..Player::default() }];
-        for event in [Event::Status(status), Event::Notification(notification), Event::Closed { id: 3 }, Event::Players { players }] {
+        let items = vec![TrayItem { address: ":1.5/StatusNotifierItem".into(), status: TrayStatus::NeedsAttention, ..TrayItem::default() }];
+        let menu = MenuEntry {
+            id: 0,
+            children: vec![MenuEntry { id: 1, label: "_Quit".into(), enabled: true, toggle: Toggle::Check, ..MenuEntry::default() }],
+            ..MenuEntry::default()
+        };
+        let events = [
+            Event::Status(status),
+            Event::Notification(notification),
+            Event::Closed { id: 3 },
+            Event::Players { players },
+            Event::Tray { items },
+            Event::TrayMenu { address: ":1.5/StatusNotifierItem".into(), menu },
+        ];
+        for event in events {
             let line = encode(&event);
             assert!(line.ends_with('\n') && !line[..line.len() - 1].contains('\n'), "{line}");
             assert_eq!(decode::<Event>(&line), Some(event));
@@ -221,6 +301,8 @@ mod tests {
             Command::Dismiss { id: 2 },
             Command::Invoke { id: 2, action: "x".into() },
             Command::Player { bus: "org.mpris.MediaPlayer2.x".into(), action: PlayerAction::Pause },
+            Command::TrayScroll { address: ":1.5/StatusNotifierItem".into(), delta: -120, horizontal: false },
+            Command::TrayMenuClick { address: ":1.5/StatusNotifierItem".into(), id: 3 },
         ];
         for command in commands {
             assert_eq!(decode::<Command>(&encode(&command)), Some(command));

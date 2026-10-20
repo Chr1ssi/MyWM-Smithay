@@ -18,6 +18,7 @@ use mywm_ui::{
     notices::{self, NoticeTarget, NoticesModel},
     notifications::CardTarget,
     panel::PanelTarget,
+    tray_menu::MenuTarget,
     power::{self, PowerAction, PowerModel, PowerTarget},
     text::Fonts,
     theme::{BAR_HEIGHT, Palette},
@@ -112,8 +113,9 @@ pub enum ShellHit {
     /// The power menu's card (`Some`) or the dimmed monitor around it.
     Power(Option<PowerTarget>),
     Notices(NoticeTarget),
-    /// The notification center.
+    /// The open panel.
     Panel(PanelTarget),
+    TrayMenu(MenuTarget),
 }
 
 pub struct Shell {
@@ -144,6 +146,8 @@ pub struct Shell {
     pub notes: crate::shell_notifications::Notes,
     /// The open panel.
     pub panel: Option<crate::shell_panels::OpenPanel>,
+    /// The open menu of a tray item.
+    pub tray_menu: Option<crate::shell_tray::TrayMenuOpen>,
 }
 
 fn palette(config: &mywm_config::Config) -> Palette {
@@ -227,6 +231,7 @@ impl Shell {
             night_light: false,
             notes: Default::default(),
             panel: None,
+            tray_menu: None,
         }
     }
 }
@@ -336,6 +341,7 @@ impl State {
                 menu.model = None;
             }
             self.panel_repaint();
+            self.tray_menu_repaint();
             self.shell.dirty = true;
         }
     }
@@ -395,6 +401,7 @@ impl State {
         }
 
         self.panel_refresh(&mut fonts, &mut redraw);
+        self.tray_menu_refresh(&mut fonts, &mut redraw);
 
         if let Some(menu) = &mut self.shell.power {
             let model = PowerModel {
@@ -442,6 +449,7 @@ impl State {
             media: self.playing_title(),
             clock: self.shell.clock.clone(),
             capturing: self.capturing(),
+            tray: self.tray_icons(),
             control_icon: bar::control_icon(
                 self.shell.services.status.bluetooth.map(|b| (b.powered, b.connected)),
                 self.shell.night_light,
@@ -457,8 +465,8 @@ impl State {
     }
 
     fn notices_model(&self, output: &Output) -> Option<NoticesModel> {
-        // The panels on the right would show them through their glass.
-        if matches!(self.panel_on(output), Some(bar::Panel::Notifications | bar::Panel::Audio)) {
+        // The panels on the right and a tray menu would show them through their glass.
+        if matches!(self.panel_on(output), Some(bar::Panel::Notifications | bar::Panel::Audio)) || self.tray_menu_on(output) {
             return None;
         }
         let geo = self.space.output_geometry(output)?;
@@ -503,6 +511,7 @@ impl State {
     /// The open panel and the notices on `output`, front to back.
     pub fn shell_notice_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
         let mut elements: Vec<OutputElement> = self.panel_elements(renderer, output).into_iter().collect();
+        elements.extend(self.tray_menu_elements(renderer, output));
         let Some((on, _, painted)) = self.shell.notices.as_ref().filter(|(on, _, _)| on == output) else { return elements };
         let scale = on.current_scale().fractional_scale();
         let origin = self.notices_origin(on, painted);
@@ -539,7 +548,7 @@ impl State {
 
     /// The open panel or the notices at the pointer (they lie behind the clients' `Overlay` layer).
     pub fn shell_notices_at_pointer(&self) -> Option<ShellHit> {
-        if let Some(hit) = self.panel_at_pointer() {
+        if let Some(hit) = self.panel_at_pointer().or_else(|| self.tray_menu_at_pointer()) {
             return Some(hit);
         }
         let (output, _, painted) = self.shell.notices.as_ref()?;
@@ -595,7 +604,7 @@ impl State {
                 self.shell.pressed = Some((button, hit));
                 // Like a click on a panel that takes no keyboard: the clients get it back.
                 self.note_click(None);
-                if !matches!(hit, Some(ShellHit::Panel(_) | ShellHit::Bar(..))) {
+                if !matches!(hit, Some(ShellHit::Panel(_) | ShellHit::TrayMenu(_) | ShellHit::Bar(..))) {
                     self.panel_pressed_elsewhere();
                 }
             }
@@ -608,6 +617,9 @@ impl State {
         self.shell.pressed = None;
         if on != hit {
             return;
+        }
+        if let Some(ShellHit::Bar(monitor, BarTarget::Tray(index))) = hit {
+            return self.tray_clicked(monitor, index, button);
         }
         if button == BTN_RIGHT {
             // A `BarButton`'s secondary click: only the audio button has one (mute).
@@ -630,6 +642,7 @@ impl State {
             Some(ShellHit::Notices(NoticeTarget::Toast(CardTarget::Dismiss(id)))) => self.notification_dismiss(id),
             Some(ShellHit::Notices(NoticeTarget::Toast(CardTarget::Action(id, index)))) => self.notification_invoke(id, index),
             Some(ShellHit::Panel(target)) => self.panel_clicked(target),
+            Some(ShellHit::TrayMenu(target)) => self.tray_menu_clicked(target),
             Some(ShellHit::Notices(NoticeTarget::Background | NoticeTarget::Toast(CardTarget::Card(_)))) | None => {}
         }
     }
@@ -637,8 +650,11 @@ impl State {
     /// The wheel turned `steps` notches (positive: away from the user) over `hit`: over the audio button that
     /// changes the volume; elsewhere on the shell it does nothing, and no window gets it either.
     pub fn shell_scroll(&mut self, hit: ShellHit, steps: f32) {
-        if let ShellHit::Panel(target) = hit {
-            return self.panel_scroll(&target, steps);
+        match hit {
+            ShellHit::Panel(target) => return self.panel_scroll(&target, steps),
+            ShellHit::TrayMenu(_) => return self.tray_menu_scroll(steps),
+            ShellHit::Bar(_, BarTarget::Tray(index)) => return self.tray_scroll(index, steps),
+            _ => {}
         }
         if !matches!(hit, ShellHit::Bar(_, BarTarget::Panel(bar::Panel::Audio))) {
             return;
@@ -679,14 +695,14 @@ impl State {
                     self.panel_toggle(kind, output);
                 }
             }
-            // The other panels come with their own steps.
-            BarTarget::Panel(_) | BarTarget::Background => {}
+            // The other panels come with their own steps; tray icons have their own clicks (`tray_clicked`).
+            BarTarget::Panel(_) | BarTarget::Tray(_) | BarTarget::Background => {}
         }
     }
 
     /// Whether the shell holds the keyboard (the power menu is open, or the notification center was clicked).
     pub fn shell_takes_keyboard(&self) -> bool {
-        self.shell.power.is_some() || self.panel_takes_keyboard()
+        self.shell.power.is_some() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
     }
 
     /// A key pressed while the shell holds the keyboard.
@@ -694,6 +710,7 @@ impl State {
         let Some(menu) = &mut self.shell.power else {
             if sym.raw() == keysyms::KEY_Escape {
                 self.panel_close();
+                self.tray_menu_close();
             }
             return;
         };
@@ -740,6 +757,9 @@ impl State {
         let size = power::card_size(false, monitor);
         let now = Instant::now();
         self.power_close();
+        // As the QML bar: the power menu closes the panel and the tray menu.
+        self.panel_close();
+        self.tray_menu_close();
         let pixel = [power::BACKDROP.r, power::BACKDROP.g, power::BACKDROP.b, power::BACKDROP.a];
         // Premultiplied: the color is black, so only the alpha stays.
         let premultiplied = [0, 0, 0, pixel[3]];

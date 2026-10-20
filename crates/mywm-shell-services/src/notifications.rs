@@ -168,7 +168,7 @@ fn serve(updates: &mpsc::Sender<Update>, commands: &mpsc::Receiver<Command>) -> 
                     let _ = jobs.send(Job::Closed(id));
                 }
             }
-            Command::SetVolume { .. } | Command::ToggleMute | Command::Player { .. } => {}
+            _ => {}
         }
     }
     Ok(())

@@ -11,6 +11,7 @@ mod bluetooth;
 mod icons;
 mod media;
 mod notifications;
+mod tray;
 
 use std::{
     io::{BufRead, Write},
@@ -19,13 +20,15 @@ use std::{
     time::Duration,
 };
 
-use mywm_shell_protocol::{Audio, Bluetooth, Command, Event, MAX_LINE, Notification, Player, Status, decode, encode};
+use mywm_shell_protocol::{Audio, Bluetooth, Command, Event, MAX_LINE, MenuEntry, Notification, Player, Status, TrayItem, decode, encode};
 use tracing_subscriber::EnvFilter;
 
 /// A source's news.
 pub enum Update {
     Audio(Option<Audio>),
     Players(Vec<Player>),
+    Tray(Vec<TrayItem>),
+    TrayMenu(String, Box<MenuEntry>),
     Bluetooth(Option<Bluetooth>),
     Notification(Box<Notification>),
     Closed(u32),
@@ -56,6 +59,18 @@ fn main() {
     if let Err(error) = started {
         tracing::error!("cannot control media players: {error}");
     }
+    let paths = tray::Paths::default();
+    let (tray_updates, tray_paths) = (updates.clone(), paths.clone());
+    let started = std::thread::Builder::new().name("tray".into()).spawn(move || tray::run(tray_updates, tray_paths));
+    if let Err(error) = started {
+        tracing::error!("cannot start the tray: {error}");
+    }
+    let (tray_commands, tray_queue) = mpsc::channel();
+    let menu_updates = updates.clone();
+    let started = std::thread::Builder::new().name("tray-commands".into()).spawn(move || tray::run_commands(tray_queue, paths, menu_updates));
+    if let Err(error) = started {
+        tracing::error!("cannot control the tray: {error}");
+    }
     let (notification_commands, notification_queue) = mpsc::channel();
     let notification_updates = updates.clone();
     let started = std::thread::Builder::new()
@@ -78,6 +93,24 @@ fn main() {
                 }
                 Some(Command::Player { bus, action }) => {
                     let _ = player_commands.send((bus, action));
+                }
+                Some(Command::TrayActivate { address }) => {
+                    let _ = tray_commands.send(tray::TrayCommand::Activate(address));
+                }
+                Some(Command::TraySecondaryActivate { address }) => {
+                    let _ = tray_commands.send(tray::TrayCommand::SecondaryActivate(address));
+                }
+                Some(Command::TrayScroll { address, delta, horizontal }) => {
+                    let _ = tray_commands.send(tray::TrayCommand::Scroll(address, delta, horizontal));
+                }
+                Some(Command::TrayMenu { address }) => {
+                    let _ = tray_commands.send(tray::TrayCommand::Menu(address));
+                }
+                Some(Command::TrayMenuShow { address, id }) => {
+                    let _ = tray_commands.send(tray::TrayCommand::MenuShow(address, id));
+                }
+                Some(Command::TrayMenuClick { address, id }) => {
+                    let _ = tray_commands.send(tray::TrayCommand::MenuClick(address, id));
                 }
                 Some(command) => {
                     let _ = commands.send(command);
@@ -111,6 +144,8 @@ fn main() {
                 continue;
             }
             Update::Players(players) => Event::Players { players },
+            Update::Tray(items) => Event::Tray { items },
+            Update::TrayMenu(address, menu) => Event::TrayMenu { address, menu: *menu },
             Update::Bluetooth(bluetooth) => {
                 status.bluetooth = bluetooth;
                 continue;
@@ -138,7 +173,7 @@ fn run_commands(queue: mpsc::Receiver<Command>) {
                     wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "0"]);
                 }
                 Command::ToggleMute => wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
-                Command::Dismiss { .. } | Command::Invoke { .. } | Command::Player { .. } => {}
+                _ => {}
             }
         }
     }

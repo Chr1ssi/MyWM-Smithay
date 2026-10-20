@@ -59,6 +59,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Abmelden", "Log out"),
     ("Aktion fehlgeschlagen (%1)", "Action failed (%1)"),
     ("Alle löschen", "Clear all"),
+    ("Anwendung", "Application"),
     ("Aufnahme", "Recording"),
     ("Ausschalten", "Shut down"),
     ("Automatisch in %1 Sekunden", "Automatically in %1 seconds"),
@@ -128,6 +129,7 @@ mod tests {
             include_str!("notifications.rs"),
             include_str!("panel.rs"),
             include_str!("media.rs"),
+            include_str!("tray_menu.rs"),
         ];
         let mut used = std::collections::BTreeSet::new();
         for source in sources {

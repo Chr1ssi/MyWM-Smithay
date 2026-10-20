@@ -3,6 +3,7 @@
 use crate::{
     Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme,
     i18n::Language,
+    scene::Picture,
     theme::{BAR_HEIGHT, BAR_MARGIN, ISLAND_HEIGHT},
 };
 
@@ -30,6 +31,14 @@ pub struct Audio {
     pub muted: bool,
 }
 
+/// A tray item the bar shows (one that is not passive).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrayIcon {
+    pub picture: Option<Picture>,
+    /// It needs attention: a ring in the accent color.
+    pub attention: bool,
+}
+
 /// The panels the bar's buttons open; their button looks selected while one is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
@@ -53,6 +62,8 @@ pub struct BarModel {
     pub media: Option<String>,
     pub clock: String,
     pub capturing: bool,
+    /// The tray items that are not passive, in their order.
+    pub tray: Vec<TrayIcon>,
     /// Bluetooth and night light, as icons.
     pub control_icon: String,
     pub notifications: usize,
@@ -72,6 +83,8 @@ pub enum BarTarget {
     Workspace(u32),
     NewWorkspace,
     Scratchpad,
+    /// The tray item at this index of `BarModel::tray`.
+    Tray(usize),
     Panel(Panel),
     Power,
 }
@@ -91,6 +104,8 @@ enum Content {
     Buttons(Vec<Button>),
     /// A plain text with eight pixels of padding on either side (the recording indicator).
     Text { text: String, color: Color },
+    /// Tray icons, a 26 pixel circle each.
+    Tray(Vec<TrayIcon>),
 }
 
 impl Button {
@@ -120,6 +135,7 @@ impl Content {
                 buttons.iter().map(|b| b.width).sum::<f32>() + SPACING * buttons.len().saturating_sub(1) as f32
             }
             Content::Text { text, .. } => measure.width(text, BUTTON_TEXT.bold(true)).ceil() + 16.0,
+            Content::Tray(icons) => 26.0 * icons.len() as f32 + SPACING * icons.len().saturating_sub(1) as f32,
         };
         inner + 8.0
     }
@@ -178,6 +194,10 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
     if model.capturing {
         right.push(Content::Text { text: format!("󰑊 {}", tr("Aufnahme")), color: theme.alert });
     }
+    // Tray icons belong to other applications; the shell's own status sits apart.
+    if !model.tray.is_empty() {
+        right.push(Content::Tray(model.tray.clone()));
+    }
     let panel = |panel: Panel| BarTarget::Panel(panel);
     let notifications = if model.notifications > 0 { format!("󰂚 {}", model.notifications) } else { "󰂜".into() };
     let audio = match model.audio {
@@ -218,6 +238,21 @@ fn island(scene: &mut Scene<BarTarget>, model: &BarModel, theme: &Theme, x: f32,
         Content::Text { text, color } => {
             let rect = Rect::new(x + 4.0 + 8.0, top, width - 8.0 - 16.0, BUTTON_HEIGHT);
             scene.push(Node::Label { rect, text, style: BUTTON_TEXT.bold(true), color, align: Align::Left });
+        }
+        Content::Tray(icons) => {
+            let mut left = x + 4.0;
+            for (index, icon) in icons.into_iter().enumerate() {
+                let rect = Rect::new(left, top, 26.0, BUTTON_HEIGHT);
+                let target = BarTarget::Tray(index);
+                let fill = if model.hover == Some(target) { theme.surface } else { Color::TRANSPARENT };
+                let border = icon.attention.then_some((1.0, theme.accent));
+                scene.push(Node::Rect { rect, radius: 13.0, fill, border });
+                if let Some(picture) = icon.picture {
+                    scene.push(Node::Image { rect: Rect::new(rect.x + 4.0, rect.y + 4.0, 18.0, 18.0), picture });
+                }
+                scene.target(rect, target);
+                left += 26.0 + SPACING;
+            }
         }
         Content::Buttons(buttons) => {
             let mut left = x + 4.0;
@@ -282,6 +317,7 @@ mod tests {
             media: None,
             clock: "Di. 20. Okt.  19:15".into(),
             capturing: false,
+            tray: Vec::new(),
             control_icon: "󰒓".into(),
             notifications: 0,
             audio: None,
@@ -293,7 +329,11 @@ mod tests {
     }
 
     fn islands(scene: &Scene<BarTarget>) -> Vec<Rect> {
-        scene.nodes.iter().filter_map(|n| match n { Node::Rect { rect, border: Some(_), .. } => Some(*rect), _ => None }).collect()
+        scene
+            .nodes
+            .iter()
+            .filter_map(|n| match n { Node::Rect { rect, radius, border: Some(_), .. } if *radius == ISLAND_HEIGHT / 2.0 => Some(*rect), _ => None })
+            .collect()
     }
 
     fn label(scene: &Scene<BarTarget>, target: BarTarget) -> String {
@@ -345,6 +385,23 @@ mod tests {
         assert_eq!(texts(BarModel { notifications: 3, audio, ..model() }), ("󰂚 3".into(), "󰕾 80 %".into()));
         let audio = Some(Audio { volume: 0.8, muted: true });
         assert_eq!(texts(BarModel { audio, language: Language::German, ..model() }).1, "󰖁 Stumm");
+    }
+
+    #[test]
+    fn tray_icons_sit_left_of_the_status_island() {
+        let picture = Picture::from_rgba(1, 1, &[1, 2, 3, 255]);
+        let tray = vec![TrayIcon { picture: picture.clone(), attention: false }, TrayIcon { picture, attention: true }];
+        let plain = islands(&scene(&model(), &theme(), &mut Mono));
+        let scene = scene(&BarModel { tray, ..model() }, &theme(), &mut Mono);
+        let with_tray = islands(&scene);
+        assert_eq!(with_tray.len(), plain.len() + 1);
+        let tray_island = with_tray[with_tray.len() - 3];
+        assert_eq!(tray_island.w, 26.0 * 2.0 + 2.0 + 8.0);
+        assert_eq!(tray_island.right(), with_tray[with_tray.len() - 2].x - 8.0);
+        let second = scene.target_rect(&BarTarget::Tray(1)).unwrap();
+        assert_eq!(second, Rect::new(tray_island.x + 4.0 + 26.0 + 2.0, 9.0, 26.0, 26.0));
+        // The second needs attention: its ring.
+        assert!(scene.nodes.iter().any(|n| matches!(n, Node::Rect { rect, border: Some((1.0, _)), .. } if *rect == second)));
     }
 
     #[test]

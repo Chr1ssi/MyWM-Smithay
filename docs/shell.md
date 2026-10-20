@@ -30,6 +30,13 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   und öffnet die Benachrichtigungszentrale (rechts oben, Liste zum Scrollen, „Alle löschen“); ein Klick hinein und
   dann Escape oder ein Klick daneben schließen sie, solange sie offen ist, ruhen die Toasts. Eine Aktion schließt die
   Meldung, außer sie ist `resident`. Startet der Dienstprozess neu, ist die Liste leer.
+- **Tray** (StatusNotifierItem): Die Shell ist selbst der Watcher (läuft schon einer, zeigt sie dessen Einträge und
+  übernimmt, sobald er endet). Passive Einträge sind ausgeblendet, Aufmerksamkeit bekommt einen Ring. Linksklick
+  aktiviert (oder öffnet das Menü, wenn der Eintrag nur ein Menü hat), Mittelklick ruft die zweite Aktivierung,
+  Rechtsklick öffnet das Menü, das Mausrad scrollt. Das Menü (DBusMenu) erscheint rechts unter der Bar mit Haken und
+  Radioknöpfen, Symbolen (symbolische als Glyphen), unterstrichenem Kürzelbuchstaben und Untermenüs mit „←“ zurück;
+  Escape nach einem Klick hinein oder ein Klick daneben schließt es. Overlay-Symbole zeichnet die Shell nicht ein,
+  und ein Menü, das sich ändert, während es offen ist, zeigt die Änderung erst beim nächsten Öffnen.
 - **Panels** unter der Bar wie bei Quickshell (rechts für Audio, Commandcenter und Benachrichtigungen, mittig für
   Medien und Kalender), eins zur Zeit; ein Klick hinein gibt ihm die Tastatur (Escape schließt), ein Klick daneben
   schließt es, das Mausrad scrollt es, wenn der Monitor zu niedrig ist.
@@ -40,7 +47,7 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
 
 ## Was noch fehlt
 
-Tray, die übrigen Panels (Audio, Commandcenter, Kalender), Launcher, Wallpaper-Picker, Sperr- und
+Die übrigen Panels (Audio, Commandcenter, Kalender), Launcher, Wallpaper-Picker, Sperr- und
 Anmeldebildschirm. Linksklicks auf Uhr, Commandcenter und Lautstärke tun noch nichts. Datum und Uhrzeit
 kennen nur deutsche und englische Namen. Links in Benachrichtigungen erscheinen unterstrichen in Textfarbe, nicht
 wie bei Qt blau.
@@ -80,7 +87,7 @@ wie bei Qt blau.
   stehen; `text.rs` beginnt solche Folgezeilen beim ersten Wort (Workaround, bis cosmic-text das selbst richtig
   macht).
 
-Nächste Schritte im selben Prozess: Tray (StatusNotifierItem), dann PAM und greetd.
+Nächste Schritte im selben Prozess: Audio-Panel, Commandcenter (BlueZ-Steuerung), dann PAM und greetd.
 
 ## Test
 
@@ -89,6 +96,8 @@ abgebrochener und abgelaufener Logout-Countdown, Konfigurationshinweis.
 `tests/shell_services_smoke.py`: mit eigenem PipeWire (Null-Sink), nachgebautem Player (`tests/fake_mpris.py`) und
 nachgebautem BlueZ (`tests/fake_bluez.py`): Mausrad und Rechtsklick auf der Lautstärke, Medientitel, Bluetooth,
 Neustart des Dienstprozesses nach `kill -9`.
+`tests/tray_smoke.py`: nachgebauter Tray-Eintrag (`tests/fake_tray.py`) mit Menü: Symbol in der Bar, Aktivieren,
+zweite Aktivierung, Scrollen, Menü mit Untermenü und verstecktem Eintrag, Klick auf einen Eintrag, Eintrag endet.
 `tests/media_smoke.py`: nachgebauter Player mit Cover, Medien-Panel mittig, Abspielen/Pause/Weiter und ein
 nicht erlaubtes Zurück.
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und

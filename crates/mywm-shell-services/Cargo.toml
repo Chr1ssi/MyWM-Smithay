@@ -3,7 +3,7 @@ name = "mywm-shell-services"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Services of MyWM's built-in shell (PipeWire, MPRIS, BlueZ, notifications) in a process of their own"
+description = "Services of MyWM's built-in shell (PipeWire, MPRIS, BlueZ, notifications, tray) in a process of their own"
 
 [dependencies]
 mywm-shell-protocol = { path = "../mywm-shell-protocol" }
