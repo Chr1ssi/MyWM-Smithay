@@ -17,6 +17,7 @@ use mywm_ui::{
     i18n::Language,
     notices::{self, NoticeTarget, NoticesModel},
     notifications::CardTarget,
+    audio::AudioTarget,
     panel::PanelTarget,
     tray_menu::MenuTarget,
     power::{self, PowerAction, PowerModel, PowerTarget},
@@ -133,6 +134,8 @@ pub struct Shell {
     pub hover: Option<ShellHit>,
     /// A button went down on the shell; its release belongs to the shell too.
     pressed: Option<(u32, Option<ShellHit>)>,
+    /// The audio node whose slider the pointer holds.
+    pub dragging: Option<u32>,
     /// Something only the shell knows of changed (hover, clock, countdown, theme).
     pub dirty: bool,
     /// The outcome of `systemctl reboot|poweroff`.
@@ -224,6 +227,7 @@ impl Shell {
             dismissed_config_error: None,
             hover: None,
             pressed: None,
+            dragging: None,
             dirty: true,
             systemctl: None,
             menus_opened: 0,
@@ -455,7 +459,7 @@ impl State {
                 self.shell.night_light,
             ),
             notifications: self.notification_count(),
-            audio: self.shell.services.status.audio.map(|a| bar::Audio { volume: a.volume, muted: a.muted }),
+            audio: self.shell.services.status.default_audio().map(|a| bar::Audio { volume: a.volume, muted: a.muted }),
             // The other panels come with their own steps.
             open_panel: self.panel_on(output),
             power_open: self.shell.power.as_ref().is_some_and(|m| &m.output == output),
@@ -602,6 +606,10 @@ impl State {
         if pressed {
             if self.shell.pressed.is_none() {
                 self.shell.pressed = Some((button, hit));
+                if let (BTN_LEFT, Some(ShellHit::Panel(PanelTarget::Audio(AudioTarget::Slider(id))))) = (button, hit) {
+                    self.shell.dragging = Some(id);
+                    self.slider_dragged();
+                }
                 // Like a click on a panel that takes no keyboard: the clients get it back.
                 self.note_click(None);
                 if !matches!(hit, Some(ShellHit::Panel(_) | ShellHit::TrayMenu(_) | ShellHit::Bar(..))) {
@@ -615,6 +623,9 @@ impl State {
             return;
         }
         self.shell.pressed = None;
+        if self.shell.dragging.take().is_some() {
+            return;
+        }
         if on != hit {
             return;
         }
@@ -659,22 +670,15 @@ impl State {
         if !matches!(hit, ShellHit::Bar(_, BarTarget::Panel(bar::Panel::Audio))) {
             return;
         }
-        let Some(audio) = &mut self.shell.services.status.audio else { return };
-        let volume = bar::scrolled_volume(audio.volume, steps);
-        // Shown at once; the services' report confirms it.
-        audio.volume = volume;
-        audio.muted = false;
-        self.shell.services.asked_audio = Some((*audio, Instant::now()));
-        self.shell_changed();
-        self.services_send(mywm_shell_protocol::Command::SetVolume { volume });
+        let status = &self.shell.services.status;
+        let (Some(id), Some(audio)) = (status.default_sink, status.default_audio()) else { return };
+        self.node_set_volume(id, bar::scrolled_volume(audio.volume, steps));
     }
 
     fn audio_toggle_mute(&mut self) {
-        let Some(audio) = &mut self.shell.services.status.audio else { return };
-        audio.muted = !audio.muted;
-        self.shell.services.asked_audio = Some((*audio, Instant::now()));
-        self.shell_changed();
-        self.services_send(mywm_shell_protocol::Command::ToggleMute);
+        if let Some(id) = self.shell.services.status.default_sink {
+            self.node_toggle_mute(id);
+        }
     }
 
     fn bar_clicked(&mut self, monitor: usize, target: BarTarget) {
@@ -690,7 +694,7 @@ impl State {
                     _ => {}
                 }
             }
-            BarTarget::Panel(kind @ (bar::Panel::Notifications | bar::Panel::Media)) => {
+            BarTarget::Panel(kind @ (bar::Panel::Notifications | bar::Panel::Media | bar::Panel::Audio)) => {
                 if let Some(output) = self.outputs.get(monitor).map(|e| e.output.clone()) {
                     self.panel_toggle(kind, output);
                 }

@@ -39,9 +39,9 @@ pub struct Services {
     pub players: Vec<PlayerEntry>,
     /// The tray items in the order they registered.
     pub tray: Vec<crate::shell_tray::TrayEntry>,
-    /// The volume and mute last asked for, until a report shows them: reports sent before the command
-    /// arrived would set the bar (and the next wheel notch, which counts from it) back.
-    pub asked_audio: Option<(mywm_shell_protocol::Audio, Instant)>,
+    /// The volume and mute last asked for per node, until a report shows them: reports sent before the command
+    /// arrived would set the bar or a slider (and the next wheel notch, which counts from it) back.
+    pub asked: std::collections::HashMap<u32, (mywm_shell_protocol::Audio, Instant)>,
     stdin: Option<ChildStdin>,
     input: Vec<u8>,
     started: Option<Instant>,
@@ -82,6 +82,25 @@ pub fn end_with_parent(command: &mut Command) {
 }
 
 impl State {
+    /// Set a node's volume (and unmute it), shown at once; the services' report confirms it.
+    pub fn node_set_volume(&mut self, id: u32, volume: f32) {
+        let Some(node) = self.shell.services.status.nodes.iter_mut().find(|n| n.id == id) else { return };
+        let audio = mywm_shell_protocol::Audio { volume: volume.clamp(0.0, 1.0), muted: false };
+        node.audio = Some(audio);
+        self.shell.services.asked.insert(id, (audio, Instant::now()));
+        self.shell_changed();
+        self.services_send(mywm_shell_protocol::Command::SetVolume { id, volume: audio.volume });
+    }
+
+    pub fn node_toggle_mute(&mut self, id: u32) {
+        let Some(node) = self.shell.services.status.nodes.iter_mut().find(|n| n.id == id) else { return };
+        let Some(audio) = &mut node.audio else { return };
+        audio.muted = !audio.muted;
+        self.shell.services.asked.insert(id, (*audio, Instant::now()));
+        self.shell_changed();
+        self.services_send(mywm_shell_protocol::Command::ToggleMute { id });
+    }
+
     /// What the bar's media button says: the first playing player's title, else its name.
     pub fn playing_title(&self) -> Option<String> {
         let player = self.shell.services.players.iter().map(|e| &e.player).find(|p| p.playing)?;
@@ -167,14 +186,15 @@ impl State {
             match std::str::from_utf8(line).ok().and_then(decode::<Event>) {
                 Some(Event::Status(mut status)) => {
                     let services = &mut self.shell.services;
-                    if let Some((asked, at)) = services.asked_audio {
-                        let arrived = status.audio.is_some_and(|a| a.muted == asked.muted && (a.volume - asked.volume).abs() < 0.005);
-                        if arrived || at.elapsed() >= AUDIO_PATIENCE || status.audio.is_none() {
-                            services.asked_audio = None;
-                        } else {
-                            status.audio = Some(asked);
+                    services.asked.retain(|id, (asked, at)| {
+                        let Some(node) = status.nodes.iter_mut().find(|n| n.id == *id) else { return false };
+                        let arrived = node.audio.is_some_and(|a| a.muted == asked.muted && (a.volume - asked.volume).abs() < 0.005);
+                        if arrived || at.elapsed() >= AUDIO_PATIENCE || node.audio.is_none() {
+                            return false;
                         }
-                    }
+                        node.audio = Some(*asked);
+                        true
+                    });
                     if status != self.shell.services.status {
                         tracing::debug!("shell services: {status:?}");
                         self.shell.services.status = status;

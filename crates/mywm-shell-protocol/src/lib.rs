@@ -32,14 +32,49 @@ pub enum Event {
     TrayMenu { address: String, menu: MenuEntry },
 }
 
-/// What the bar shows of the system.
+/// What the bar and the panels show of the system.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Status {
-    /// The default output (PipeWire's `default.audio.sink`); `None` without one.
-    pub audio: Option<Audio>,
+    /// PipeWire's outputs, microphones and the streams of applications, in the order they appeared.
+    pub nodes: Vec<AudioNode>,
+    /// The ids of `default.audio.sink` and `default.audio.source`.
+    pub default_sink: Option<u32>,
+    pub default_source: Option<u32>,
     /// BlueZ's first adapter; `None` without BlueZ or adapter.
     pub bluetooth: Option<Bluetooth>,
+}
+
+impl Status {
+    /// The default output's volume, `None` without one (or before it reported its volume).
+    pub fn default_audio(&self) -> Option<Audio> {
+        let id = self.default_sink?;
+        self.nodes.iter().find(|n| n.id == id)?.audio
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeKind {
+    /// `Audio/Sink`.
+    #[default]
+    Sink,
+    /// `Audio/Source…`, but WirePlumber's smart filters.
+    Source,
+    /// `Stream/Output/Audio` of an application.
+    Stream,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AudioNode {
+    pub id: u32,
+    pub kind: NodeKind,
+    pub name: String,
+    pub description: String,
+    pub application: String,
+    /// `None` until the node reported its volume.
+    pub audio: Option<Audio>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -178,9 +213,11 @@ pub struct Image {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "kebab-case")]
 pub enum Command {
-    /// Set the default output's volume (cubic scale, clamped to 0.0 to 1.0) and unmute it.
-    SetVolume { volume: f32 },
-    ToggleMute,
+    /// Set a node's volume (cubic scale, clamped to 0.0 to 1.0) and unmute it.
+    SetVolume { id: u32, volume: f32 },
+    ToggleMute { id: u32 },
+    /// Make the node the default output or microphone.
+    SetDefault { id: u32 },
     /// The user closed the notification (`NotificationClosed` with reason 2).
     Dismiss { id: u32 },
     /// The user chose one of the notification's actions.
@@ -264,7 +301,9 @@ mod tests {
 
     #[test]
     fn messages_survive_the_pipe() {
-        let status = Status { audio: Some(Audio { volume: 0.8, muted: true }), bluetooth: Some(Bluetooth { powered: true, connected: 1 }) };
+        let node = AudioNode { id: 7, kind: NodeKind::Stream, application: "Firefox".into(), audio: Some(Audio { volume: 0.8, muted: true }), ..AudioNode::default() };
+        let status = Status { nodes: vec![node], default_sink: Some(7), bluetooth: Some(Bluetooth { powered: true, connected: 1 }), ..Status::default() };
+        assert_eq!(status.default_audio(), Some(Audio { volume: 0.8, muted: true }));
         let notification = Notification {
             id: 7,
             app_name: "Firefox".into(),
@@ -296,8 +335,9 @@ mod tests {
             assert_eq!(decode::<Event>(&line), Some(event));
         }
         let commands = [
-            Command::SetVolume { volume: 0.25 },
-            Command::ToggleMute,
+            Command::SetVolume { id: 7, volume: 0.25 },
+            Command::ToggleMute { id: 7 },
+            Command::SetDefault { id: 8 },
             Command::Dismiss { id: 2 },
             Command::Invoke { id: 2, action: "x".into() },
             Command::Player { bus: "org.mpris.MediaPlayer2.x".into(), action: PlayerAction::Pause },
@@ -307,14 +347,14 @@ mod tests {
         for command in commands {
             assert_eq!(decode::<Command>(&encode(&command)), Some(command));
         }
-        assert_eq!(encode(&Command::ToggleMute), "{\"command\":\"toggle-mute\"}\n");
+        assert_eq!(encode(&Command::ToggleMute { id: 3 }), "{\"command\":\"toggle-mute\",\"id\":3}\n");
     }
 
     #[test]
     fn unknown_or_missing_parts_do_not_break_a_line() {
         assert_eq!(decode::<Event>(r#"{"event":"status"}"#), Some(Event::Status(Status::default())));
-        let newer = r#"{"event":"status","audio":{"volume":0.5,"muted":false},"tray":[1,2]}"#;
-        assert_eq!(decode::<Event>(newer), Some(Event::Status(Status { audio: Some(Audio { volume: 0.5, muted: false }), ..Status::default() })));
+        let newer = r#"{"event":"status","default_sink":4,"tray":[1,2]}"#;
+        assert_eq!(decode::<Event>(newer), Some(Event::Status(Status { default_sink: Some(4), ..Status::default() })));
         assert_eq!(decode::<Command>(r#"{"command":"launch-rockets"}"#), None);
         assert_eq!(decode::<Event>("not json"), None);
     }

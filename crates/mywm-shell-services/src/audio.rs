@@ -1,12 +1,15 @@
-//! The default output's volume and mute, as PipeWire reports them: every `Audio/Sink` node is bound and its
-//! `Props` followed, and the `default` metadata's `default.audio.sink` says which of them is the default.
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::mpsc::Sender};
+//! PipeWire's outputs, microphones and application streams with their volume and mute, and which output and
+//! microphone are the default (`default.audio.sink` and `default.audio.source` of the `default` metadata), as the
+//! Quickshell bar's audio panel lists them: microphones without WirePlumber's smart filters (the NixOS mic filter
+//! puts itself in front of the default microphone and never becomes the default), streams only with an
+//! application name.
+use std::{cell::RefCell, rc::Rc, sync::mpsc::Sender};
 
-use mywm_shell_protocol::Audio;
+use mywm_shell_protocol::{Audio, AudioNode, NodeKind};
 use pipewire as pw;
 use pw::{
     metadata::{Metadata, MetadataListener},
-    node::{Node, NodeListener},
+    node::{Node, NodeChangeMask, NodeListener},
     spa::{
         param::ParamType,
         pod::{Pod, Value, ValueArray, deserialize::PodDeserializer},
@@ -19,50 +22,93 @@ use crate::{RETRY, Update};
 const CHANNEL_VOLUMES: u32 = pw::spa::sys::SPA_PROP_channelVolumes;
 const MUTE: u32 = pw::spa::sys::SPA_PROP_mute;
 
+/// What the graph says, as the compositor gets it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Graph {
+    pub nodes: Vec<AudioNode>,
+    pub default_sink: Option<u32>,
+    pub default_source: Option<u32>,
+}
+
 pub fn run(updates: Sender<Update>) {
     pw::init();
     loop {
         if let Err(error) = follow(&updates) {
             tracing::info!("no PipeWire: {error}");
         }
-        if updates.send(Update::Audio(None)).is_err() {
+        if updates.send(Update::Audio(Graph::default())).is_err() {
             return;
         }
         std::thread::sleep(RETRY);
     }
 }
 
-/// A sink with its proxy and what it last said.
-struct Sink {
-    name: String,
+/// A node with its proxy and what it last said.
+struct Tracked {
+    node: AudioNode,
+    /// The node's full properties (its info, not the registry's few) leave it out: a smart filter, a stream
+    /// without an application name. Unknown until the info came.
+    shown: Option<bool>,
     channel_volumes: Option<Vec<f32>>,
     muted: Option<bool>,
-    _node: Node,
+    _proxy: Node,
     _listener: NodeListener,
 }
 
 #[derive(Default)]
-struct Graph {
-    sinks: HashMap<u32, Sink>,
-    /// `node.name` of the default output.
-    default: Option<String>,
+struct State {
+    /// In the order they appeared.
+    nodes: Vec<(u32, Tracked)>,
+    /// `node.name` of the default output and microphone.
+    default_sink: Option<String>,
+    default_source: Option<String>,
     metadata: Option<(Metadata, MetadataListener)>,
-    sent: Option<Option<Audio>>,
+    sent: Option<Graph>,
 }
 
-impl Graph {
-    fn current(&self) -> Option<Audio> {
-        let name = self.default.as_ref()?;
-        let sink = self.sinks.values().find(|sink| &sink.name == name)?;
-        Some(Audio { volume: volume(sink.channel_volumes.as_deref()?)?, muted: sink.muted? })
+impl State {
+    fn graph(&self) -> Graph {
+        let id_of = |name: &Option<String>| {
+            let name = name.as_ref()?;
+            self.nodes.iter().find(|(_, t)| &t.node.name == name).map(|(id, _)| *id)
+        };
+        let nodes = self
+            .nodes
+            .iter()
+            .filter(|(_, t)| t.shown == Some(true))
+            .map(|(_, t)| {
+                let audio = t.channel_volumes.as_deref().and_then(volume).zip(t.muted).map(|(volume, muted)| Audio { volume, muted });
+                AudioNode { audio, ..t.node.clone() }
+            })
+            .collect();
+        Graph { nodes, default_sink: id_of(&self.default_sink), default_source: id_of(&self.default_source) }
     }
 
     fn report(&mut self, updates: &Sender<Update>) {
-        let current = self.current();
-        if self.sent != Some(current) {
-            self.sent = Some(current);
-            let _ = updates.send(Update::Audio(current));
+        let graph = self.graph();
+        if self.sent.as_ref() != Some(&graph) {
+            self.sent = Some(graph.clone());
+            let _ = updates.send(Update::Audio(graph));
         }
+    }
+}
+
+/// What a node of `media.class` may be to the panel.
+fn candidate(class: &str) -> Option<NodeKind> {
+    match class {
+        "Audio/Sink" => Some(NodeKind::Sink),
+        class if class.starts_with("Audio/Source") => Some(NodeKind::Source),
+        "Stream/Output/Audio" => Some(NodeKind::Stream),
+        _ => None,
+    }
+}
+
+/// Whether a candidate of `kind` shows, by its full properties.
+fn shown(kind: NodeKind, smart_filter: bool, application: &str) -> bool {
+    match kind {
+        NodeKind::Sink => true,
+        NodeKind::Source => !smart_filter,
+        NodeKind::Stream => !application.is_empty(),
     }
 }
 
@@ -75,7 +121,7 @@ pub fn volume(channels: &[f32]) -> Option<f32> {
 }
 
 /// Channel volumes and mute of a `Props` pod, as far as it has them.
-fn sink_props(pod: &Pod) -> (Option<Vec<f32>>, Option<bool>) {
+fn node_props(pod: &Pod) -> (Option<Vec<f32>>, Option<bool>) {
     let Ok((_, Value::Object(object))) = PodDeserializer::deserialize_any_from(pod.as_bytes()) else { return (None, None) };
     let mut found = (None, None);
     for property in object.properties {
@@ -100,7 +146,7 @@ fn follow(updates: &Sender<Update>) -> Result<(), pw::Error> {
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(None)?;
     let registry = core.get_registry_rc()?;
-    let graph = Rc::new(RefCell::new(Graph::default()));
+    let state = Rc::new(RefCell::new(State::default()));
 
     // The server went away (restarted): start over.
     let quit = mainloop.downgrade();
@@ -117,74 +163,99 @@ fn follow(updates: &Sender<Update>) -> Result<(), pw::Error> {
         .register();
 
     let weak_registry = registry.downgrade();
-    let weak_graph = Rc::downgrade(&graph);
+    let weak_state = Rc::downgrade(&state);
     let sender = updates.clone();
     let _registry_listener = registry
         .add_listener_local()
         .global(move |global| {
-            let (Some(registry), Some(graph)) = (weak_registry.upgrade(), weak_graph.upgrade()) else { return };
+            let (Some(registry), Some(state)) = (weak_registry.upgrade(), weak_state.upgrade()) else { return };
             let props = global.props.as_ref();
-            let prop = |key: &str| props.and_then(|p| p.get(key)).map(str::to_owned);
+            let prop = |key: &str| props.and_then(|p| p.get(key)).map(str::to_owned).unwrap_or_default();
             match global.type_ {
-                ObjectType::Node if prop("media.class").as_deref() == Some("Audio/Sink") => {
-                    let Ok(node) = registry.bind::<Node, _>(global) else { return };
+                ObjectType::Node => {
+                    let Some(kind) = candidate(&prop("media.class")) else { return };
+                    let Ok(proxy) = registry.bind::<Node, _>(global) else { return };
                     let id = global.id;
-                    let weak = Rc::downgrade(&graph);
-                    let sender = sender.clone();
-                    let listener = node
+                    let weak = Rc::downgrade(&state);
+                    let info_weak = Rc::downgrade(&state);
+                    let (param_sender, info_sender) = (sender.clone(), sender.clone());
+                    let listener = proxy
                         .add_listener_local()
-                        .param(move |_seq, kind, _index, _next, pod| {
-                            let (Some(graph), Some(pod)) = (weak.upgrade(), pod) else { return };
-                            if kind != ParamType::Props {
+                        .info(move |info| {
+                            let Some(state) = info_weak.upgrade() else { return };
+                            // Later info events carry only what changed: properties only when they did.
+                            if !info.change_mask().contains(NodeChangeMask::PROPS) {
                                 return;
                             }
-                            let (volumes, muted) = sink_props(pod);
-                            let mut graph = graph.borrow_mut();
-                            if let Some(sink) = graph.sinks.get_mut(&id) {
-                                sink.channel_volumes = volumes.or(sink.channel_volumes.take());
-                                sink.muted = muted.or(sink.muted);
+                            let Some(props) = info.props() else { return };
+                            let get = |key: &str| props.get(key).unwrap_or_default().to_owned();
+                            let mut state = state.borrow_mut();
+                            if let Some((_, tracked)) = state.nodes.iter_mut().find(|(n, _)| *n == id) {
+                                let node = &mut tracked.node;
+                                node.name = get("node.name");
+                                node.description = get("node.description");
+                                node.application = get("application.name");
+                                tracked.shown = Some(shown(node.kind, get("filter.smart") == "true", &node.application));
                             }
-                            graph.report(&sender);
+                            state.report(&info_sender);
+                        })
+                        .param(move |_seq, param, _index, _next, pod| {
+                            let (Some(state), Some(pod), ParamType::Props) = (weak.upgrade(), pod, param) else { return };
+                            let (volumes, muted) = node_props(pod);
+                            let mut state = state.borrow_mut();
+                            if let Some((_, tracked)) = state.nodes.iter_mut().find(|(n, _)| *n == id) {
+                                tracked.channel_volumes = volumes.or(tracked.channel_volumes.take());
+                                tracked.muted = muted.or(tracked.muted);
+                            }
+                            state.report(&param_sender);
                         })
                         .register();
-                    node.subscribe_params(&[ParamType::Props]);
-                    let name = prop("node.name").unwrap_or_default();
-                    let sink = Sink { name, channel_volumes: None, muted: None, _node: node, _listener: listener };
-                    graph.borrow_mut().sinks.insert(id, sink);
+                    proxy.subscribe_params(&[ParamType::Props]);
+                    let node = AudioNode { id, kind, ..AudioNode::default() };
+                    let tracked = Tracked { node, shown: None, channel_volumes: None, muted: None, _proxy: proxy, _listener: listener };
+                    let mut state = state.borrow_mut();
+                    state.nodes.push((id, tracked));
+                    state.report(&sender);
                 }
-                ObjectType::Metadata if prop("metadata.name").as_deref() == Some("default") => {
+                ObjectType::Metadata if prop("metadata.name") == "default" => {
                     let Ok(metadata) = registry.bind::<Metadata, _>(global) else { return };
-                    let weak = Rc::downgrade(&graph);
+                    let weak = Rc::downgrade(&state);
                     let sender = sender.clone();
                     let listener = metadata
                         .add_listener_local()
                         .property(move |subject, key, _type, value| {
-                            if let Some(graph) = weak.upgrade() {
-                                let mut graph = graph.borrow_mut();
+                            if let Some(state) = weak.upgrade() {
+                                let mut state = state.borrow_mut();
                                 match key {
                                     // Every key went (the metadata was cleared).
-                                    None => graph.default = None,
-                                    Some("default.audio.sink") if subject == 0 => graph.default = value.and_then(default_name),
+                                    None => {
+                                        state.default_sink = None;
+                                        state.default_source = None;
+                                    }
+                                    Some("default.audio.sink") if subject == 0 => state.default_sink = value.and_then(default_name),
+                                    Some("default.audio.source") if subject == 0 => state.default_source = value.and_then(default_name),
                                     Some(_) => return 0,
                                 }
-                                graph.report(&sender);
+                                state.report(&sender);
                             }
                             0
                         })
                         .register();
-                    graph.borrow_mut().metadata = Some((metadata, listener));
+                    state.borrow_mut().metadata = Some((metadata, listener));
                 }
                 _ => {}
             }
         })
         .global_remove({
-            let weak = Rc::downgrade(&graph);
+            let weak = Rc::downgrade(&state);
             let sender = updates.clone();
             move |id| {
-                if let Some(graph) = weak.upgrade() {
-                    let mut graph = graph.borrow_mut();
-                    if graph.sinks.remove(&id).is_some() {
-                        graph.report(&sender);
+                if let Some(state) = weak.upgrade() {
+                    let mut state = state.borrow_mut();
+                    let before = state.nodes.len();
+                    state.nodes.retain(|(n, _)| *n != id);
+                    if state.nodes.len() != before {
+                        state.report(&sender);
                     }
                 }
             }
@@ -206,6 +277,17 @@ mod tests {
         assert!((volume - 0.8).abs() < 1e-4, "{volume}");
         assert_eq!(super::volume(&[]), None);
         assert_eq!(super::volume(&[-0.1]), Some(0.0));
+    }
+
+    #[test]
+    fn only_outputs_real_microphones_and_named_streams_count() {
+        assert_eq!(candidate("Audio/Sink"), Some(NodeKind::Sink));
+        assert_eq!(candidate("Audio/Source/Virtual"), Some(NodeKind::Source));
+        assert_eq!(candidate("Video/Source"), None);
+        assert!(shown(NodeKind::Source, false, ""));
+        assert!(!shown(NodeKind::Source, true, ""));
+        assert!(shown(NodeKind::Stream, false, "Firefox"));
+        assert!(!shown(NodeKind::Stream, false, ""));
     }
 
     #[test]

@@ -493,6 +493,9 @@ impl State {
             Some(PointerTarget::Surface(surface, origin)) if !self.shell_holds_pointer() => Some((surface, origin)),
             _ => None,
         };
+        if self.shell.dragging.is_some() {
+            self.slider_dragged();
+        }
         // Focus follows mouse, unless a panel or the shell's power menu holds the keyboard.
         if self.keyboard_layer().is_none()
             && !self.shell_takes_keyboard()

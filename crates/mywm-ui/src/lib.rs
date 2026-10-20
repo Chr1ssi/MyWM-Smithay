@@ -5,6 +5,7 @@
 //!
 //! Sizes, colors and fonts are those of mywm-shell's Quickshell bar (`bar.qml`, `BarButton.qml`,
 //! `BarIsland.qml`, `Theme.qml`), so the built-in shell looks the same.
+pub mod audio;
 pub mod bar;
 pub mod clock;
 pub mod i18n;

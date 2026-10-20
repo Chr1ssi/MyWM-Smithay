@@ -131,6 +131,7 @@ PYTHONPATH=tests python3 tests/shell_services_smoke.py # Dienstprozess: Lautstä
 PYTHONPATH=tests python3 tests/notifications_smoke.py  # Benachrichtigungen: Toasts, Aktionen, Zentrale
 PYTHONPATH=tests python3 tests/media_smoke.py          # Medien-Panel: Cover und Steuerung
 PYTHONPATH=tests python3 tests/tray_smoke.py           # Tray: Symbol, Aktivieren, Menü
+PYTHONPATH=tests python3 tests/audio_smoke.py          # Audio-Panel: Regler, Stumm, Standardausgang
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

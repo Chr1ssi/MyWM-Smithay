@@ -7,7 +7,7 @@ Needs dbus-daemon, pipewire, wireplumber, pw-cli, wpctl, busctl, python3 with db
     PYTHONPATH=tests python3 tests/shell_services_smoke.py
 """
 import os, re, shutil, subprocess, sys, tempfile, time
-from smoke_support import Bar, Compositor, private_bus, wait
+from smoke_support import Bar, Compositor, hermetic_wireplumber, private_bus, wait
 
 for tool in ("dbus-daemon", "pipewire", "wireplumber", "pw-cli", "wpctl", "busctl", "grim"):
     if not shutil.which(tool):
@@ -72,7 +72,7 @@ try:
     assert wait(lambda: os.path.exists(f"{work}/session/bus") and os.path.exists(f"{work}/system/bus")), "no buses"
     spawn(["pipewire"], "pipewire")
     assert wait(lambda: os.path.exists(f"{work}/pipewire-0")), "no pipewire"
-    spawn(["wireplumber"], "wireplumber")
+    spawn(["wireplumber"], "wireplumber", hermetic_wireplumber(f"{work}/wireplumber-config"))
     time.sleep(2)
     subprocess.run(["pw-cli", "create-node", "adapter",
                     "{ factory.name=support.null-audio-sink node.name=test-sink media.class=Audio/Sink "

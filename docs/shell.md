@@ -40,6 +40,9 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
 - **Panels** unter der Bar wie bei Quickshell (rechts für Audio, Commandcenter und Benachrichtigungen, mittig für
   Medien und Kalender), eins zur Zeit; ein Klick hinein gibt ihm die Tastatur (Escape schließt), ein Klick daneben
   schließt es, das Mausrad scrollt es, wenn der Monitor zu niedrig ist.
+- **Audio-Panel**: Standardausgang und -mikrofon mit Regler (ziehen) und Prozentknopf (stumm), die übrigen hinter
+  „Anderen Ausgang wählen“/„Anderes Mikrofon wählen“ (ein Klick macht sie zum Standard), dazu die Anwendungen, die
+  spielen. WirePlumbers Smart-Filter (der NixOS-Mikrofonfilter) fehlen in der Liste, wie bei Quickshell.
 - **Medien-Panel**: alle MPRIS-Player mit Cover, Titel, Interpret und Zurück/Abspielen/Weiter; was ein Player nicht
   erlaubt, ist ausgegraut. Cover kommen aus `file://`-Adressen; Cover aus dem Netz (`https://`) lädt die Shell nicht.
 - **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
@@ -47,8 +50,8 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
 
 ## Was noch fehlt
 
-Die übrigen Panels (Audio, Commandcenter, Kalender), Launcher, Wallpaper-Picker, Sperr- und
-Anmeldebildschirm. Linksklicks auf Uhr, Commandcenter und Lautstärke tun noch nichts. Datum und Uhrzeit
+Die übrigen Panels (Commandcenter, Kalender), Launcher, Wallpaper-Picker, Sperr- und
+Anmeldebildschirm. Linksklicks auf Uhr und Commandcenter tun noch nichts. Datum und Uhrzeit
 kennen nur deutsche und englische Namen. Links in Benachrichtigungen erscheinen unterstrichen in Textfarbe, nicht
 wie bei Qt blau.
 
@@ -65,7 +68,8 @@ wie bei Qt blau.
 
 - `mywm-shell-services` (`crates/mywm-shell-services`, eigenes Programm neben dem Compositor): fragt die
   Dienste ab, damit ein hängender oder abstürzender Dienst nie Bild oder Eingabe einfriert. PipeWire
-  (Standardausgang aus der `default`-Metadaten, Lautstärke kubisch wie bei `wpctl` und Quickshell), MPRIS auf dem
+  (Ausgänge, Mikrofone und Anwendungsströme mit Lautstärke, kubisch wie bei `wpctl` und Quickshell, und die beiden
+  Standards aus der `default`-Metadaten), MPRIS auf dem
   Session-Bus und BlueZ auf dem System-Bus laufen in je einem Thread und verbinden sich bei Ausfall nach drei
   Sekunden neu. Lautstärke und Stummschaltung setzt es mit `wpctl` (WirePlumber), wie das Audio-Panel der
   Quickshell-Shell; schnelles Scrollen fasst es zu einem Aufruf zusammen.
@@ -87,7 +91,7 @@ wie bei Qt blau.
   stehen; `text.rs` beginnt solche Folgezeilen beim ersten Wort (Workaround, bis cosmic-text das selbst richtig
   macht).
 
-Nächste Schritte im selben Prozess: Audio-Panel, Commandcenter (BlueZ-Steuerung), dann PAM und greetd.
+Nächste Schritte im selben Prozess: Commandcenter (BlueZ-Steuerung), dann PAM und greetd.
 
 ## Test
 
@@ -96,6 +100,10 @@ abgebrochener und abgelaufener Logout-Countdown, Konfigurationshinweis.
 `tests/shell_services_smoke.py`: mit eigenem PipeWire (Null-Sink), nachgebautem Player (`tests/fake_mpris.py`) und
 nachgebautem BlueZ (`tests/fake_bluez.py`): Mausrad und Rechtsklick auf der Lautstärke, Medientitel, Bluetooth,
 Neustart des Dienstprozesses nach `kill -9`.
+`tests/audio_smoke.py`: eigenes PipeWire mit zwei Ausgängen, Mikrofon, Smart-Filter und Anwendungsstrom: Regler
+ziehen, Stummschalten, anderen Ausgang wählen. Die PipeWire-Tests starten WirePlumber ohne Hardware-Monitore
+(`hermetic_wireplumber` in `tests/smoke_support.py`): sonst fände es die echten Geräte des Rechners, und ein Test,
+der die Lautstärke des Standardausgangs setzt, könnte die eines echten Geräts setzen.
 `tests/tray_smoke.py`: nachgebauter Tray-Eintrag (`tests/fake_tray.py`) mit Menü: Symbol in der Bar, Aktivieren,
 zweite Aktivierung, Scrollen, Menü mit Untermenü und verstecktem Eintrag, Klick auf einen Eintrag, Eintrag endet.
 `tests/media_smoke.py`: nachgebauter Player mit Cover, Medien-Panel mittig, Abspielen/Pause/Weiter und ein

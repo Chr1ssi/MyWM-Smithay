@@ -2,8 +2,9 @@
 //! whose button was clicked. A click into a panel gives it the keyboard (Escape closes it), as its window got it on
 //! demand; a button pressed anywhere but the panel and the bar closes it, as the window did when it lost the
 //! keyboard. The wheel scrolls the notification list where it is over it, else the panel's area.
-use mywm_shell_protocol::{Command, PlayerAction};
+use mywm_shell_protocol::{Command, NodeKind, PlayerAction};
 use mywm_ui::{
+    audio::{self, AudioModel, AudioTarget, NodeView},
     bar::Panel,
     media::{MediaTarget, PlayerView},
     notifications::CardTarget,
@@ -26,9 +27,12 @@ pub struct OpenPanel {
     /// It was clicked and takes the keyboard.
     focused: bool,
     model: Option<PanelModel>,
-    painted: Option<Painted<PanelTarget>>,
+    pub painted: Option<Painted<PanelTarget>>,
     max_scroll: f32,
     max_list_scroll: f32,
+    /// The audio panel shows the other outputs or microphones to choose from.
+    outputs_expanded: bool,
+    inputs_expanded: bool,
 }
 
 impl State {
@@ -49,6 +53,8 @@ impl State {
             painted: None,
             max_scroll: 0.0,
             max_list_scroll: 0.0,
+            outputs_expanded: false,
+            inputs_expanded: false,
         });
         self.shell_changed();
     }
@@ -99,7 +105,75 @@ impl State {
             PanelTarget::Card(CardTarget::Dismiss(id)) => self.notification_dismiss(id),
             PanelTarget::Card(CardTarget::Action(id, index)) => self.notification_invoke(id, index),
             PanelTarget::Media(target) => self.media_clicked(target),
+            PanelTarget::Audio(target) => self.audio_clicked(target),
             PanelTarget::Card(CardTarget::Card(_)) | PanelTarget::Background | PanelTarget::List => {}
+        }
+    }
+
+    fn audio_clicked(&mut self, target: AudioTarget) {
+        match target {
+            AudioTarget::Select(id) => {
+                let kind = self.shell.services.status.nodes.iter().find(|n| n.id == id).map(|n| n.kind);
+                if let Some(panel) = &mut self.shell.panel {
+                    match kind {
+                        Some(NodeKind::Sink) => panel.outputs_expanded = false,
+                        Some(NodeKind::Source) => panel.inputs_expanded = false,
+                        _ => {}
+                    }
+                }
+                self.services_send(Command::SetDefault { id });
+                self.shell_changed();
+            }
+            AudioTarget::Mute(id) => self.node_toggle_mute(id),
+            AudioTarget::ToggleOutputs | AudioTarget::ToggleInputs => {
+                if let Some(panel) = &mut self.shell.panel {
+                    let expanded = if target == AudioTarget::ToggleOutputs { &mut panel.outputs_expanded } else { &mut panel.inputs_expanded };
+                    *expanded = !*expanded;
+                }
+                self.shell_changed();
+            }
+            // Pressing and dragging sets it (see `slider_dragged`).
+            AudioTarget::Slider(_) => {}
+        }
+    }
+
+    /// The pointer holds the slider of `shell.dragging`: its volume follows the pointer.
+    pub fn slider_dragged(&mut self) {
+        let Some(id) = self.shell.dragging else { return };
+        let Some(panel) = self.shell.panel.as_ref() else { return };
+        let (Some(geo), Some((x, _))) = (self.space.output_geometry(&panel.output), self.panel_origin()) else { return };
+        let slider = panel.painted.as_ref().and_then(|p| p.scene.target_rect(&PanelTarget::Audio(AudioTarget::Slider(id))));
+        let Some(slider) = slider else { return };
+        let local = (self.pointer_location.x - f64::from(geo.loc.x) - x) as f32;
+        let volume = audio::slider_value(slider, local);
+        let current = self.shell.services.status.nodes.iter().find(|n| n.id == id).and_then(|n| n.audio).map(|a| a.volume);
+        if current.is_none_or(|v| (v - volume).abs() >= 0.001) {
+            self.node_set_volume(id, volume);
+        }
+    }
+
+    fn audio_model(&self, outputs_expanded: bool, inputs_expanded: bool) -> AudioModel {
+        let status = &self.shell.services.status;
+        let views = |kind: NodeKind| -> Vec<NodeView> {
+            status
+                .nodes
+                .iter()
+                .filter(|n| n.kind == kind)
+                .map(|n| {
+                    let label = [&n.application, &n.description, &n.name];
+                    let label = label.into_iter().find(|l| !l.is_empty()).cloned().unwrap_or_default();
+                    NodeView { id: n.id, label, audio: n.audio.map(|a| (a.volume, a.muted)) }
+                })
+                .collect()
+        };
+        AudioModel {
+            outputs: views(NodeKind::Sink),
+            inputs: views(NodeKind::Source),
+            applications: views(NodeKind::Stream),
+            default_output: status.default_sink,
+            default_input: status.default_source,
+            outputs_expanded,
+            inputs_expanded,
         }
     }
 
@@ -132,12 +206,13 @@ impl State {
         }
     }
 
-    fn panel_content(&self, kind: Panel, list_scroll: f32) -> ContentModel {
-        match kind {
+    fn panel_content(&self, panel: &OpenPanel) -> ContentModel {
+        match panel.kind {
             Panel::Media => ContentModel::Media { players: self.player_views() },
-            Panel::Notifications => ContentModel::Notifications { items: self.notification_views(), list_scroll },
+            Panel::Audio => ContentModel::Audio(self.audio_model(panel.outputs_expanded, panel.inputs_expanded)),
+            Panel::Notifications => ContentModel::Notifications { items: self.notification_views(), list_scroll: panel.list_scroll },
             // Not opened yet (see `bar_clicked`): their contents come with their own steps.
-            Panel::Audio | Panel::Control | Panel::Calendar => ContentModel::Media { players: Vec::new() },
+            Panel::Control | Panel::Calendar => ContentModel::Media { players: Vec::new() },
         }
     }
 
@@ -164,13 +239,13 @@ impl State {
 
     /// Paint the open panel if what it shows changed; its output goes to `redraw`.
     pub fn panel_refresh(&mut self, fonts: &mut Fonts, redraw: &mut Vec<Output>) {
-        let Some((kind, list_scroll, output)) = self.shell.panel.as_ref().map(|p| (p.kind, p.list_scroll, p.output.clone())) else { return };
+        let Some((kind, output)) = self.shell.panel.as_ref().map(|p| (p.kind, p.output.clone())) else { return };
         let Some(geo) = self.space.output_geometry(&output) else { return };
         let hover = match self.shell.hover {
             Some(ShellHit::Panel(target)) => Some(target),
             _ => None,
         };
-        let content = self.panel_content(kind, list_scroll);
+        let Some(content) = self.shell.panel.as_ref().map(|panel| self.panel_content(panel)) else { return };
         let language = self.shell.language;
         let theme = self.shell.theme.clone();
         let Some(panel) = &mut self.shell.panel else { return };
@@ -195,7 +270,7 @@ impl State {
         }
     }
 
-    fn panel_origin(&self) -> Option<(f64, f64)> {
+    pub fn panel_origin(&self) -> Option<(f64, f64)> {
         let panel = self.shell.panel.as_ref()?;
         let geo = self.space.output_geometry(&panel.output)?;
         let (x, y) = panel::origin(panel.kind, geo.size.w as f32, panel.painted.as_ref()?.scene.width);

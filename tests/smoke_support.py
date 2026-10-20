@@ -32,6 +32,18 @@ def private_bus(directory):
     return ["dbus-daemon", "--nofork", f"--config-file={config}"], f"unix:path={directory}/bus"
 
 
+def hermetic_wireplumber(directory):
+    """Environment for a private WirePlumber that leaves the machine's sound, Bluetooth and camera hardware alone:
+    without this, its monitors find the real ALSA devices, and a test that sets the default output's volume could
+    set a real device's."""
+    conf = f"{directory}/wireplumber/wireplumber.conf.d"
+    os.makedirs(conf, exist_ok=True)
+    with open(f"{conf}/90-no-hardware.conf", "w") as f:
+        f.write("wireplumber.profiles = {\n  main = {\n    hardware.audio = disabled\n"
+                "    hardware.bluetooth = disabled\n    hardware.video-capture = disabled\n  }\n}\n")
+    return {"XDG_CONFIG_HOME": directory}
+
+
 def wait(cond, timeout=8):
     end = time.time() + timeout
     while time.time() < end:

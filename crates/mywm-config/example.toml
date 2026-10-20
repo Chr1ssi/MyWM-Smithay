@@ -29,7 +29,7 @@
 #screenshot_directory = "/home/nutzer/Bilder/Screenshots"
 #wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
 # Bar, Powermenü und Hinweise zeichnet der Compositor selbst, statt die Quickshell-Bar von
-# mywm-shell zu starten. Noch ohne Audio-, Commandcenter- und Kalender-Panel (siehe docs/shell.md). Änderungen gelten nach Neustart.
+# mywm-shell zu starten. Noch ohne Commandcenter- und Kalender-Panel (siehe docs/shell.md). Änderungen gelten nach Neustart.
 #builtin_shell = false
 
 # Optional: adaptive sync remains off except while a recognized game is visibly

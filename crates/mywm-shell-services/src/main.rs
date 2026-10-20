@@ -20,12 +20,12 @@ use std::{
     time::Duration,
 };
 
-use mywm_shell_protocol::{Audio, Bluetooth, Command, Event, MAX_LINE, MenuEntry, Notification, Player, Status, TrayItem, decode, encode};
+use mywm_shell_protocol::{Bluetooth, Command, Event, MAX_LINE, MenuEntry, Notification, Player, Status, TrayItem, decode, encode};
 use tracing_subscriber::EnvFilter;
 
 /// A source's news.
 pub enum Update {
-    Audio(Option<Audio>),
+    Audio(audio::Graph),
     Players(Vec<Player>),
     Tray(Vec<TrayItem>),
     TrayMenu(String, Box<MenuEntry>),
@@ -139,8 +139,10 @@ fn main() {
         }
         let Ok(update) = news.recv() else { return };
         let event = match update {
-            Update::Audio(audio) => {
-                status.audio = audio;
+            Update::Audio(graph) => {
+                status.nodes = graph.nodes;
+                status.default_sink = graph.default_sink;
+                status.default_source = graph.default_source;
                 continue;
             }
             Update::Players(players) => Event::Players { players },
@@ -167,23 +169,26 @@ fn run_commands(queue: mpsc::Receiver<Command>) {
         batch.extend(queue.try_iter());
         for command in collapse(batch) {
             match command {
-                Command::SetVolume { volume } => {
-                    let volume = format!("{:.3}", volume.clamp(0.0, 1.0));
-                    wpctl(&["set-volume", "@DEFAULT_AUDIO_SINK@", &volume]);
-                    wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "0"]);
+                Command::SetVolume { id, volume } => {
+                    let (id, volume) = (id.to_string(), format!("{:.3}", volume.clamp(0.0, 1.0)));
+                    wpctl(&["set-volume", &id, &volume]);
+                    wpctl(&["set-mute", &id, "0"]);
                 }
-                Command::ToggleMute => wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
+                Command::ToggleMute { id } => wpctl(&["set-mute", &id.to_string(), "toggle"]),
+                Command::SetDefault { id } => wpctl(&["set-default", &id.to_string()]),
                 _ => {}
             }
         }
     }
 }
 
-/// `commands` with every run of volume changes reduced to its last one.
+/// `commands` with every run of volume changes of one node reduced to its last one.
 fn collapse(commands: Vec<Command>) -> Vec<Command> {
     let mut kept: Vec<Command> = Vec::with_capacity(commands.len());
     for command in commands {
-        if matches!((kept.last(), &command), (Some(Command::SetVolume { .. }), Command::SetVolume { .. })) {
+        if let (Some(Command::SetVolume { id: last, .. }), Command::SetVolume { id, .. }) = (kept.last(), &command)
+            && last == id
+        {
             kept.pop();
         }
         kept.push(command);
@@ -205,9 +210,10 @@ mod tests {
 
     #[test]
     fn only_the_last_of_several_volume_changes_runs() {
-        let set = |volume| Command::SetVolume { volume };
-        let batch = vec![set(0.1), set(0.2), Command::ToggleMute, set(0.3), set(0.4)];
-        assert_eq!(collapse(batch), vec![set(0.2), Command::ToggleMute, set(0.4)]);
-        assert_eq!(collapse(vec![Command::ToggleMute, Command::ToggleMute]), vec![Command::ToggleMute, Command::ToggleMute]);
+        let set = |id, volume| Command::SetVolume { id, volume };
+        let mute = Command::ToggleMute { id: 1 };
+        let batch = vec![set(1, 0.1), set(1, 0.2), mute.clone(), set(1, 0.3), set(2, 0.5), set(2, 0.4)];
+        assert_eq!(collapse(batch), vec![set(1, 0.2), mute.clone(), set(1, 0.3), set(2, 0.4)]);
+        assert_eq!(collapse(vec![mute.clone(), mute.clone()]), vec![mute.clone(), mute]);
     }
 }
