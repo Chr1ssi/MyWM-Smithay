@@ -43,8 +43,8 @@ enum Intercepted {
     Action(Action),
     Vt(i32),
     Modal(crate::screenshot::ModalKey),
-    /// A key for the built-in shell's power menu.
-    Shell(Keysym),
+    /// A key for the built-in shell (its power menu, a panel); whether Ctrl, Alt or Super is held.
+    Shell(Keysym, bool),
     /// The release of a key whose press was intercepted.
     Release,
 }
@@ -202,7 +202,9 @@ impl State {
                         match action {
                             Some(action) => FilterResult::Intercept(Intercepted::Action(action)),
                             // The power menu takes every other key, as the exclusive panel it was did.
-                            None if state.shell_takes_keyboard() => FilterResult::Intercept(Intercepted::Shell(handle.modified_sym())),
+                            None if state.shell_takes_keyboard() => {
+                                FilterResult::Intercept(Intercepted::Shell(handle.modified_sym(), mods.ctrl || mods.alt || mods.logo))
+                            }
                             None => FilterResult::Forward,
                         }
                     },
@@ -226,7 +228,7 @@ impl State {
                             self.selection_key(key);
                         }
                     }
-                    Some(Intercepted::Shell(sym)) => self.shell_key(sym),
+                    Some(Intercepted::Shell(sym, modified)) => self.shell_key(sym, modified),
                     Some(Intercepted::Vt(vt)) => {
                         if let Some(session) = &mut self.session
                             && let Err(error) = session.change_vt(vt)

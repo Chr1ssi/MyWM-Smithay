@@ -25,6 +25,7 @@ mod screencopy;
 mod screenshot;
 mod session;
 mod shell;
+mod shell_calendar;
 mod shell_control;
 mod shell_notifications;
 mod shell_panels;

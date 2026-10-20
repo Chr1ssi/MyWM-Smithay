@@ -9,7 +9,7 @@ use crate::{
 
 /// Height of a button (`BarButton.qml`).
 pub const BUTTON_HEIGHT: f32 = 26.0;
-const BUTTON_TEXT: TextStyle = TextStyle::new(14.0);
+pub(crate) const BUTTON_TEXT: TextStyle = TextStyle::new(14.0);
 /// Space between the buttons of an island.
 const SPACING: f32 = 2.0;
 /// Space between islands.

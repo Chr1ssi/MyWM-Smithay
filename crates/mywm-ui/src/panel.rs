@@ -5,6 +5,7 @@ use crate::{
     Align, Measure, Node, Rect, Scene, TextStyle, Theme,
     audio::{self, AudioModel, AudioTarget},
     bar::Panel,
+    calendar::{self, CalendarModel, CalendarTarget},
     control::{self, ControlModel, ControlTarget},
     i18n::Language,
     media::{self, MediaTarget, PlayerView},
@@ -31,6 +32,7 @@ pub enum PanelTarget {
     Media(MediaTarget),
     Audio(AudioTarget),
     Control(ControlTarget),
+    Calendar(CalendarTarget),
 }
 
 /// A panel's content, laid out at the panel's inner width from its own top left corner.
@@ -63,6 +65,7 @@ pub enum ContentModel {
     Media { players: Vec<PlayerView> },
     Audio(AudioModel),
     Control(ControlModel),
+    Calendar(CalendarModel),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -118,6 +121,7 @@ pub fn scene(model: &PanelModel, theme: &Theme, measure: &mut impl Measure) -> P
         ContentModel::Media { players } => (media::content(players, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
         ContentModel::Audio(audio) => (audio::content(audio, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
         ContentModel::Control(control) => (control::content(control, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
+        ContentModel::Calendar(calendar) => (calendar::content(calendar, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
     };
     let title_style = TextStyle::new(20.0);
     let title_height = measure.line_height(title_style);

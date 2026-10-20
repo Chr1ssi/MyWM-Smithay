@@ -50,14 +50,22 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   spielen. WirePlumbers Smart-Filter (der NixOS-Mikrofonfilter) fehlen in der Liste, wie bei Quickshell.
 - **Medien-Panel**: alle MPRIS-Player mit Cover, Titel, Interpret und Zurück/Abspielen/Weiter; was ein Player nicht
   erlaubt, ist ausgegraut. Cover kommen aus `file://`-Adressen; Cover aus dem Netz (`https://`) lädt die Shell nicht.
+- **Kalender-Panel** (Klick auf die Uhr): Monat mit „‹“/„›“, Tage mit bis zu drei Punkten in den Farben ihrer
+  Termine, die Termine des gewählten Tages und die nächsten acht, „Kalender-App öffnen“ (`foot … mywm-calendar app`).
+  Die Termine liefert `mywm-calendar events <Monatserster> <8. des Folgemonats>` (khal), die Kalender
+  `mywm-calendar calendars`, jeweils in einem eigenen Thread; jedes Öffnen beginnt wie bei Quickshell neu beim
+  heutigen Tag. „+“ öffnet das Formular (Titel, Start, Ende, Ort, Kalender) für `mywm-calendar create`; Felder und
+  Kalenderauswahl sehen aus wie Qt Quicks Fusion-Steuerelemente, mit der Schrift, die fontconfig für „Sans Serif“
+  wählt (`fc-match`, wie Qt).
 - **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
   Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
 
 ## Was noch fehlt
 
-Das Kalender-Panel, Launcher, Wallpaper-Picker, Sperr- und
-Anmeldebildschirm. Ein Klick auf die Uhr tut noch nichts. In den Panels führt Tab noch nicht von Knopf zu Knopf
-(bei Quickshell erreichte Tab jeden Knopf). Datum und Uhrzeit
+Launcher, Wallpaper-Picker, Sperr- und Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
+(bei Quickshell erreichte Tab jeden Knopf); im Kalenderformular wechselt Tab nur zwischen den vier Feldern. Die
+Felder kennen Tippen, Löschen, Pfeile, Pos1/Ende und Klicks, aber keine Auswahl, keine Zwischenablage und keine
+Tastenwiederholung, und der Cursor blinkt nicht. Datum und Uhrzeit
 kennen nur deutsche und englische Namen. Links in Benachrichtigungen erscheinen unterstrichen in Textfarbe, nicht
 wie bei Qt blau.
 
@@ -97,7 +105,11 @@ wie bei Qt blau.
   stehen; `text.rs` beginnt solche Folgezeilen beim ersten Wort (Workaround, bis cosmic-text das selbst richtig
   macht).
 
-Nächste Schritte: Kalender-Panel, im Dienstprozess dann PAM und greetd.
+- `crates/mywm-ui/src/calendar.rs`: Inhalt des Kalender-Panels (`CalendarPanelInteractive.qml`) mit den
+  Fusion-Feldern; `src/shell_calendar.rs` ruft `mywm-calendar` auf, hält Monat, Termine und Formular und nimmt die
+  Tasten der Felder.
+
+Nächste Schritte: im Dienstprozess PAM und greetd (Sperr- und Anmeldebildschirm), Launcher, Wallpaper-Picker.
 
 ## Test
 
@@ -117,6 +129,9 @@ der die Lautstärke des Standardausgangs setzt, könnte die eines echten Geräts
 zweite Aktivierung, Scrollen, Menü mit Untermenü und verstecktem Eintrag, Klick auf einen Eintrag, Eintrag endet.
 `tests/media_smoke.py`: nachgebauter Player mit Cover, Medien-Panel mittig, Abspielen/Pause/Weiter und ein
 nicht erlaubtes Zurück.
+`tests/calendar_smoke.py`: Platzhalter für `mywm-calendar` und `foot`: die Uhr öffnet das Panel (Termine des Monats
+und Kalender abgefragt), ein Termin ohne Titel wird nicht angelegt, getippter Titel und gewählter Kalender gehen an
+`mywm-calendar create`, danach lädt es neu; Monat vor und zurück, Kalender-App öffnen schließt das Panel.
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und
 `CloseNotification` mit den passenden D-Bus-Signalen, Zentrale über die Glocke mit „Alle löschen“, Escape und
 Klick daneben. Nested meldet winit Drücken und Loslassen einer X-Mausradtaste je als

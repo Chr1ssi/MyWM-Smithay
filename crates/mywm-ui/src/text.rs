@@ -18,6 +18,8 @@ const ELLIPSIS: &str = "…";
 pub struct Fonts {
     system: FontSystem,
     cache: SwashCache,
+    /// The family fontconfig gives Qt's default font, for Qt's controls; `None`: the generic sans-serif family.
+    sans: Option<String>,
     /// Ascent and descent per font, in pixels at its size.
     metrics: HashMap<StyleKey, (f32, f32)>,
 }
@@ -27,11 +29,12 @@ struct StyleKey {
     size_bits: u32,
     bold: bool,
     icons: bool,
+    controls: bool,
 }
 
 impl From<TextStyle> for StyleKey {
     fn from(style: TextStyle) -> Self {
-        Self { size_bits: style.size.to_bits(), bold: style.bold, icons: style.icons }
+        Self { size_bits: style.size.to_bits(), bold: style.bold, icons: style.icons, controls: style.controls }
     }
 }
 
@@ -48,15 +51,38 @@ enum Lines {
 /// Physical pixels outside of which nothing is drawn: left, top, right, bottom.
 pub type Clip = (i32, i32, i32, i32);
 
-fn attrs(style: TextStyle) -> Attrs<'static> {
-    let family = if style.icons { theme::ICON_FONT_FAMILY } else { theme::FONT_FAMILY };
-    Attrs::new().family(Family::Name(family)).weight(if style.bold { Weight::BOLD } else { Weight::NORMAL })
+fn attrs(style: TextStyle, sans: Option<&str>) -> Attrs<'_> {
+    let family = match (style.controls, sans) {
+        (true, Some(sans)) => Family::Name(sans),
+        (true, None) => Family::SansSerif,
+        (false, _) if style.icons => Family::Name(theme::ICON_FONT_FAMILY),
+        (false, _) => Family::Name(theme::FONT_FAMILY),
+    };
+    Attrs::new().family(family).weight(if style.bold { Weight::BOLD } else { Weight::NORMAL })
 }
 
-fn span_attrs(style: TextStyle, span: &Span) -> Attrs<'static> {
-    let attrs = attrs(TextStyle { bold: style.bold || span.bold, ..style });
+fn span_attrs<'a>(style: TextStyle, span: &Span, sans: Option<&'a str>) -> Attrs<'a> {
+    let attrs = attrs(TextStyle { bold: style.bold || span.bold, ..style }, sans);
     let attrs = if span.italic { attrs.style(Style::Italic) } else { attrs };
     if span.underline { attrs.underline(UnderlineStyle::Single) } else { attrs }
+}
+
+/// The family fontconfig matches for "Sans Serif", which Qt asks for its default font. fontdb's own reading of
+/// fontconfig's configuration keeps the family the last alias prefers, not the one fontconfig chooses (FreeSans
+/// instead of DejaVu Sans on NixOS).
+fn sans_family() -> Option<String> {
+    let output = std::process::Command::new("fc-match").args(["--format", "%{family[0]}", "Sans Serif"]).output();
+    match output {
+        Ok(output) if output.status.success() => Some(String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|f| !f.is_empty()),
+        Ok(output) => {
+            tracing::warn!("Qt's controls get the generic sans-serif font: fc-match failed ({})", output.status);
+            None
+        }
+        Err(error) => {
+            tracing::warn!("Qt's controls get the generic sans-serif font: cannot run fc-match: {error}");
+            None
+        }
+    }
 }
 
 /// Glyphs and decorations into a pixmap, in one color, within a clip.
@@ -109,7 +135,7 @@ impl Renderer for Moved<'_, '_> {
 impl Fonts {
     /// The fonts fontconfig's configuration lists. Reading them takes a while: do it on a worker thread.
     pub fn load() -> Self {
-        Self { system: FontSystem::new(), cache: SwashCache::new(), metrics: HashMap::new() }
+        Self { system: FontSystem::new(), cache: SwashCache::new(), sans: sans_family(), metrics: HashMap::new() }
     }
 
     /// `spans` laid out at `scale` times the style's size, with lines `line_height` (unscaled) apart.
@@ -124,8 +150,9 @@ impl Fonts {
             buffer.set_ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(max_lines.max(1))));
         }
         buffer.set_size(width, None);
-        let base = attrs(style);
-        buffer.set_rich_text(spans.iter().map(|span| (span.text.as_str(), span_attrs(style, span))), &base, Shaping::Advanced, None);
+        let sans = self.sans.as_deref();
+        let base = attrs(style, sans);
+        buffer.set_rich_text(spans.iter().map(|span| (span.text.as_str(), span_attrs(style, span, sans))), &base, Shaping::Advanced, None);
         buffer.shape_until_scroll(&mut self.system, false);
         buffer
     }

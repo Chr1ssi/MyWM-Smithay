@@ -68,7 +68,8 @@ als `*.1` erhalten.
    `XDG_CURRENT_DESKTOP=mywm` als `~/.config/xdg-desktop-portal/mywm-portals.conf`.
 6. Laufzeit-Programme: `quickshell`, `swayidle`, `wlopm`, `wl-clipboard` (Screenshot in
    die Zwischenablage), `libnotify` (Benachrichtigung), `xwayland`, `polkit-gnome` (optional),
-   `wireplumber` (`wpctl`: Lautstärke der eingebauten Bar).
+   `wireplumber` (`wpctl`: Lautstärke der eingebauten Bar), `fontconfig` (`fc-match`: Schrift der Formularfelder der
+   eingebauten Shell).
 
 ## Erster Start auf der Hardware
 

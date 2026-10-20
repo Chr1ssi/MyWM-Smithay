@@ -121,10 +121,10 @@ pub enum ShellHit {
 
 pub struct Shell {
     pub enabled: bool,
-    fonts: Option<Fonts>,
+    pub fonts: Option<Fonts>,
     pub theme: Theme,
     pub language: Language,
-    time_language: Language,
+    pub time_language: Language,
     clock: String,
     bars: Vec<Bar>,
     pub power: Option<PowerMenu>,
@@ -151,6 +151,8 @@ pub struct Shell {
     pub panel: Option<crate::shell_panels::OpenPanel>,
     /// The open menu of a tray item.
     pub tray_menu: Option<crate::shell_tray::TrayMenuOpen>,
+    /// The calendar panel's month, events and form.
+    pub calendar: crate::shell_calendar::Calendar,
 }
 
 fn palette(config: &mywm_config::Config) -> Palette {
@@ -236,6 +238,7 @@ impl Shell {
             notes: Default::default(),
             panel: None,
             tray_menu: None,
+            calendar: Default::default(),
         }
     }
 }
@@ -654,13 +657,13 @@ impl State {
                     _ => {}
                 }
             }
-            BarTarget::Panel(kind @ (bar::Panel::Notifications | bar::Panel::Media | bar::Panel::Audio | bar::Panel::Control)) => {
+            BarTarget::Panel(kind) => {
                 if let Some(output) = self.outputs.get(monitor).map(|e| e.output.clone()) {
                     self.panel_toggle(kind, output);
                 }
             }
-            // The other panels come with their own steps; tray icons have their own clicks (`tray_clicked`).
-            BarTarget::Panel(_) | BarTarget::Tray(_) | BarTarget::Background => {}
+            // Tray icons have their own clicks (`tray_clicked`).
+            BarTarget::Tray(_) | BarTarget::Background => {}
         }
     }
 
@@ -669,9 +672,12 @@ impl State {
         self.shell.power.is_some() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
     }
 
-    /// A key pressed while the shell holds the keyboard.
-    pub fn shell_key(&mut self, sym: Keysym) {
+    /// A key pressed while the shell holds the keyboard; `modified`: with Ctrl, Alt or Super.
+    pub fn shell_key(&mut self, sym: Keysym, modified: bool) {
         let Some(menu) = &mut self.shell.power else {
+            if self.calendar_key(sym, modified) {
+                return;
+            }
             if sym.raw() == keysyms::KEY_Escape {
                 self.panel_close();
                 self.tray_menu_close();

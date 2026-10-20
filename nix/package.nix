@@ -22,6 +22,7 @@
   gammastep,
   wireplumber, # wpctl: the built-in bar's volume
   iproute2,
+  fontconfig, # fc-match: the font of the built-in shell's Qt controls
   libnotify,
   xwayland,
   dbus,
@@ -147,6 +148,7 @@ stdenvNoCC.mkDerivation {
         gammastep # the shell's night light
         wireplumber # wpctl: the built-in bar's volume
         iproute2 # the shell's local addresses
+        fontconfig # fc-match: the font of the shell's form fields
         libnotify
         xwayland
         coreutils

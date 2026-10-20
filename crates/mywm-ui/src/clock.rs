@@ -5,6 +5,7 @@ use crate::i18n::{Language, language_code};
 /// A moment in the local time zone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalTime {
+    pub year: i32,
     /// 0 is Sunday.
     pub weekday: u32,
     pub day: u32,
@@ -29,6 +30,7 @@ impl LocalTime {
         };
         let field = |value: libc::c_int| u32::try_from(value).ok();
         Some(Self {
+            year: tm.tm_year + 1900,
             weekday: field(tm.tm_wday)?,
             day: field(tm.tm_mday)?,
             month: field(tm.tm_mon)? + 1,
@@ -75,10 +77,10 @@ mod tests {
 
     #[test]
     fn the_clock_reads_like_qts() {
-        let time = LocalTime { weekday: 2, day: 20, month: 10, hour: 19, minute: 5, second: 30 };
+        let time = LocalTime { year: 2026, weekday: 2, day: 20, month: 10, hour: 19, minute: 5, second: 30 };
         assert_eq!(bar_text(&time, Language::German), "Di. 20. Okt.  19:05");
         assert_eq!(bar_text(&time, Language::English), "Tue 20. Oct  19:05");
-        let time = LocalTime { weekday: 0, day: 1, month: 3, hour: 0, minute: 0, second: 0 };
+        let time = LocalTime { year: 2026, weekday: 0, day: 1, month: 3, hour: 0, minute: 0, second: 0 };
         assert_eq!(bar_text(&time, Language::German), "So. 01. März  00:00");
         assert_eq!(time.seconds_to_next_minute(), 60);
     }

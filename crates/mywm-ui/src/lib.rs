@@ -7,6 +7,7 @@
 //! `BarIsland.qml`, `Theme.qml`), so the built-in shell looks the same.
 pub mod audio;
 pub mod bar;
+pub mod calendar;
 pub mod clock;
 pub mod control;
 pub mod i18n;
