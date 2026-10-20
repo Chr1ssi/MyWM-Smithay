@@ -493,7 +493,7 @@ impl State {
 
     /// Open the wallpaper picker at the pointer; it starts on demand (`--wallpaper-picker`) and ends when closed.
     pub fn open_wallpaper_picker(&self) {
-        let exe = match std::env::current_exe() {
+        let exe = match mywm_config::current_exe() {
             Ok(exe) => exe,
             Err(error) => return tracing::warn!("cannot find the own binary for the wallpaper picker: {error}"),
         };
@@ -518,7 +518,7 @@ impl State {
                     Err(error) => tracing::warn!("the wallpaper picker command failed: {error}"),
                 });
             }
-            Err(error) => tracing::warn!("cannot start `qs` for the wallpaper picker: {error}"),
+            Err(error) => tracing::warn!("cannot start the wallpaper picker: {error}"),
         }
     }
 

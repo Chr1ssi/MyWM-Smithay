@@ -415,7 +415,7 @@ fn state_dir() -> Result<PathBuf> {
 
 /// The Quickshell wallpaper picker with the helpers and paths it needs; the compositor draws the image.
 fn picker_process(config: &mywm_config::Config) -> Result<Command> {
-    let exe = std::env::current_exe()?;
+    let exe = mywm_config::current_exe()?;
     let mut command = Command::new("qs");
     command
         .arg("--path")

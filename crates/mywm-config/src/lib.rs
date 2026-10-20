@@ -122,6 +122,18 @@ pub fn state_dir() -> Option<PathBuf> {
     Some(base.join("mywm"))
 }
 
+/// This program's path, also after `nix-store --optimise` swapped its file for a hard link: Linux then
+/// reports the old inode as `<path> (deleted)` although `<path>` is still there with the same content.
+pub fn current_exe() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    if let Some(path) = exe.to_str().and_then(|exe| exe.strip_suffix(" (deleted)")).map(PathBuf::from)
+        && path.exists()
+    {
+        return Ok(path);
+    }
+    Ok(exe)
+}
+
 /// Resolve the independently versioned shell at runtime.
 pub fn shell_qml(file: &str) -> PathBuf {
     std::env::var_os("MYWM_SHELL_DIR")
