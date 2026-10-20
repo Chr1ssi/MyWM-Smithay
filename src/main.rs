@@ -26,6 +26,7 @@ mod screenshot;
 mod session;
 mod shell;
 mod shell_notifications;
+mod shell_panels;
 mod shell_services;
 mod shutdown;
 mod udev;

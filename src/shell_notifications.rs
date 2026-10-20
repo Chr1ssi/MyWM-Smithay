@@ -1,5 +1,6 @@
 //! Notifications in the built-in shell, as mywm-shell's Quickshell bar kept them: a list (newest first) behind
-//! the bell, toasts at the top right of the first monitor, and the notification center (the bell's panel).
+//! the bell, which opens the notification center (see `shell_panels`), and toasts at the top right of the first
+//! monitor.
 //!
 //! Toasts are at most four. One hides after its own timeout, or after 4 seconds (low urgency) or 7 seconds
 //! (else) without one; with a timeout of 0 it stays. The pointer over a toast holds it, and its time starts
@@ -8,23 +9,10 @@
 use std::time::{Duration, Instant};
 
 use mywm_shell_protocol::{Command, Notification, Urgency};
-use mywm_ui::{
-    markup,
-    notifications::{self, CardTarget, CenterModel, NotificationView, PanelTarget},
-    scene::Picture,
-    text::Fonts,
-};
-use smithay::{
-    backend::renderer::gles::GlesRenderer,
-    output::Output,
-    reexports::calloop::timer::{TimeoutAction, Timer},
-};
+use mywm_ui::{markup, notifications::NotificationView, scene::Picture};
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 
-use crate::{
-    State,
-    render::OutputElement,
-    shell::{Painted, ShellHit, element, paint},
-};
+use crate::{State, shell::ShellHit};
 
 const MAX_TOASTS: usize = 4;
 
@@ -40,17 +28,6 @@ struct Toast {
     deadline: Option<Instant>,
 }
 
-/// The open notification center.
-struct Center {
-    output: Output,
-    scroll: f32,
-    /// It was clicked and takes the keyboard (Escape closes it), like the panel window it was.
-    focused: bool,
-    model: Option<CenterModel>,
-    painted: Option<Painted<PanelTarget>>,
-    max_scroll: f32,
-}
-
 #[derive(Default)]
 pub struct Notes {
     /// Newest first.
@@ -59,7 +36,6 @@ pub struct Notes {
     toasts: Vec<Toast>,
     /// The toast the pointer holds.
     held: Option<u32>,
-    center: Option<Center>,
     /// Tells the timer for the next toast to hide apart from earlier ones.
     timer: u64,
 }
@@ -130,13 +106,9 @@ impl State {
         self.shell.notes.list.len()
     }
 
-    /// The toasts to show (newest first); none while the notification center is open on `output`, whose glass
-    /// they would show through.
-    pub fn toast_views(&self, output: &Output) -> Vec<NotificationView> {
+    /// The toasts to show, newest first.
+    pub fn toast_views(&self) -> Vec<NotificationView> {
         let notes = &self.shell.notes;
-        if notes.center.as_ref().is_some_and(|c| &c.output == output) {
-            return Vec::new();
-        }
         notes.toasts.iter().filter_map(|t| notes.list.iter().find(|n| n.view.id == t.id)).map(|n| n.view.clone()).collect()
     }
 
@@ -216,132 +188,15 @@ impl State {
     }
 
     /// "Clear all" in the notification center.
-    fn notifications_clear(&mut self) {
+    pub fn notifications_clear(&mut self) {
         let ids: Vec<u32> = self.shell.notes.list.iter().map(|n| n.view.id).collect();
         for id in ids {
             self.notification_dismiss(id);
         }
     }
 
-    /// The bell: open the notification center on `output`, or close it if it is open there.
-    pub fn center_toggle(&mut self, output: Output) {
-        let notes = &mut self.shell.notes;
-        if notes.center.as_ref().is_some_and(|c| c.output == output) {
-            return self.center_close();
-        }
-        notes.center = Some(Center { output, scroll: 0.0, focused: false, model: None, painted: None, max_scroll: 0.0 });
-        self.shell_changed();
-    }
-
-    pub fn center_open_on(&self, output: &Output) -> bool {
-        self.shell.notes.center.as_ref().is_some_and(|c| &c.output == output)
-    }
-
-    pub fn center_close(&mut self) {
-        if let Some(center) = self.shell.notes.center.take() {
-            self.queue_redraw_output(&center.output);
-            let focused = center.focused;
-            self.shell_changed();
-            if focused {
-                self.sync_focus();
-            }
-        }
-    }
-
-    /// A button went down somewhere else than the notification center or the bar: it closes, as its window
-    /// did when it lost the keyboard.
-    pub fn center_pressed_elsewhere(&mut self) {
-        if self.shell.notes.center.is_some() {
-            self.center_close();
-        }
-    }
-
-    pub fn center_takes_keyboard(&self) -> bool {
-        self.shell.notes.center.as_ref().is_some_and(|c| c.focused)
-    }
-
-    /// The center was clicked: from now on Escape closes it.
-    fn center_focus(&mut self) {
-        if let Some(center) = &mut self.shell.notes.center
-            && !center.focused
-        {
-            center.focused = true;
-            self.sync_focus();
-        }
-    }
-
-    /// A click on the notification center's `target`.
-    pub fn center_clicked(&mut self, target: PanelTarget) {
-        self.center_focus();
-        match target {
-            PanelTarget::ClearAll => self.notifications_clear(),
-            PanelTarget::Card(CardTarget::Dismiss(id)) => self.notification_dismiss(id),
-            PanelTarget::Card(CardTarget::Action(id, index)) => self.notification_invoke(id, index),
-            PanelTarget::Card(CardTarget::Card(_)) | PanelTarget::Background | PanelTarget::List => {}
-        }
-    }
-
-    /// The wheel over the notification center scrolls its list.
-    pub fn center_scroll(&mut self, steps: f32) {
-        if let Some(center) = &mut self.shell.notes.center {
-            let scroll = (center.scroll - steps * notifications::SCROLL_STEP).clamp(0.0, center.max_scroll);
-            if scroll != center.scroll {
-                center.scroll = scroll;
-                self.shell_changed();
-            }
-        }
-    }
-
-    /// Paint the notification center if what it shows changed; its output goes to `redraw`.
-    pub fn center_refresh(&mut self, fonts: &mut Fonts, redraw: &mut Vec<Output>) {
-        let Some(geo) = self.shell.notes.center.as_ref().and_then(|c| self.space.output_geometry(&c.output)) else { return };
-        let hover = match self.shell.hover {
-            Some(ShellHit::Panel(target)) => Some(target),
-            _ => None,
-        };
-        let items = self.shell.notes.list.iter().map(|n| n.view.clone()).collect();
-        let language = self.shell.language;
-        let theme = self.shell.theme.clone();
-        let Some(center) = &mut self.shell.notes.center else { return };
-        let model = CenterModel { output: (geo.size.w as f32, geo.size.h as f32), items, scroll: center.scroll, hover, language };
-        if center.model.as_ref() == Some(&model) {
-            return;
-        }
-        let (scene, max_scroll) = notifications::center(&model, &theme, fonts);
-        center.max_scroll = max_scroll;
-        center.scroll = center.scroll.min(max_scroll);
-        center.painted = paint(scene, fonts, center.output.current_scale().fractional_scale());
-        center.model = Some(model);
-        redraw.push(center.output.clone());
-    }
-
-    /// Forget the center's picture (the theme changed).
-    pub fn center_repaint(&mut self) {
-        if let Some(center) = &mut self.shell.notes.center {
-            center.model = None;
-        }
-    }
-
-    fn center_origin(&self) -> Option<(f64, f64)> {
-        let center = self.shell.notes.center.as_ref()?;
-        let geo = self.space.output_geometry(&center.output)?;
-        let painted = center.painted.as_ref()?;
-        let (x, y) = notifications::panel_origin(geo.size.w as f32, painted.scene.width);
-        Some((f64::from(x), f64::from(y)))
-    }
-
-    /// The notification center on `output`, front to back.
-    pub fn center_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Option<OutputElement> {
-        let center = self.shell.notes.center.as_ref().filter(|c| &c.output == output)?;
-        element(renderer, center.painted.as_ref()?, self.center_origin()?, output.current_scale().fractional_scale())
-    }
-
-    /// The notification center at the pointer.
-    pub fn center_at_pointer(&self) -> Option<ShellHit> {
-        let center = self.shell.notes.center.as_ref()?;
-        let geo = self.space.output_geometry(&center.output)?;
-        let (x, y) = self.center_origin()?;
-        let local = self.pointer_location - geo.loc.to_f64();
-        center.painted.as_ref()?.scene.target_at((local.x - x) as f32, (local.y - y) as f32).map(ShellHit::Panel)
+    /// The notifications as the notification center lists them, newest first.
+    pub fn notification_views(&self) -> Vec<NotificationView> {
+        self.shell.notes.list.iter().map(|n| n.view.clone()).collect()
     }
 }

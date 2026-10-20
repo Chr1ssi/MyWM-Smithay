@@ -358,7 +358,7 @@ impl State {
             if !locked {
                 let clicked = self.pointer_focus().map(|(surface, _)| surface);
                 self.note_click(clicked.as_ref());
-                self.center_pressed_elsewhere();
+                self.panel_pressed_elsewhere();
             }
             let under = self.window_at(self.pointer_location).map(|(w, _)| w);
             if let Some(window) = under.filter(|_| self.layer_focus.is_none() && !locked) {

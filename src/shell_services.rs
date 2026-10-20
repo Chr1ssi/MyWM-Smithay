@@ -26,9 +26,17 @@ const HEALTHY: Duration = Duration::from_secs(60);
 /// How long the bar shows a volume it asked for before believing reports that differ.
 const AUDIO_PATIENCE: Duration = Duration::from_secs(1);
 
+/// A player as the services process reported it, its cover decoded.
+pub struct PlayerEntry {
+    pub player: mywm_shell_protocol::Player,
+    pub cover: Option<mywm_ui::scene::Picture>,
+}
+
 #[derive(Default)]
 pub struct Services {
     pub status: Status,
+    /// The MPRIS players in the order they appeared.
+    pub players: Vec<PlayerEntry>,
     /// The volume and mute last asked for, until a report shows them: reports sent before the command
     /// arrived would set the bar (and the next wheel notch, which counts from it) back.
     pub asked_audio: Option<(mywm_shell_protocol::Audio, Instant)>,
@@ -72,6 +80,12 @@ pub fn end_with_parent(command: &mut Command) {
 }
 
 impl State {
+    /// What the bar's media button says: the first playing player's title, else its name.
+    pub fn playing_title(&self) -> Option<String> {
+        let player = self.shell.services.players.iter().map(|e| &e.player).find(|p| p.playing)?;
+        Some(if player.title.is_empty() { player.identity.clone() } else { player.title.clone() })
+    }
+
     pub fn services_start(&mut self) {
         let services = &mut self.shell.services;
         services.generation += 1;
@@ -167,6 +181,16 @@ impl State {
                 }
                 Some(Event::Notification(notification)) => self.shell_notification(notification),
                 Some(Event::Closed { id }) => self.shell_notification_closed(id),
+                Some(Event::Players { players }) => {
+                    self.shell.services.players = players
+                        .into_iter()
+                        .map(|mut player| {
+                            let cover = player.cover.take().and_then(|c| mywm_ui::scene::Picture::from_rgba(c.width, c.height, &c.rgba));
+                            PlayerEntry { player, cover }
+                        })
+                        .collect();
+                    self.shell_changed();
+                }
                 None => tracing::warn!("{PROGRAM} wrote what is no event: {}", String::from_utf8_lossy(&line[..line.len().min(200)])),
             }
         }
@@ -188,6 +212,10 @@ impl State {
             self.shell_changed();
         }
         self.shell_notifications_reset();
+        if !self.shell.services.players.is_empty() {
+            self.shell.services.players.clear();
+            self.shell_changed();
+        }
         let restart = self.loop_handle.insert_source(Timer::from_duration(pause), |_, _, state| {
             state.services_start();
             TimeoutAction::Drop

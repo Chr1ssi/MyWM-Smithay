@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mywm_shell_protocol::{IMAGE_SIZE, Image};
+use mywm_shell_protocol::{COVER_SIZE, IMAGE_SIZE, Image};
 
 /// Pixels as a D-Bus `image-data` hint (`iiibiiay`) has them.
 pub struct Raw<'a> {
@@ -77,6 +77,26 @@ fn unescape(path: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// A player's cover at `url` (`file://` or a path), scaled down to just cover `COVER_SIZE`. Covers on the web
+/// are not fetched.
+pub fn load_cover(url: &str) -> Option<Image> {
+    let path = match url.strip_prefix("file://") {
+        Some(path) => PathBuf::from(unescape(path)),
+        None if url.starts_with('/') => PathBuf::from(url),
+        None => return None,
+    };
+    let image = image::ImageReader::open(&path).ok()?.with_guessed_format().ok()?.decode().ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    let scale = (f64::from(COVER_SIZE.0) / f64::from(width.max(1))).max(f64::from(COVER_SIZE.1) / f64::from(height.max(1)));
+    let image = if scale < 1.0 {
+        let size = |v: u32| ((f64::from(v) * scale).round() as u32).max(1);
+        image::imageops::resize(&image, size(width), size(height), image::imageops::FilterType::CatmullRom)
+    } else {
+        image
+    };
+    Some(Image { width: image.width(), height: image.height(), rgba: image.into_raw() })
 }
 
 fn load_file(path: &Path) -> Option<Image> {

@@ -4,12 +4,15 @@
 //! A line that does not parse is skipped, so either side may learn new fields first.
 use serde::{Deserialize, Serialize};
 
-/// The longest line either side accepts; anything longer is dropped with its connection. A notification's
-/// picture (at most `IMAGE_SIZE` square, base64) fits several times.
-pub const MAX_LINE: usize = 1 << 20;
+/// The longest line either side accepts; anything longer is dropped with its connection. Notification pictures
+/// (at most `IMAGE_SIZE` square) and covers (at most `COVER_SIZE`, base64) fit several times.
+pub const MAX_LINE: usize = 4 << 20;
 /// Notification pictures are scaled to fit this many pixels each way: the card shows them 42 logical pixels
 /// large, so this is sharp up to a scale of three.
 pub const IMAGE_SIZE: u32 = 128;
+/// Covers are scaled down to just cover this many pixels (the media panel shows them 150 logical pixels high
+/// across its width, cut to fit), as Quickshell's `sourceSize`.
+pub const COVER_SIZE: (u32, u32) = (400, 200);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "kebab-case")]
@@ -19,6 +22,8 @@ pub enum Event {
     Notification(Notification),
     /// The notification is gone (closed by its app, or after an action of a non-resident one).
     Closed { id: u32 },
+    /// The MPRIS players, in the order they appeared.
+    Players { players: Vec<Player> },
 }
 
 /// What the bar shows of the system.
@@ -27,8 +32,6 @@ pub enum Event {
 pub struct Status {
     /// The default output (PipeWire's `default.audio.sink`); `None` without one.
     pub audio: Option<Audio>,
-    /// The title (or, without one, the name) of the first MPRIS player that plays.
-    pub media: Option<String>,
     /// BlueZ's first adapter; `None` without BlueZ or adapter.
     pub bluetooth: Option<Bluetooth>,
 }
@@ -45,6 +48,33 @@ pub struct Bluetooth {
     pub powered: bool,
     /// Devices of the adapter that are connected.
     pub connected: usize,
+}
+
+/// An MPRIS player.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Player {
+    /// Its bus name (`org.mpris.MediaPlayer2.…`), which commands name.
+    pub bus: String,
+    pub identity: String,
+    pub title: String,
+    /// The artists, joined with ", ".
+    pub artist: String,
+    pub cover: Option<Image>,
+    pub playing: bool,
+    pub can_previous: bool,
+    /// Pause while playing, else play.
+    pub can_toggle: bool,
+    pub can_next: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PlayerAction {
+    Previous,
+    Play,
+    Pause,
+    Next,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +128,7 @@ pub enum Command {
     Dismiss { id: u32 },
     /// The user chose one of the notification's actions.
     Invoke { id: u32, action: String },
+    Player { bus: String, action: PlayerAction },
 }
 
 /// `message` as one line, with its newline.
@@ -167,11 +198,7 @@ mod tests {
 
     #[test]
     fn messages_survive_the_pipe() {
-        let status = Status {
-            audio: Some(Audio { volume: 0.8, muted: true }),
-            media: Some("Netflix".into()),
-            bluetooth: Some(Bluetooth { powered: true, connected: 1 }),
-        };
+        let status = Status { audio: Some(Audio { volume: 0.8, muted: true }), bluetooth: Some(Bluetooth { powered: true, connected: 1 }) };
         let notification = Notification {
             id: 7,
             app_name: "Firefox".into(),
@@ -182,13 +209,19 @@ mod tests {
             actions: vec![Action { identifier: "default".into(), text: "Öffnen".into() }],
             image: Some(Image { width: 1, height: 2, rgba: vec![1, 2, 3, 4, 5, 6, 7, 255] }),
         };
-        for event in [Event::Status(status), Event::Notification(notification), Event::Closed { id: 3 }] {
+        let players = vec![Player { bus: "org.mpris.MediaPlayer2.x".into(), title: "Lied".into(), playing: true, ..Player::default() }];
+        for event in [Event::Status(status), Event::Notification(notification), Event::Closed { id: 3 }, Event::Players { players }] {
             let line = encode(&event);
             assert!(line.ends_with('\n') && !line[..line.len() - 1].contains('\n'), "{line}");
             assert_eq!(decode::<Event>(&line), Some(event));
         }
-        let commands =
-            [Command::SetVolume { volume: 0.25 }, Command::ToggleMute, Command::Dismiss { id: 2 }, Command::Invoke { id: 2, action: "x".into() }];
+        let commands = [
+            Command::SetVolume { volume: 0.25 },
+            Command::ToggleMute,
+            Command::Dismiss { id: 2 },
+            Command::Invoke { id: 2, action: "x".into() },
+            Command::Player { bus: "org.mpris.MediaPlayer2.x".into(), action: PlayerAction::Pause },
+        ];
         for command in commands {
             assert_eq!(decode::<Command>(&encode(&command)), Some(command));
         }
@@ -198,8 +231,8 @@ mod tests {
     #[test]
     fn unknown_or_missing_parts_do_not_break_a_line() {
         assert_eq!(decode::<Event>(r#"{"event":"status"}"#), Some(Event::Status(Status::default())));
-        let newer = r#"{"event":"status","audio":null,"media":"x","tray":[1,2]}"#;
-        assert_eq!(decode::<Event>(newer), Some(Event::Status(Status { media: Some("x".into()), ..Status::default() })));
+        let newer = r#"{"event":"status","audio":{"volume":0.5,"muted":false},"tray":[1,2]}"#;
+        assert_eq!(decode::<Event>(newer), Some(Event::Status(Status { audio: Some(Audio { volume: 0.5, muted: false }), ..Status::default() })));
         assert_eq!(decode::<Command>(r#"{"command":"launch-rockets"}"#), None);
         assert_eq!(decode::<Event>("not json"), None);
     }

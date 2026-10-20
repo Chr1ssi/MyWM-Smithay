@@ -16,7 +16,8 @@ use mywm_ui::{
     clock::{self, LocalTime},
     i18n::Language,
     notices::{self, NoticeTarget, NoticesModel},
-    notifications::{CardTarget, PanelTarget},
+    notifications::CardTarget,
+    panel::PanelTarget,
     power::{self, PowerAction, PowerModel, PowerTarget},
     text::Fonts,
     theme::{BAR_HEIGHT, Palette},
@@ -139,8 +140,10 @@ pub struct Shell {
     pub services: crate::shell_services::Services,
     /// A warm screen: gammastep runs (through the compositor's gamma control) while this is on.
     night_light: bool,
-    /// Notifications, their toasts and the notification center.
+    /// Notifications and their toasts.
     pub notes: crate::shell_notifications::Notes,
+    /// The open panel.
+    pub panel: Option<crate::shell_panels::OpenPanel>,
 }
 
 fn palette(config: &mywm_config::Config) -> Palette {
@@ -223,6 +226,7 @@ impl Shell {
             services: Default::default(),
             night_light: false,
             notes: Default::default(),
+            panel: None,
         }
     }
 }
@@ -331,7 +335,7 @@ impl State {
             if let Some(menu) = &mut self.shell.power {
                 menu.model = None;
             }
-            self.center_repaint();
+            self.panel_repaint();
             self.shell.dirty = true;
         }
     }
@@ -390,7 +394,7 @@ impl State {
             });
         }
 
-        self.center_refresh(&mut fonts, &mut redraw);
+        self.panel_refresh(&mut fonts, &mut redraw);
 
         if let Some(menu) = &mut self.shell.power {
             let model = PowerModel {
@@ -435,7 +439,7 @@ impl State {
             active: Some(desk.workspaces.active as u32),
             scratchpad_visible: self.desktop.scratchpad_visible,
             scratchpad_occupied: !self.desktop.scratchpad.windows.is_empty(),
-            media: self.shell.services.status.media.clone(),
+            media: self.playing_title(),
             clock: self.shell.clock.clone(),
             capturing: self.capturing(),
             control_icon: bar::control_icon(
@@ -445,7 +449,7 @@ impl State {
             notifications: self.notification_count(),
             audio: self.shell.services.status.audio.map(|a| bar::Audio { volume: a.volume, muted: a.muted }),
             // The other panels come with their own steps.
-            open_panel: self.center_open_on(output).then_some(bar::Panel::Notifications),
+            open_panel: self.panel_on(output),
             power_open: self.shell.power.as_ref().is_some_and(|m| &m.output == output),
             hover,
             language: self.shell.language,
@@ -453,8 +457,8 @@ impl State {
     }
 
     fn notices_model(&self, output: &Output) -> Option<NoticesModel> {
-        // The notification center's glass would show them through it.
-        if self.center_open_on(output) {
+        // The panels on the right would show them through their glass.
+        if matches!(self.panel_on(output), Some(bar::Panel::Notifications | bar::Panel::Audio)) {
             return None;
         }
         let geo = self.space.output_geometry(output)?;
@@ -468,7 +472,7 @@ impl State {
             choosing: self.share_kinds().is_some(),
             picking: self.picked_color(),
             config_error,
-            toasts: self.toast_views(output),
+            toasts: self.toast_views(),
             hover,
             language: self.shell.language,
         };
@@ -496,9 +500,9 @@ impl State {
         bar.and_then(|painted| element(renderer, painted, (0.0, 0.0), scale)).into_iter().collect()
     }
 
-    /// The notification center and the notices on `output`, front to back.
+    /// The open panel and the notices on `output`, front to back.
     pub fn shell_notice_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
-        let mut elements: Vec<OutputElement> = self.center_elements(renderer, output).into_iter().collect();
+        let mut elements: Vec<OutputElement> = self.panel_elements(renderer, output).into_iter().collect();
         let Some((on, _, painted)) = self.shell.notices.as_ref().filter(|(on, _, _)| on == output) else { return elements };
         let scale = on.current_scale().fractional_scale();
         let origin = self.notices_origin(on, painted);
@@ -533,9 +537,9 @@ impl State {
         Some(ShellHit::Power(target))
     }
 
-    /// The notification center or the notices at the pointer (they lie behind the clients' `Overlay` layer).
+    /// The open panel or the notices at the pointer (they lie behind the clients' `Overlay` layer).
     pub fn shell_notices_at_pointer(&self) -> Option<ShellHit> {
-        if let Some(hit) = self.center_at_pointer() {
+        if let Some(hit) = self.panel_at_pointer() {
             return Some(hit);
         }
         let (output, _, painted) = self.shell.notices.as_ref()?;
@@ -592,7 +596,7 @@ impl State {
                 // Like a click on a panel that takes no keyboard: the clients get it back.
                 self.note_click(None);
                 if !matches!(hit, Some(ShellHit::Panel(_) | ShellHit::Bar(..))) {
-                    self.center_pressed_elsewhere();
+                    self.panel_pressed_elsewhere();
                 }
             }
             return;
@@ -625,7 +629,7 @@ impl State {
             }
             Some(ShellHit::Notices(NoticeTarget::Toast(CardTarget::Dismiss(id)))) => self.notification_dismiss(id),
             Some(ShellHit::Notices(NoticeTarget::Toast(CardTarget::Action(id, index)))) => self.notification_invoke(id, index),
-            Some(ShellHit::Panel(target)) => self.center_clicked(target),
+            Some(ShellHit::Panel(target)) => self.panel_clicked(target),
             Some(ShellHit::Notices(NoticeTarget::Background | NoticeTarget::Toast(CardTarget::Card(_)))) | None => {}
         }
     }
@@ -633,8 +637,8 @@ impl State {
     /// The wheel turned `steps` notches (positive: away from the user) over `hit`: over the audio button that
     /// changes the volume; elsewhere on the shell it does nothing, and no window gets it either.
     pub fn shell_scroll(&mut self, hit: ShellHit, steps: f32) {
-        if matches!(hit, ShellHit::Panel(_)) {
-            return self.center_scroll(steps);
+        if let ShellHit::Panel(target) = hit {
+            return self.panel_scroll(&target, steps);
         }
         if !matches!(hit, ShellHit::Bar(_, BarTarget::Panel(bar::Panel::Audio))) {
             return;
@@ -670,9 +674,9 @@ impl State {
                     _ => {}
                 }
             }
-            BarTarget::Panel(bar::Panel::Notifications) => {
+            BarTarget::Panel(kind @ (bar::Panel::Notifications | bar::Panel::Media)) => {
                 if let Some(output) = self.outputs.get(monitor).map(|e| e.output.clone()) {
-                    self.center_toggle(output);
+                    self.panel_toggle(kind, output);
                 }
             }
             // The other panels come with their own steps.
@@ -682,14 +686,14 @@ impl State {
 
     /// Whether the shell holds the keyboard (the power menu is open, or the notification center was clicked).
     pub fn shell_takes_keyboard(&self) -> bool {
-        self.shell.power.is_some() || self.center_takes_keyboard()
+        self.shell.power.is_some() || self.panel_takes_keyboard()
     }
 
     /// A key pressed while the shell holds the keyboard.
     pub fn shell_key(&mut self, sym: Keysym) {
         let Some(menu) = &mut self.shell.power else {
             if sym.raw() == keysyms::KEY_Escape {
-                self.center_close();
+                self.panel_close();
             }
             return;
         };

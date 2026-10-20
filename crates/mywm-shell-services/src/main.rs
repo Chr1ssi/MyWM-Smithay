@@ -19,13 +19,13 @@ use std::{
     time::Duration,
 };
 
-use mywm_shell_protocol::{Audio, Bluetooth, Command, Event, MAX_LINE, Notification, Status, decode, encode};
+use mywm_shell_protocol::{Audio, Bluetooth, Command, Event, MAX_LINE, Notification, Player, Status, decode, encode};
 use tracing_subscriber::EnvFilter;
 
 /// A source's news.
 pub enum Update {
     Audio(Option<Audio>),
-    Media(Option<String>),
+    Players(Vec<Player>),
     Bluetooth(Option<Bluetooth>),
     Notification(Box<Notification>),
     Closed(u32),
@@ -51,6 +51,11 @@ fn main() {
     if let Err(error) = started {
         tracing::error!("cannot run commands: {error}");
     }
+    let (player_commands, player_queue) = mpsc::channel();
+    let started = std::thread::Builder::new().name("player-commands".into()).spawn(move || media::run_commands(player_queue));
+    if let Err(error) = started {
+        tracing::error!("cannot control media players: {error}");
+    }
     let (notification_commands, notification_queue) = mpsc::channel();
     let notification_updates = updates.clone();
     let started = std::thread::Builder::new()
@@ -70,6 +75,9 @@ fn main() {
             match std::str::from_utf8(&line).ok().and_then(decode::<Command>) {
                 Some(command @ (Command::Dismiss { .. } | Command::Invoke { .. })) => {
                     let _ = notification_commands.send(command);
+                }
+                Some(Command::Player { bus, action }) => {
+                    let _ = player_commands.send((bus, action));
                 }
                 Some(command) => {
                     let _ = commands.send(command);
@@ -102,10 +110,7 @@ fn main() {
                 status.audio = audio;
                 continue;
             }
-            Update::Media(media) => {
-                status.media = media;
-                continue;
-            }
+            Update::Players(players) => Event::Players { players },
             Update::Bluetooth(bluetooth) => {
                 status.bluetooth = bluetooth;
                 continue;
@@ -133,7 +138,7 @@ fn run_commands(queue: mpsc::Receiver<Command>) {
                     wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "0"]);
                 }
                 Command::ToggleMute => wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
-                Command::Dismiss { .. } | Command::Invoke { .. } => {}
+                Command::Dismiss { .. } | Command::Invoke { .. } | Command::Player { .. } => {}
             }
         }
     }

@@ -68,15 +68,19 @@ const ENGLISH: &[(&str, &str)] = &[
         "Bis zur Korrektur gilt die zuletzt geladene Konfiguration, beim Start die Standardwerte.",
         "Until it is fixed, the last loaded configuration applies, or the defaults at startup.",
     ),
+    ("Commandcenter", "Command center"),
     ("Esc zum Schließen", "Esc to close"),
     ("Farbpipette", "Color picker"),
     (
         "Fenster anklicken · Kachel daneben oder Enter: ganzer Monitor · D: dynamisch, mit den Cast-Tasten umschaltbar · Esc: abbrechen",
         "Click a window · tile beside it or Enter: whole monitor · D: dynamic, switchable with the cast keys · Esc: cancel",
     ),
+    ("Kalender", "Calendar"),
+    ("Keine aktive Wiedergabe", "Nothing is playing"),
     ("Keine Benachrichtigungen", "No notifications"),
     ("Klick kopiert die Farbe · Esc: abbrechen", "Click copies the color · Esc: cancel"),
     ("Konfiguration fehlerhaft", "Configuration error"),
+    ("Medien", "Media"),
     ("Neu starten", "Restart"),
     ("Neustart", "Restart"),
     ("Sitzung und System", "Session and system"),
@@ -117,7 +121,14 @@ mod tests {
     /// Every text the shell asks for has its English entry, and the table has nothing nobody asks for.
     #[test]
     fn every_text_has_english() {
-        let sources = [include_str!("bar.rs"), include_str!("power.rs"), include_str!("notices.rs"), include_str!("notifications.rs")];
+        let sources = [
+            include_str!("bar.rs"),
+            include_str!("power.rs"),
+            include_str!("notices.rs"),
+            include_str!("notifications.rs"),
+            include_str!("panel.rs"),
+            include_str!("media.rs"),
+        ];
         let mut used = std::collections::BTreeSet::new();
         for source in sources {
             for call in ["tr(\"", "trf(\""] {
