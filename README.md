@@ -25,6 +25,8 @@ Aufbau:
 - `crates/mywm-layout` – Scrolling, Workspaces, Geometrie (ohne Compositor-Abhängigkeit, mit Tests)
 - `crates/mywm-config` – TOML-Konfiguration (`~/.config/mywm/config.toml` oder `$MYWM_CONFIG`).
   Beispiel: `crates/mywm-config/example.toml`
+- `crates/mywm-shell-services`, `crates/mywm-shell-protocol` – Dienstprozess der eingebauten Shell (PipeWire, MPRIS,
+  BlueZ) und seine Nachrichten
 - `crates/mywm-ui` – Bilder der eingebauten Shell (Bar, Powermenü, Hinweise; `builtin_shell = true`, siehe `docs/shell.md`)
 - `crates/mywm-ipc` – Bar-Protokoll `v1` (Befehle, Zustands-Snapshot) zwischen Compositor und `mywm-shell`
 - `vendor/smithay` – smithay 0.7.0 mit kleinen Patches (Layer-Shell-Toleranz, X11-Fokus; `vendor/README.md`)
@@ -125,6 +127,7 @@ PYTHONPATH=tests python3 tests/portal_smoke.py        # mywm-portal: D-Bus, Ausw
 PYTHONPATH=tests python3 tests/portal_bus_smoke.py    # mywm-portal endet mit seinem D-Bus
 PYTHONPATH=tests python3 tests/signals_smoke.py       # gestartete Programme erben keine blockierten Signale
 PYTHONPATH=tests python3 tests/builtin_shell_smoke.py # eingebaute Shell: Bar, Powermenü, Hinweise
+PYTHONPATH=tests python3 tests/shell_services_smoke.py # Dienstprozess: Lautstärke, Medien, Bluetooth, Neustart
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

@@ -23,7 +23,10 @@ def click(x, y):
     subprocess.run(["xdotool", "mousemove", str(x), str(y), "click", "1"], check=True)
 
 
-comp = Compositor(top="builtin_shell = true\n", windows=1)
+# The shell's services process must not read the real session's buses or PipeWire.
+nowhere = {"DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent", "DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/nonexistent",
+           "PIPEWIRE_RUNTIME_DIR": "/nonexistent"}
+comp = Compositor(top="builtin_shell = true\n", windows=1, extra_env=nowhere)
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 1)

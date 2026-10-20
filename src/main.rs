@@ -25,6 +25,7 @@ mod screencopy;
 mod screenshot;
 mod session;
 mod shell;
+mod shell_services;
 mod shutdown;
 mod udev;
 mod wallpaper;

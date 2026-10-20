@@ -20,6 +20,7 @@
   wlopm,
   wl-clipboard,
   gammastep,
+  wireplumber, # wpctl: the built-in bar's volume
   iproute2,
   libnotify,
   xwayland,
@@ -62,8 +63,8 @@ let
 
     cargoLock.lockFile = ../Cargo.lock;
 
-    # The compositor and the screen-cast portal; the test clients are not installed.
-    cargoBuildFlags = [ "-p" "mywm-compositor" "-p" "mywm-portal" ];
+    # The compositor, the screen-cast portal and the built-in shell's services; the test clients are not installed.
+    cargoBuildFlags = [ "-p" "mywm-compositor" "-p" "mywm-portal" "-p" "mywm-shell-services" ];
     # The tests run in development (`cargo test --workspace`, the smoke tests in `tests/`) before
     # a dependent flake.lock follows a commit; here they would only compile everything a second time.
     doCheck = false;
@@ -80,6 +81,7 @@ let
     postFixup = ''
       patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/mywm-compositor
       patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/mywm-portal
+      patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/mywm-shell-services
     '';
 
     inherit meta;
@@ -118,7 +120,8 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p $out/bin $out/share/mywm $out/share/xdg-desktop-portal/portals $out/share/dbus-1/services $out/lib/systemd/user
-    cp ${unwrapped}/bin/mywm-compositor ${unwrapped}/bin/mywm-portal $out/bin/
+    # mywm-shell-services next to the compositor, which starts it from there.
+    cp ${unwrapped}/bin/mywm-compositor ${unwrapped}/bin/mywm-portal ${unwrapped}/bin/mywm-shell-services $out/bin/
     cp -r scripts $out/share/mywm/
     cp -r ${shellSrc}/quickshell $out/share/mywm/quickshell
     install -Dm644 portal/mywm.portal $out/share/xdg-desktop-portal/portals/mywm.portal
@@ -142,6 +145,7 @@ stdenvNoCC.mkDerivation {
         wlopm
         wl-clipboard
         gammastep # the shell's night light
+        wireplumber # wpctl: the built-in bar's volume
         iproute2 # the shell's local addresses
         libnotify
         xwayland

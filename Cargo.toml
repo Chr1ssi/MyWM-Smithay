@@ -24,6 +24,8 @@ libc = "0.2"
 mywm-ipc = { path = "crates/mywm-ipc" }
 # The built-in shell's pictures (bar, power menu, notices).
 mywm-ui = { path = "crates/mywm-ui" }
+# What the shell services process says and is told.
+mywm-shell-protocol = { path = "crates/mywm-shell-protocol" }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_egl",

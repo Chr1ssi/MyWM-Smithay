@@ -37,6 +37,7 @@ use smithay::{
 use crate::{State, render::OutputElement};
 
 const BTN_LEFT: u32 = 0x110;
+const BTN_RIGHT: u32 = 0x111;
 /// How often the power menu redraws while its card resizes or counts down.
 const FRAME: Duration = Duration::from_millis(16);
 
@@ -131,6 +132,10 @@ pub struct Shell {
     /// The outcome of `systemctl reboot|poweroff`.
     systemctl: Option<channel::Sender<i32>>,
     menus_opened: u64,
+    /// Audio, media and Bluetooth from `mywm-shell-services`.
+    pub services: crate::shell_services::Services,
+    /// A warm screen: gammastep runs (through the compositor's gamma control) while this is on.
+    night_light: bool,
 }
 
 fn palette(config: &mywm_config::Config) -> Palette {
@@ -210,6 +215,8 @@ impl Shell {
             dirty: true,
             systemctl: None,
             menus_opened: 0,
+            services: Default::default(),
+            night_light: false,
         }
     }
 }
@@ -257,6 +264,53 @@ impl State {
         }) {
             Ok(_) => self.shell.systemctl = Some(sender),
             Err(error) => tracing::warn!("restart and shut down are not available: {}", error.error),
+        }
+        self.services_start();
+        self.night_light_restore();
+    }
+
+    /// Something the shell shows changed outside the compositor's own state.
+    pub fn shell_changed(&mut self) {
+        self.shell.dirty = true;
+    }
+
+    /// The night light as chosen last (`$XDG_STATE_HOME/mywm/night-light`, kept across logins).
+    fn night_light_restore(&mut self) {
+        let chosen = mywm_config::state_dir()
+            .and_then(|dir| std::fs::read_to_string(dir.join("night-light")).ok())
+            .is_some_and(|text| text.trim() == "1");
+        if !chosen {
+            return;
+        }
+        self.shell.night_light = true;
+        // One-shot mode keeps running on Wayland: the warm ramp lasts as long as the process.
+        let mut command = std::process::Command::new("gammastep");
+        command.args(["-m", "wayland", "-O", "4000"]).env("WAYLAND_DISPLAY", &self.socket_name);
+        crate::shell_services::end_with_parent(&mut command);
+        let (sender, ended) = channel::channel();
+        let watched = self.loop_handle.insert_source(ended, |event, _, state: &mut State| {
+            if let channel::Event::Msg(code) = event
+                && state.shell.night_light
+            {
+                // Not switched off: it failed (no gamma control). The saved choice stays for the next login.
+                tracing::warn!("night light: gammastep exited with {code}");
+                state.shell.night_light = false;
+                state.shell_changed();
+            }
+        });
+        let started = watched.is_ok().then(|| command.spawn());
+        match started {
+            Some(Ok(mut child)) => {
+                std::thread::spawn(move || {
+                    let code = child.wait().map_or(-1, |status| status.code().unwrap_or(-1));
+                    let _ = sender.send(code);
+                });
+            }
+            Some(Err(error)) => {
+                tracing::warn!("night light: cannot start gammastep: {error}");
+                self.shell.night_light = false;
+            }
+            None => self.shell.night_light = false,
         }
     }
 
@@ -371,14 +425,16 @@ impl State {
             active: Some(desk.workspaces.active as u32),
             scratchpad_visible: self.desktop.scratchpad_visible,
             scratchpad_occupied: !self.desktop.scratchpad.windows.is_empty(),
-            // Media, the panels and the status of Bluetooth, notifications and audio come with the shell's
-            // services; until then the buttons show what the Quickshell bar shows without them.
-            media: None,
+            media: self.shell.services.status.media.clone(),
             clock: self.shell.clock.clone(),
             capturing: self.capturing(),
-            control_icon: "󰒓".into(),
+            control_icon: bar::control_icon(
+                self.shell.services.status.bluetooth.map(|b| (b.powered, b.connected)),
+                self.shell.night_light,
+            ),
+            // Notifications and the panels come with their own steps.
             notifications: 0,
-            audio: None,
+            audio: self.shell.services.status.audio.map(|a| bar::Audio { volume: a.volume, muted: a.muted }),
             open_panel: None,
             power_open: self.shell.power.as_ref().is_some_and(|m| &m.output == output),
             hover,
@@ -522,7 +578,17 @@ impl State {
             return;
         }
         self.shell.pressed = None;
-        if on != hit || button != BTN_LEFT {
+        if on != hit {
+            return;
+        }
+        if button == BTN_RIGHT {
+            // A `BarButton`'s secondary click: only the audio button has one (mute).
+            if matches!(hit, Some(ShellHit::Bar(_, BarTarget::Panel(bar::Panel::Audio)))) {
+                self.audio_toggle_mute();
+            }
+            return;
+        }
+        if button != BTN_LEFT {
             return;
         }
         match hit {
@@ -535,6 +601,28 @@ impl State {
             }
             Some(ShellHit::Notices(NoticeTarget::Background)) | None => {}
         }
+    }
+
+    /// The wheel turned `steps` notches (positive: away from the user) over `hit`: over the audio button that
+    /// changes the volume; elsewhere on the shell it does nothing, and no window gets it either.
+    pub fn shell_scroll(&mut self, hit: ShellHit, steps: f32) {
+        if !matches!(hit, ShellHit::Bar(_, BarTarget::Panel(bar::Panel::Audio))) {
+            return;
+        }
+        let Some(audio) = &mut self.shell.services.status.audio else { return };
+        let volume = bar::scrolled_volume(audio.volume, steps);
+        // Shown at once; the services' next report confirms it.
+        audio.volume = volume;
+        audio.muted = false;
+        self.shell_changed();
+        self.services_send(mywm_shell_protocol::Command::SetVolume { volume });
+    }
+
+    fn audio_toggle_mute(&mut self) {
+        let Some(audio) = &mut self.shell.services.status.audio else { return };
+        audio.muted = !audio.muted;
+        self.shell_changed();
+        self.services_send(mywm_shell_protocol::Command::ToggleMute);
     }
 
     fn bar_clicked(&mut self, monitor: usize, target: BarTarget) {

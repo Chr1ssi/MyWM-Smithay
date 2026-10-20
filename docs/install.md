@@ -49,8 +49,9 @@ als `*.1` erhalten.
 
 ## Andere Distributionen
 
-1. Bauen: `cargo build --release -p mywm-compositor -p mywm-portal` (Abhängigkeiten siehe README).
-2. Installieren: `mywm-compositor` und `mywm-portal` in den `PATH`; `scripts/mywm-session` und
+1. Bauen: `cargo build --release -p mywm-compositor -p mywm-portal -p mywm-shell-services` (Abhängigkeiten siehe README).
+2. Installieren: `mywm-compositor`, `mywm-portal` und `mywm-shell-services` (die eingebaute Shell sucht es neben dem
+   Compositor, sonst im `PATH`) in den `PATH`; `scripts/mywm-session` und
    `scripts/session-environment` ebenfalls (`MYWM_BINARY` und `MYWM_SESSION_ENVIRONMENT` zeigen
    sonst auf `mywm-compositor` und `session-environment` im `PATH`).
 3. Quickshell-Oberfläche: das Repo `mywm-shell` bereitstellen und `MYWM_SHELL_DIR` auf dessen
@@ -66,7 +67,8 @@ als `*.1` erhalten.
 5. Portale: Dateien aus `portal/` installieren (siehe `docs/streaming.md`), für
    `XDG_CURRENT_DESKTOP=mywm` als `~/.config/xdg-desktop-portal/mywm-portals.conf`.
 6. Laufzeit-Programme: `quickshell`, `swayidle`, `wlopm`, `wl-clipboard` (Screenshot in
-   die Zwischenablage), `libnotify` (Benachrichtigung), `xwayland`, `polkit-gnome` (optional).
+   die Zwischenablage), `libnotify` (Benachrichtigung), `xwayland`, `polkit-gnome` (optional),
+   `wireplumber` (`wpctl`: Lautstärke der eingebauten Bar).
 
 ## Erster Start auf der Hardware
 

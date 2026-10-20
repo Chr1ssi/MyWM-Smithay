@@ -58,7 +58,8 @@
             inputsFrom = [ self.devShells.${system}.default ];
             inherit (self.devShells.${system}.default) LD_LIBRARY_PATH LIBCLANG_PATH;
             packages = with pkgs; [
-              python3
+              # dbus and gi: the stand-ins for BlueZ and a media player (tests/fake_bluez.py, tests/fake_mpris.py)
+              (python3.withPackages (ps: [ ps.dbus-python ps.pygobject3 ]))
               xorg-server # Xvfb
               xdotool
               imagemagick

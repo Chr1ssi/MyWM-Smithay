@@ -9,7 +9,9 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
 ## Was sie schon kann
 
 - **Bar** auf jedem Monitor: Workspaces (Klick wechselt, `+` legt einen an, `S` für das Scratchpad),
-  Datum und Uhrzeit (`LC_TIME`, CLDR-Abkürzungen wie Qt), Aufnahme-Anzeige, Power-Knopf. Sie hält die oberen
+  Medien-Pill (Titel des ersten MPRIS-Players, der spielt), Datum und Uhrzeit (`LC_TIME`, CLDR-Abkürzungen wie
+  Qt), Aufnahme-Anzeige, Commandcenter-Symbol (Bluetooth an oder verbunden, Nachtlicht, sonst Zahnrad),
+  Lautstärke des Standardausgangs (Mausrad: 5 % je Raste, Rechtsklick: stumm) und Power-Knopf. Sie hält die oberen
   40 Pixel frei wie früher ihre Exclusive Zone; Vollbildfenster und `Top`-Layer anderer Programme liegen davor.
 - **Powermenü**: Sperren, Abmelden, Neustart, Ausschalten; Fünf-Sekunden-Countdown mit Ring, Escape, Klick
   daneben oder „Abbrechen“ stoppen ihn, Tab/Enter/Leertaste bedienen es. Das Exit-Binding öffnet es mit dem
@@ -19,12 +21,14 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
 - Theme aus `theme.json` (sonst `[appearance]`), neu geladen mit dem Config-Reload/Theme-Reload des Pickers.
   Sprache nach `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` (Deutsch, sonst Englisch).
 
+- **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
+  Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
+
 ## Was noch fehlt
 
-Medien-Pill, Tray, Benachrichtigungsdienst und -verlauf, Audio, Commandcenter (Bluetooth, Nachtlicht,
-Adressen), Kalender, Launcher, Wallpaper-Picker, Sperr- und Anmeldebildschirm. Die Knöpfe für Commandcenter,
-Benachrichtigungen und Audio zeigen bis dahin, was die Quickshell-Bar ohne diese Dienste zeigt; Klicks auf
-sie und auf die Uhr tun noch nichts. Datum und Uhrzeit kennen nur deutsche und englische Namen.
+Tray, Benachrichtigungsdienst und -verlauf, die Panels (Audio, Medien, Commandcenter, Kalender), Launcher,
+Wallpaper-Picker, Sperr- und Anmeldebildschirm. Linksklicks auf Uhr, Medien und Status-Knöpfe tun noch
+nichts, die Glocke zeigt keine Zahl. Datum und Uhrzeit kennen nur deutsche und englische Namen.
 
 ## Aufbau
 
@@ -37,11 +41,25 @@ sie und auf die Uhr tun noch nichts. Datum und Uhrzeit kennen nur deutsche und e
 - Reihenfolge von vorn nach hinten: Powermenü, `Overlay`-Layer, Hinweise, Vollbildfenster, `Top`-Layer,
   Bar, Fenster. Zeiger und Klicks folgen derselben Reihenfolge (`pointer_target_over` in `src/input.rs`).
 
-Nächster Schritt: ein Dienstprozess (`mywm-compositor --shell-services`) für D-Bus (Benachrichtigungen,
-Tray, MPRIS, BlueZ), PipeWire, PAM und greetd. Er tauscht Zustand und Befehle mit dem Compositor aus und wird
-nach einem Absturz neu gestartet, damit ein hängender Dienst nie Bild oder Eingabe einfriert.
+- `mywm-shell-services` (`crates/mywm-shell-services`, eigenes Programm neben dem Compositor): fragt die
+  Dienste ab, damit ein hängender oder abstürzender Dienst nie Bild oder Eingabe einfriert. PipeWire
+  (Standardausgang aus der `default`-Metadaten, Lautstärke kubisch wie bei `wpctl` und Quickshell), MPRIS auf dem
+  Session-Bus und BlueZ auf dem System-Bus laufen in je einem Thread und verbinden sich bei Ausfall nach drei
+  Sekunden neu. Lautstärke und Stummschaltung setzt es mit `wpctl` (WirePlumber), wie das Audio-Panel der
+  Quickshell-Shell; schnelles Scrollen fasst es zu einem Aufruf zusammen.
+- `crates/mywm-shell-protocol`: eine JSON-Zeile je Nachricht über stdin/stdout. Der Dienstprozess schickt bei
+  jeder Änderung den ganzen Status, der Compositor Befehle. Der Compositor liest ohne zu blockieren, verwirft
+  Befehle, die der Prozess nicht abnimmt, und startet ihn nach dem Ende mit wachsender Pause neu (1 bis 30
+  Sekunden; nach einer Minute Laufzeit wieder kurz). Stirbt der Compositor, endet der Prozess mit ihm
+  (`PR_SET_PDEATHSIG`). Statusänderungen protokolliert er mit `RUST_LOG=mywm_compositor::shell_services=debug`.
+
+Nächste Schritte im selben Prozess: Benachrichtigungsdienst, Tray (StatusNotifierItem), dann PAM und greetd.
 
 ## Test
 
 `tests/builtin_shell_smoke.py`: Bar gezeichnet und Fenster darunter, Workspace-Knöpfe, Powermenü,
 abgebrochener und abgelaufener Logout-Countdown, Konfigurationshinweis.
+`tests/shell_services_smoke.py`: mit eigenem PipeWire (Null-Sink), nachgebautem Player (`tests/fake_mpris.py`) und
+nachgebautem BlueZ (`tests/fake_bluez.py`): Mausrad und Rechtsklick auf der Lautstärke, Medientitel, Bluetooth,
+Neustart des Dienstprozesses nach `kill -9`. Nested meldet winit Drücken und Loslassen einer X-Mausradtaste je als
+eine Raste; ein Klick dort sind also zwei.

@@ -125,6 +125,24 @@ impl Content {
     }
 }
 
+/// The command center button's icon: Bluetooth when its adapter is on (`powered`, devices connected) and the
+/// night light when it is on, else a gear.
+pub fn control_icon(bluetooth: Option<(bool, usize)>, night_light: bool) -> String {
+    let mut icons = Vec::new();
+    if let Some((true, connected)) = bluetooth {
+        icons.push(if connected > 0 { "󰂱" } else { "󰂯" });
+    }
+    if night_light {
+        icons.push("󰖔");
+    }
+    if icons.is_empty() { "󰒓".into() } else { icons.join(" ") }
+}
+
+/// The volume after `steps` wheel notches over the audio button (5 % each, as the Quickshell bar).
+pub fn scrolled_volume(volume: f32, steps: f32) -> f32 {
+    (volume + steps * 0.05).clamp(0.0, 1.0)
+}
+
 /// The bar's picture and click targets for `model`.
 pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Scene<BarTarget> {
     let mut scene = Scene::new(model.width, BAR_HEIGHT);
@@ -327,6 +345,18 @@ mod tests {
         assert_eq!(texts(BarModel { notifications: 3, audio, ..model() }), ("󰂚 3".into(), "󰕾 80 %".into()));
         let audio = Some(Audio { volume: 0.8, muted: true });
         assert_eq!(texts(BarModel { audio, language: Language::German, ..model() }).1, "󰖁 Stumm");
+    }
+
+    #[test]
+    fn the_control_icon_shows_bluetooth_and_the_night_light() {
+        assert_eq!(control_icon(None, false), "󰒓");
+        assert_eq!(control_icon(Some((false, 2)), false), "󰒓");
+        assert_eq!(control_icon(Some((true, 0)), false), "󰂯");
+        assert_eq!(control_icon(Some((true, 1)), true), "󰂱 󰖔");
+        assert_eq!(control_icon(None, true), "󰖔");
+        assert_eq!(scrolled_volume(0.8, 1.0), 0.85);
+        assert_eq!(scrolled_volume(0.98, 1.0), 1.0);
+        assert_eq!(scrolled_volume(0.02, -1.0), 0.0);
     }
 
     #[test]

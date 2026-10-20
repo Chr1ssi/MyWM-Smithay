@@ -278,6 +278,22 @@ impl State {
                 event.time_msec(),
             ),
             InputEvent::PointerAxis { event } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                if !pointer.is_grabbed()
+                    && let Some(hit) = self.shell_at_pointer()
+                {
+                    // Notches as a QML `MouseArea` counts them (positive: away from the user); a touchpad's
+                    // continuous scrolling in the same units as the wheel turns into it (15 per notch).
+                    let notches = event
+                        .amount_v120(Axis::Vertical)
+                        .map(|v120| v120 / 120.0)
+                        .or_else(|| event.amount(Axis::Vertical).map(|amount| amount / 15.0))
+                        .unwrap_or(0.0);
+                    if notches != 0.0 {
+                        self.shell_scroll(hit, -notches as f32);
+                    }
+                    return;
+                }
                 let source = event.source();
                 let mut frame = AxisFrame::new(event.time_msec()).source(source);
                 for axis in [Axis::Horizontal, Axis::Vertical] {
@@ -293,7 +309,6 @@ impl State {
                         frame = frame.stop(axis);
                     }
                 }
-                let pointer = self.seat.get_pointer().unwrap();
                 pointer.axis(self, frame);
                 pointer.frame(self);
             }

@@ -2234,6 +2234,7 @@ dependencies = [
  "mywm-config",
  "mywm-ipc",
  "mywm-layout",
+ "mywm-shell-protocol",
  "mywm-theme",
  "mywm-ui",
  "png 0.17.16",
@@ -2290,6 +2291,26 @@ dependencies = [
  "png 0.17.16",
  "toml_edit",
  "xkbcommon",
+]
+
+[[package]]
+name = "mywm-shell-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mywm-shell-services"
+version = "0.1.0"
+dependencies = [
+ "mywm-shell-protocol",
+ "pipewire",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
 ]
 
 [[package]]

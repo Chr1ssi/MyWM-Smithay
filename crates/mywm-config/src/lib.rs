@@ -103,7 +103,7 @@ pub struct Config {
     pub xwayland: bool,
     /// Native output setup (kanshi and wlr-randr work too).
     pub outputs: Vec<OutputConfig>,
-    /// The compositor draws the bar, the power menu and the notices itself instead of starting mywm-shell's
+    /// The compositor draws the bar, the power menu and the notices itself (with `mywm-shell-services`) instead of starting mywm-shell's
     /// Quickshell bar (`--bar`). Read at startup.
     pub builtin_shell: bool,
 }
