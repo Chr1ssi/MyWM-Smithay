@@ -5,6 +5,7 @@ use crate::{
     Align, Measure, Node, Rect, Scene, TextStyle, Theme,
     audio::{self, AudioModel, AudioTarget},
     bar::Panel,
+    control::{self, ControlModel, ControlTarget},
     i18n::Language,
     media::{self, MediaTarget, PlayerView},
     notifications::{self, CardTarget, NotificationView},
@@ -29,6 +30,7 @@ pub enum PanelTarget {
     Card(CardTarget),
     Media(MediaTarget),
     Audio(AudioTarget),
+    Control(ControlTarget),
 }
 
 /// A panel's content, laid out at the panel's inner width from its own top left corner.
@@ -60,6 +62,7 @@ pub enum ContentModel {
     Notifications { items: Vec<NotificationView>, list_scroll: f32 },
     Media { players: Vec<PlayerView> },
     Audio(AudioModel),
+    Control(ControlModel),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -114,6 +117,7 @@ pub fn scene(model: &PanelModel, theme: &Theme, measure: &mut impl Measure) -> P
         }
         ContentModel::Media { players } => (media::content(players, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
         ContentModel::Audio(audio) => (audio::content(audio, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
+        ContentModel::Control(control) => (control::content(control, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
     };
     let title_style = TextStyle::new(20.0);
     let title_height = measure.line_height(title_style);

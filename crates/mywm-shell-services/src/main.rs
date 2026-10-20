@@ -43,7 +43,7 @@ fn main() {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
     let (updates, news) = mpsc::channel();
-    for (name, run) in [("audio", audio::run as fn(mpsc::Sender<Update>)), ("media", media::run), ("bluetooth", bluetooth::run)] {
+    for (name, run) in [("audio", audio::run as fn(mpsc::Sender<Update>)), ("media", media::run)] {
         let updates = updates.clone();
         if let Err(error) = std::thread::Builder::new().name(name.into()).spawn(move || run(updates)) {
             tracing::error!("cannot start the {name} source: {error}");
@@ -53,6 +53,20 @@ fn main() {
     let started = std::thread::Builder::new().name("commands".into()).spawn(move || run_commands(queue));
     if let Err(error) = started {
         tracing::error!("cannot run commands: {error}");
+    }
+    let busy = bluetooth::BusyDevices::default();
+    let (poke, pokes) = mpsc::channel();
+    let (bluetooth_updates, bluetooth_busy, bluetooth_poke) = (updates.clone(), busy.clone(), poke.clone());
+    let started = std::thread::Builder::new()
+        .name("bluetooth".into())
+        .spawn(move || bluetooth::run(bluetooth_updates, bluetooth_busy, bluetooth_poke, pokes));
+    if let Err(error) = started {
+        tracing::error!("cannot start the bluetooth source: {error}");
+    }
+    let (bluetooth_commands, bluetooth_queue) = mpsc::channel();
+    let started = std::thread::Builder::new().name("bluetooth-commands".into()).spawn(move || bluetooth::run_commands(bluetooth_queue, busy, poke));
+    if let Err(error) = started {
+        tracing::error!("cannot control Bluetooth: {error}");
     }
     let (player_commands, player_queue) = mpsc::channel();
     let started = std::thread::Builder::new().name("player-commands".into()).spawn(move || media::run_commands(player_queue));
@@ -93,6 +107,21 @@ fn main() {
                 }
                 Some(Command::Player { bus, action }) => {
                     let _ = player_commands.send((bus, action));
+                }
+                Some(Command::BluetoothPower { on }) => {
+                    let _ = bluetooth_commands.send(bluetooth::BluetoothCommand::Power(on));
+                }
+                Some(Command::BluetoothDiscover { on }) => {
+                    let _ = bluetooth_commands.send(bluetooth::BluetoothCommand::Discover(on));
+                }
+                Some(Command::DeviceConnect { path }) => {
+                    let _ = bluetooth_commands.send(bluetooth::BluetoothCommand::Connect(path));
+                }
+                Some(Command::DeviceDisconnect { path }) => {
+                    let _ = bluetooth_commands.send(bluetooth::BluetoothCommand::Disconnect(path));
+                }
+                Some(Command::DevicePair { path }) => {
+                    let _ = bluetooth_commands.send(bluetooth::BluetoothCommand::Pair(path));
                 }
                 Some(Command::TrayActivate { address }) => {
                     let _ = tray_commands.send(tray::TrayCommand::Activate(address));

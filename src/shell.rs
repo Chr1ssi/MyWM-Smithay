@@ -143,8 +143,8 @@ pub struct Shell {
     menus_opened: u64,
     /// Audio, media and Bluetooth from `mywm-shell-services`.
     pub services: crate::shell_services::Services,
-    /// A warm screen: gammastep runs (through the compositor's gamma control) while this is on.
-    night_light: bool,
+    /// Night light, addresses and the command center's other own parts.
+    pub control: crate::shell_control::Control,
     /// Notifications and their toasts.
     pub notes: crate::shell_notifications::Notes,
     /// The open panel.
@@ -232,7 +232,7 @@ impl Shell {
             systemctl: None,
             menus_opened: 0,
             services: Default::default(),
-            night_light: false,
+            control: Default::default(),
             notes: Default::default(),
             panel: None,
             tray_menu: None,
@@ -291,46 +291,6 @@ impl State {
     /// Something the shell shows changed outside the compositor's own state.
     pub fn shell_changed(&mut self) {
         self.shell.dirty = true;
-    }
-
-    /// The night light as chosen last (`$XDG_STATE_HOME/mywm/night-light`, kept across logins).
-    fn night_light_restore(&mut self) {
-        let chosen = mywm_config::state_dir()
-            .and_then(|dir| std::fs::read_to_string(dir.join("night-light")).ok())
-            .is_some_and(|text| text.trim() == "1");
-        if !chosen {
-            return;
-        }
-        self.shell.night_light = true;
-        // One-shot mode keeps running on Wayland: the warm ramp lasts as long as the process.
-        let mut command = std::process::Command::new("gammastep");
-        command.args(["-m", "wayland", "-O", "4000"]).env("WAYLAND_DISPLAY", &self.socket_name);
-        crate::shell_services::end_with_parent(&mut command);
-        let (sender, ended) = channel::channel();
-        let watched = self.loop_handle.insert_source(ended, |event, _, state: &mut State| {
-            if let channel::Event::Msg(code) = event
-                && state.shell.night_light
-            {
-                // Not switched off: it failed (no gamma control). The saved choice stays for the next login.
-                tracing::warn!("night light: gammastep exited with {code}");
-                state.shell.night_light = false;
-                state.shell_changed();
-            }
-        });
-        let started = watched.is_ok().then(|| command.spawn());
-        match started {
-            Some(Ok(mut child)) => {
-                std::thread::spawn(move || {
-                    let code = child.wait().map_or(-1, |status| status.code().unwrap_or(-1));
-                    let _ = sender.send(code);
-                });
-            }
-            Some(Err(error)) => {
-                tracing::warn!("night light: cannot start gammastep: {error}");
-                self.shell.night_light = false;
-            }
-            None => self.shell.night_light = false,
-        }
     }
 
     /// Re-read the generated colors (after the wallpaper picker or a config reload).
@@ -455,8 +415,8 @@ impl State {
             capturing: self.capturing(),
             tray: self.tray_icons(),
             control_icon: bar::control_icon(
-                self.shell.services.status.bluetooth.map(|b| (b.powered, b.connected)),
-                self.shell.night_light,
+                self.shell.services.status.bluetooth.as_ref().map(|b| (b.powered, b.connected())),
+                self.shell.control.night_light,
             ),
             notifications: self.notification_count(),
             audio: self.shell.services.status.default_audio().map(|a| bar::Audio { volume: a.volume, muted: a.muted }),
@@ -694,7 +654,7 @@ impl State {
                     _ => {}
                 }
             }
-            BarTarget::Panel(kind @ (bar::Panel::Notifications | bar::Panel::Media | bar::Panel::Audio)) => {
+            BarTarget::Panel(kind @ (bar::Panel::Notifications | bar::Panel::Media | bar::Panel::Audio | bar::Panel::Control)) => {
                 if let Some(output) = self.outputs.get(monitor).map(|e| e.output.clone()) {
                     self.panel_toggle(kind, output);
                 }

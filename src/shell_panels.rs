@@ -56,6 +56,9 @@ impl State {
             outputs_expanded: false,
             inputs_expanded: false,
         });
+        if kind == Panel::Control {
+            self.addresses_follow();
+        }
         self.shell_changed();
     }
 
@@ -106,6 +109,7 @@ impl State {
             PanelTarget::Card(CardTarget::Action(id, index)) => self.notification_invoke(id, index),
             PanelTarget::Media(target) => self.media_clicked(target),
             PanelTarget::Audio(target) => self.audio_clicked(target),
+            PanelTarget::Control(target) => self.control_clicked(target),
             PanelTarget::Card(CardTarget::Card(_)) | PanelTarget::Background | PanelTarget::List => {}
         }
     }
@@ -210,9 +214,10 @@ impl State {
         match panel.kind {
             Panel::Media => ContentModel::Media { players: self.player_views() },
             Panel::Audio => ContentModel::Audio(self.audio_model(panel.outputs_expanded, panel.inputs_expanded)),
+            Panel::Control => ContentModel::Control(self.control_model()),
             Panel::Notifications => ContentModel::Notifications { items: self.notification_views(), list_scroll: panel.list_scroll },
-            // Not opened yet (see `bar_clicked`): their contents come with their own steps.
-            Panel::Control | Panel::Calendar => ContentModel::Media { players: Vec::new() },
+            // Not opened yet (see `bar_clicked`): its content comes with its own step.
+            Panel::Calendar => ContentModel::Media { players: Vec::new() },
         }
     }
 

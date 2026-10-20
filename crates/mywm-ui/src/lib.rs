@@ -8,6 +8,7 @@
 pub mod audio;
 pub mod bar;
 pub mod clock;
+pub mod control;
 pub mod i18n;
 pub mod markup;
 pub mod media;

@@ -112,13 +112,14 @@ try:
     print("media title OK")
 
     # Bluetooth: switched on, then a device connects.
-    assert reported(comp, r"bluetooth: Some\(Bluetooth \{ powered: false, connected: 0 \}\)"), "no adapter reported"
+    assert reported(comp, r"bluetooth: Some\(Bluetooth \{ powered: false"), "no adapter reported"
     busctl = ["busctl", f"--address={system_address}", "call", "org.bluez"]
     subprocess.run([*busctl, "/org/bluez/hci0", "org.freedesktop.DBus.Properties", "Set", "ssv", "org.bluez.Adapter1", "Powered", "b", "true"],
                    env=env, check=True)
-    assert wait(lambda: reported(comp, r"powered: true, connected: 0"), 10), "the adapter's power was not followed"
+    assert wait(lambda: reported(comp, r"bluetooth: Some\(Bluetooth \{ powered: true"), 10), "the adapter's power was not followed"
     subprocess.run([*busctl, "/org/bluez/hci0/dev_11_11_11_11_11_11", "org.bluez.Device1", "Connect"], env=env, check=True)
-    assert wait(lambda: reported(comp, r"powered: true, connected: 1"), 10), "the connected device was not followed"
+    connected = r'name: "Kopfhörer", address: "[^"]*", paired: true, connected: true'
+    assert wait(lambda: reported(comp, connected), 10), "the connected device was not followed"
     print("Bluetooth OK")
 
     # Killed, the services process comes back, and the compositor stays responsive meanwhile.

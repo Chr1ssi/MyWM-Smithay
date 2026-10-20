@@ -40,6 +40,11 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
 - **Panels** unter der Bar wie bei Quickshell (rechts für Audio, Commandcenter und Benachrichtigungen, mittig für
   Medien und Kalender), eins zur Zeit; ein Klick hinein gibt ihm die Tastatur (Escape schließt), ein Klick daneben
   schließt es, das Mausrad scrollt es, wenn der Monitor zu niedrig ist.
+- **Commandcenter**: Kacheln für Bluetooth und Nachtlicht, die lokalen IPv4-Adressen (alle fünf Sekunden über `ip`,
+  solange das Panel offen ist; ein Klick kopiert eine mit `wl-copy`) und die Bluetooth-Geräte mit Akkustand zum
+  Verbinden und Trennen; „Suchen“ findet neue, „Koppeln“ vertraut ihnen zuerst, damit sie sich später selbst verbinden.
+  Das Nachtlicht hält `gammastep -O 4000` am Laufen, solange es an ist, und merkt sich die Wahl in
+  `$XDG_STATE_HOME/mywm/night-light`.
 - **Audio-Panel**: Standardausgang und -mikrofon mit Regler (ziehen) und Prozentknopf (stumm), die übrigen hinter
   „Anderen Ausgang wählen“/„Anderes Mikrofon wählen“ (ein Klick macht sie zum Standard), dazu die Anwendungen, die
   spielen. WirePlumbers Smart-Filter (der NixOS-Mikrofonfilter) fehlen in der Liste, wie bei Quickshell.
@@ -50,8 +55,9 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
 
 ## Was noch fehlt
 
-Die übrigen Panels (Commandcenter, Kalender), Launcher, Wallpaper-Picker, Sperr- und
-Anmeldebildschirm. Linksklicks auf Uhr und Commandcenter tun noch nichts. Datum und Uhrzeit
+Das Kalender-Panel, Launcher, Wallpaper-Picker, Sperr- und
+Anmeldebildschirm. Ein Klick auf die Uhr tut noch nichts. In den Panels führt Tab noch nicht von Knopf zu Knopf
+(bei Quickshell erreichte Tab jeden Knopf). Datum und Uhrzeit
 kennen nur deutsche und englische Namen. Links in Benachrichtigungen erscheinen unterstrichen in Textfarbe, nicht
 wie bei Qt blau.
 
@@ -91,7 +97,7 @@ wie bei Qt blau.
   stehen; `text.rs` beginnt solche Folgezeilen beim ersten Wort (Workaround, bis cosmic-text das selbst richtig
   macht).
 
-Nächste Schritte im selben Prozess: Commandcenter (BlueZ-Steuerung), dann PAM und greetd.
+Nächste Schritte: Kalender-Panel, im Dienstprozess dann PAM und greetd.
 
 ## Test
 
@@ -100,6 +106,9 @@ abgebrochener und abgelaufener Logout-Countdown, Konfigurationshinweis.
 `tests/shell_services_smoke.py`: mit eigenem PipeWire (Null-Sink), nachgebautem Player (`tests/fake_mpris.py`) und
 nachgebautem BlueZ (`tests/fake_bluez.py`): Mausrad und Rechtsklick auf der Lautstärke, Medientitel, Bluetooth,
 Neustart des Dienstprozesses nach `kill -9`.
+`tests/control_smoke.py`: nachgebautes BlueZ und Platzhalter für `gammastep`, `ip`, `wl-copy`, geklickt an denselben
+Stellen wie mywm-shells Test des Quickshell-Panels (das Layout ist also gleich): Bluetooth an, verbinden, suchen,
+koppeln, Adresse kopieren, Nachtlicht an und aus, gemerktes Nachtlicht beim nächsten Start.
 `tests/audio_smoke.py`: eigenes PipeWire mit zwei Ausgängen, Mikrofon, Smart-Filter und Anwendungsstrom: Regler
 ziehen, Stummschalten, anderen Ausgang wählen. Die PipeWire-Tests starten WirePlumber ohne Hardware-Monitore
 (`hermetic_wireplumber` in `tests/smoke_support.py`): sonst fände es die echten Geräte des Rechners, und ein Test,

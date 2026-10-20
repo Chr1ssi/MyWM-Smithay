@@ -84,11 +84,52 @@ pub struct Audio {
     pub muted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Bluetooth {
     pub powered: bool,
-    /// Devices of the adapter that are connected.
-    pub connected: usize,
+    pub discovering: bool,
+    /// The adapter's devices.
+    pub devices: Vec<Device>,
+}
+
+impl Bluetooth {
+    /// The devices the command center lists: paired ones, and while searching the others too; connected ones
+    /// first, then paired ones, then by name.
+    pub fn listed(&self) -> Vec<&Device> {
+        let mut devices: Vec<&Device> = self.devices.iter().filter(|d| d.paired || self.discovering).collect();
+        devices.sort_by(|a, b| b.connected.cmp(&a.connected).then(b.paired.cmp(&a.paired)).then_with(|| a.name.cmp(&b.name)));
+        devices
+    }
+
+    /// Listed devices that are connected.
+    pub fn connected(&self) -> usize {
+        self.listed().iter().filter(|d| d.connected).count()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Busy {
+    Pairing,
+    Connecting,
+    Disconnecting,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Device {
+    /// Its object path, which commands name.
+    pub path: String,
+    /// Its alias (what the user called it), else its address.
+    pub name: String,
+    pub address: String,
+    pub paired: bool,
+    pub connected: bool,
+    /// Percent.
+    pub battery: Option<u8>,
+    /// A call for it runs.
+    pub busy: Option<Busy>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,6 +259,12 @@ pub enum Command {
     ToggleMute { id: u32 },
     /// Make the node the default output or microphone.
     SetDefault { id: u32 },
+    BluetoothPower { on: bool },
+    BluetoothDiscover { on: bool },
+    DeviceConnect { path: String },
+    DeviceDisconnect { path: String },
+    /// Trust the device (so it connects by itself later) and pair it.
+    DevicePair { path: String },
     /// The user closed the notification (`NotificationClosed` with reason 2).
     Dismiss { id: u32 },
     /// The user chose one of the notification's actions.
@@ -302,7 +349,7 @@ mod tests {
     #[test]
     fn messages_survive_the_pipe() {
         let node = AudioNode { id: 7, kind: NodeKind::Stream, application: "Firefox".into(), audio: Some(Audio { volume: 0.8, muted: true }), ..AudioNode::default() };
-        let status = Status { nodes: vec![node], default_sink: Some(7), bluetooth: Some(Bluetooth { powered: true, connected: 1 }), ..Status::default() };
+        let status = Status { nodes: vec![node], default_sink: Some(7), bluetooth: Some(Bluetooth::default()), ..Status::default() };
         assert_eq!(status.default_audio(), Some(Audio { volume: 0.8, muted: true }));
         let notification = Notification {
             id: 7,
@@ -348,6 +395,22 @@ mod tests {
             assert_eq!(decode::<Command>(&encode(&command)), Some(command));
         }
         assert_eq!(encode(&Command::ToggleMute { id: 3 }), "{\"command\":\"toggle-mute\",\"id\":3}\n");
+    }
+
+    #[test]
+    fn listed_devices_are_paired_ones_connected_first() {
+        let device = |name: &str, paired, connected| Device { name: name.into(), paired, connected, ..Device::default() };
+        let bluetooth = Bluetooth {
+            powered: true,
+            discovering: false,
+            devices: vec![device("b", true, false), device("new", false, false), device("a", true, false), device("z", true, true)],
+        };
+        let names: Vec<_> = bluetooth.listed().iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["z", "a", "b"]);
+        assert_eq!(bluetooth.connected(), 1);
+        let searching = Bluetooth { discovering: true, ..bluetooth };
+        let names: Vec<_> = searching.listed().iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["z", "a", "b", "new"]);
     }
 
     #[test]
