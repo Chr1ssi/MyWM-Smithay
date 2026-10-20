@@ -45,6 +45,10 @@ Bedarf, und er beendet sich nach dem Schließen; `--wallpaper` hält ihn stattde
 `$XDG_STATE_HOME/mywm/wallpaper.json` (sonst das erste Bild in `wallpaper_directory`), skaliert sie
 einmal in einem eigenen Thread über alle Monitore und lädt sie beim Theme-Reload des Pickers neu. Der
 Quickshell-Picker (`mywm-shell`) sieht aus wie bisher, zeichnet aber keinen eigenen Hintergrund mehr.
+Die Farben (`$XDG_STATE_HOME/mywm/theme.json`, Rollennamen wie bei Material You) kommen aus den
+Farbfamilien des Bildes: Die drei nach Fläche × Sättigung stärksten werden primary, secondary und
+tertiary, die Flächen nehmen den Farbton der dunklen Bildbereiche an, error ist immer ein kräftiges Rot,
+und die Terminalfarben behalten ihre Rolle (rot bleibt rot), drehen sich aber zu den Farben des Bildes.
 
 Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-Blur; siehe
 `docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).

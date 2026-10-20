@@ -1,8 +1,6 @@
 use material_colors::{
     color::Argb,
-    dynamic_color::{DynamicScheme, Variant},
     image::{FilterType, ImageReader},
-    scheme::Scheme,
 };
 use minijinja::Environment;
 use serde::Serialize;
@@ -19,6 +17,9 @@ use std::{
 };
 
 pub use mywm_config::theme_state_path as state_path;
+
+mod palette;
+use palette::Analysis;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -39,6 +40,7 @@ struct ThemeState {
     scheme: &'static str,
     source: String,
     source_color: String,
+    analysis: Analysis,
     colors: BTreeMap<String, Token>,
 }
 
@@ -50,29 +52,21 @@ const NVIM: &str = include_str!("../assets/nvim.lua");
 const VESKTOP: &str = include_str!("../assets/vesktop.css");
 const GREETER: &str = include_str!("../assets/greeter.css");
 
-/// Material's medium contrast: borders reach about 3:1 or more against the surface and text gets
-/// brighter, while muted text and outlines stay distinct (at 1.0 they collapse into the text color).
-const CONTRAST_LEVEL: f64 = 0.5;
-
-/// The dark scheme every consumer is themed with. `ThemeBuilder` cannot set a contrast level.
-fn dark_scheme(source: Argb) -> Scheme {
-    DynamicScheme::by_variant(source, &Variant::Content, true, Some(CONTRAST_LEVEL)).into()
-}
-
 pub fn apply(wallpaper: &Path) -> Result<()> {
     let state_path = state_path().ok_or("HOME or XDG_STATE_HOME is required for theme persistence")?;
     // Decoding a large wallpaper is the expensive part (about 150 ms at every session start); the
-    // scheme and the files are always derived again, so new templates still reach them.
-    let cached = cached_source(&state_path, wallpaper);
-    let source = match cached {
-        Some(source) => source,
+    // colors and the files are always derived again, so new templates still reach them.
+    let cached = cached_analysis(&state_path, wallpaper);
+    let was_cached = cached.is_some();
+    let analysis = match cached {
+        Some(analysis) => analysis,
         None => {
             let mut image = ImageReader::open(wallpaper)?;
             image.resize(112, 112, FilterType::Triangle);
-            ImageReader::extract_color(&image)
+            Analysis::of_image(&image)
         }
     };
-    let state = state_from_scheme(wallpaper, source, &dark_scheme(source));
+    let state = state_from_analysis(wallpaper, analysis);
     let directory = state_path
         .parent()
         .ok_or("theme state path has no parent directory")?;
@@ -80,7 +74,7 @@ pub fn apply(wallpaper: &Path) -> Result<()> {
 
     let serialized = serde_json::to_string_pretty(&state)? + "\n";
     let mut changed = write_atomic(&state_path, &serialized)?;
-    if cached.is_none() && !changed {
+    if !was_cached && !changed {
         // The same colors from a changed image: mark the theme as newer, so the next start skips decoding.
         fs::File::options().write(true).open(&state_path)?.set_modified(std::time::SystemTime::now())?;
     }
@@ -99,9 +93,8 @@ pub fn apply(wallpaper: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The source color of the theme in `state_path` if it was generated from `wallpaper` after the image last
-/// changed.
-fn cached_source(state_path: &Path, wallpaper: &Path) -> Option<Argb> {
+/// What the theme in `state_path` took from `wallpaper` if it was generated after the image last changed.
+fn cached_analysis(state_path: &Path, wallpaper: &Path) -> Option<Analysis> {
     let generated = fs::metadata(state_path).ok()?.modified().ok()?;
     // A symlinked wallpaper (home-manager) can point at a new image whose Nix store time never changes;
     // the link itself is recreated then.
@@ -118,7 +111,7 @@ fn cached_source(state_path: &Path, wallpaper: &Path) -> Option<Argb> {
     if saved["source"].as_str()? != wallpaper.to_string_lossy() {
         return None;
     }
-    saved["source_color"].as_str()?.parse().ok()
+    serde_json::from_value(saved["analysis"].clone()).ok()
 }
 
 pub fn apply_from_wallpaper_state(state: &Path, wallpaper_directory: &Path) -> Result<()> {
@@ -258,98 +251,21 @@ fn insert(colors: &mut BTreeMap<String, Token>, name: &str, value: Argb) {
     );
 }
 
-fn state_from_scheme(path: &Path, source: Argb, scheme: &Scheme) -> ThemeState {
+fn state_from_analysis(path: &Path, analysis: Analysis) -> ThemeState {
     let mut colors = BTreeMap::new();
-    macro_rules! roles {
-        ($($name:ident),+ $(,)?) => { $(insert(&mut colors, stringify!($name), scheme.$name);)+ };
-    }
-    roles!(
-        primary,
-        on_primary,
-        primary_container,
-        on_primary_container,
-        inverse_primary,
-        primary_fixed,
-        primary_fixed_dim,
-        on_primary_fixed,
-        on_primary_fixed_variant,
-        secondary,
-        on_secondary,
-        secondary_container,
-        on_secondary_container,
-        secondary_fixed,
-        secondary_fixed_dim,
-        on_secondary_fixed,
-        on_secondary_fixed_variant,
-        tertiary,
-        on_tertiary,
-        tertiary_container,
-        on_tertiary_container,
-        tertiary_fixed,
-        tertiary_fixed_dim,
-        on_tertiary_fixed,
-        on_tertiary_fixed_variant,
-        error,
-        on_error,
-        error_container,
-        on_error_container,
-        surface_dim,
-        surface,
-        surface_tint,
-        surface_bright,
-        surface_container_lowest,
-        surface_container_low,
-        surface_container,
-        surface_container_high,
-        surface_container_highest,
-        on_surface,
-        on_surface_variant,
-        outline,
-        outline_variant,
-        inverse_surface,
-        inverse_on_surface,
-        surface_variant,
-        background,
-        on_background,
-        shadow,
-        scrim
-    );
-    for (name, value) in [
-        ("terminal_background", scheme.surface),
-        ("terminal_foreground", scheme.on_surface),
-        ("terminal_cursor", scheme.on_surface),
-        ("terminal_cursor_text", scheme.surface),
-        ("terminal_selection_bg", scheme.surface_container_highest),
-        ("terminal_selection_fg", scheme.on_surface),
-        ("terminal_normal_black", scheme.surface_container_high),
-        ("terminal_normal_red", scheme.error),
-        ("terminal_normal_green", scheme.tertiary),
-        ("terminal_normal_yellow", scheme.secondary),
-        ("terminal_normal_blue", scheme.primary),
-        ("terminal_normal_magenta", scheme.tertiary_fixed_dim),
-        ("terminal_normal_cyan", scheme.secondary_fixed_dim),
-        ("terminal_normal_white", scheme.on_surface),
-        ("terminal_bright_black", scheme.on_surface_variant),
-        ("terminal_bright_red", scheme.error_container),
-        ("terminal_bright_green", scheme.tertiary_fixed),
-        ("terminal_bright_yellow", scheme.secondary_fixed),
-        ("terminal_bright_blue", scheme.primary_fixed),
-        ("terminal_bright_magenta", scheme.tertiary_fixed),
-        ("terminal_bright_cyan", scheme.secondary_fixed),
-        ("terminal_bright_white", scheme.surface_bright),
-    ] {
+    for (name, value) in palette::roles(&analysis) {
         insert(&mut colors, name, value);
     }
     ThemeState {
         version: 1,
         mode: "dark",
-        scheme: "content",
+        scheme: "wallpaper",
         source: path.to_string_lossy().into_owned(),
-        source_color: source.to_hex_with_pound(),
+        source_color: analysis.source().to_hex_with_pound(),
+        analysis,
         colors,
     }
 }
-
 
 pub const IMAGE_EXTENSIONS: [&str; 5] = ["jpg", "jpeg", "png", "webp", "bmp"];
 
@@ -500,50 +416,66 @@ pub fn client_mode(args: &[String], config: &mywm_config::Config) -> Option<Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use material_colors::theme::ThemeBuilder;
+
+    fn sample_state() -> ThemeState {
+        let analysis = Analysis::of_histogram([(Argb::from_u32(0xff336699), 60), (Argb::from_u32(0xffd4a017), 10), (Argb::from_u32(0xff121820), 30)]);
+        state_from_analysis(Path::new("/wallpaper.png"), analysis)
+    }
+
     #[test]
     fn generated_state_has_noctalia_compatible_tokens() {
-        let theme = ThemeBuilder::with_source(Argb::from_u32(0xff336699)).build();
-        let state = state_from_scheme(
-            Path::new("/wallpaper.png"),
-            theme.source,
-            &theme.schemes.dark,
-        );
-        assert!(state.colors.contains_key("primary"));
-        assert!(state.colors.contains_key("surface_container"));
-        assert!(state.colors.contains_key("terminal_bright_white"));
+        let state = sample_state();
+        // Every role the Material-based generator wrote, so consumers and templates keep working.
+        for name in [
+            "primary", "on_primary", "primary_container", "on_primary_container", "inverse_primary", "primary_fixed",
+            "primary_fixed_dim", "on_primary_fixed", "on_primary_fixed_variant", "secondary", "on_secondary",
+            "secondary_container", "on_secondary_container", "secondary_fixed", "secondary_fixed_dim", "on_secondary_fixed",
+            "on_secondary_fixed_variant", "tertiary", "on_tertiary", "tertiary_container", "on_tertiary_container",
+            "tertiary_fixed", "tertiary_fixed_dim", "on_tertiary_fixed", "on_tertiary_fixed_variant", "error", "on_error",
+            "error_container", "on_error_container", "surface_dim", "surface", "surface_tint", "surface_bright",
+            "surface_container_lowest", "surface_container_low", "surface_container", "surface_container_high",
+            "surface_container_highest", "on_surface", "on_surface_variant", "outline", "outline_variant", "inverse_surface",
+            "inverse_on_surface", "surface_variant", "background", "on_background", "shadow", "scrim",
+            "terminal_background", "terminal_foreground", "terminal_cursor", "terminal_cursor_text", "terminal_selection_bg",
+            "terminal_selection_fg",
+        ] {
+            assert!(state.colors.contains_key(name), "{name}");
+        }
+        for group in ["normal", "bright"] {
+            for color in ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"] {
+                assert!(state.colors.contains_key(&format!("terminal_{group}_{color}")), "{group} {color}");
+            }
+        }
+        assert_eq!(state.colors.len(), 71);
         assert_eq!(state.colors["primary"].default.hex.len(), 7);
     }
 
     #[test]
     fn borders_and_text_stand_out_from_the_surface() {
-        fn luminance(color: Argb) -> f64 {
+        // WCAG luminance of the written sRGB values, independent of the HCT tones they come from.
+        fn luminance(hex: &str) -> f64 {
+            let color: Argb = hex.parse().unwrap();
             let channel = |value: u8| {
                 let c = f64::from(value) / 255.0;
                 if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
             };
             0.2126 * channel(color.red) + 0.7152 * channel(color.green) + 0.0722 * channel(color.blue)
         }
-        fn ratio(a: Argb, b: Argb) -> f64 {
-            let (a, b) = (luminance(a), luminance(b));
+        let state = sample_state();
+        let ratio = |a: &str, b: &str| {
+            let (a, b) = (luminance(&state.colors[a].default.hex), luminance(&state.colors[b].default.hex));
             (a.max(b) + 0.05) / (a.min(b) + 0.05)
-        }
-        for source in [0xff295d54, 0xff336699, 0xffd4a017, 0xff808080] {
-            let scheme = dark_scheme(Argb::from_u32(source));
-            assert!(ratio(scheme.outline_variant, scheme.surface) >= 3.0, "{source:x}");
-            assert!(ratio(scheme.on_surface_variant, scheme.surface) >= 7.0, "{source:x}");
-            assert!(ratio(scheme.on_surface, scheme.surface) > ratio(scheme.on_surface_variant, scheme.surface), "{source:x}");
-        }
+        };
+        assert!(ratio("outline_variant", "surface") >= 3.0);
+        assert!(ratio("on_surface_variant", "surface") >= 7.0);
+        assert!(ratio("on_surface", "surface") > ratio("on_surface_variant", "surface"));
+        assert!(ratio("error", "surface") >= 4.5);
+        assert!(ratio("terminal_normal_blue", "terminal_background") >= 4.5);
     }
 
     #[test]
     fn foot_template_renders_colors_without_hash() {
-        let theme = ThemeBuilder::with_source(Argb::from_u32(0xff336699)).build();
-        let state = state_from_scheme(
-            Path::new("/wallpaper.png"),
-            theme.source,
-            &theme.schemes.dark,
-        );
+        let state = sample_state();
         let mut env = Environment::new();
         env.add_template("foot", FOOT).unwrap();
         let output = env.get_template("foot").unwrap().render(&state).unwrap();
@@ -562,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn cached_source_needs_the_same_image_unchanged_since() {
+    fn cached_analysis_needs_the_same_image_unchanged_since() {
         use std::time::{Duration, SystemTime};
         let dir = std::env::temp_dir().join(format!("mywm-theme-cache-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -571,25 +503,28 @@ mod tests {
         fs::write(&image, b"image").unwrap();
         let age = |path: &Path, time: SystemTime| fs::File::options().write(true).open(path).unwrap().set_modified(time).unwrap();
         age(&image, SystemTime::now() - Duration::from_secs(60));
+        let analysis = sample_state().analysis;
         let saved = |source: &Path| {
-            let json = serde_json::json!({ "source": source.to_string_lossy(), "source_color": "#336699" });
+            let json = serde_json::json!({ "source": source.to_string_lossy(), "analysis": analysis });
             fs::write(&state, json.to_string()).unwrap();
         };
         saved(&image);
-        assert_eq!(cached_source(&state, &image), "#336699".parse().ok());
+        // JSON may round the last digit of a float; the colors are what has to survive.
+        let cached = cached_analysis(&state, &image).unwrap();
+        assert_eq!(palette::roles(&cached), palette::roles(&analysis));
         // Another image, or this one changed after the theme was generated.
         let other = dir.join("other.png");
         fs::write(&other, b"other").unwrap();
         age(&other, SystemTime::now() - Duration::from_secs(60));
-        assert_eq!(cached_source(&state, &other), None);
+        assert_eq!(cached_analysis(&state, &other), None);
         age(&image, SystemTime::now() + Duration::from_secs(60));
-        assert_eq!(cached_source(&state, &image), None);
+        assert_eq!(cached_analysis(&state, &image), None);
         // A link made after the theme counts as a new image, however old its target is.
         let link = dir.join("link.png");
         age(&other, SystemTime::now() - Duration::from_secs(60));
         saved(&link);
         std::os::unix::fs::symlink(&other, &link).unwrap();
-        assert_eq!(cached_source(&state, &link), None);
+        assert_eq!(cached_analysis(&state, &link), None);
         fs::remove_dir_all(&dir).unwrap();
     }
 
