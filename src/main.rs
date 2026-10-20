@@ -24,6 +24,7 @@ mod render;
 mod screencopy;
 mod screenshot;
 mod session;
+mod shell;
 mod shutdown;
 mod udev;
 mod wallpaper;
@@ -121,6 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     shutdown::install(&event_loop.handle())?;
 
     xwayland::start(&mut state);
+    state.shell_init();
 
     if let Err(error) = ipc::init(&event_loop.handle(), &mut state) {
         tracing::error!("cannot start the bar socket: {error}");
@@ -156,6 +158,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.space.refresh();
         state.popups.cleanup();
         state.notify_input_activity();
+        // Before the flush: the shell looks at what changed since the bar's clients last heard.
+        state.shell_refresh();
         state.ipc_flush();
         let _ = state.display_handle.flush_clients();
     })?;

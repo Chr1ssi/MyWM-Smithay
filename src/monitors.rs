@@ -38,6 +38,8 @@ impl State {
 
     /// Copy the outputs' current geometry (mode, scale, transform, position) into the desk.
     pub fn sync_monitor_areas(&mut self) {
+        // The built-in bar reserves the top like the Quickshell bar's exclusive zone did.
+        let bar = self.shell_reserved_top();
         for (entry, monitor) in self.outputs.iter().zip(&mut self.desktop.desk.monitors) {
             if let Some(geo) = self.space.output_geometry(&entry.output) {
                 monitor.area = Rect { x: geo.loc.x, y: geo.loc.y, width: geo.size.w, height: geo.size.h };
@@ -48,6 +50,8 @@ impl State {
                 } else {
                     monitor.area
                 };
+                monitor.usable.y += bar;
+                monitor.usable.height = (monitor.usable.height - bar).max(0);
                 // The edge markers reserve their strips like panels.
                 let (left, right) = entry.edges;
                 if left {

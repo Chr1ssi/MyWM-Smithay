@@ -399,6 +399,8 @@ pub fn client_mode(args: &[String], config: &mywm_config::Config) -> Option<Resu
                 _ => Err("--wallpaper-picker takes the position as two integers: X Y".into()),
             }
         }
+        // The compositor draws its own bar then; the session's startup still runs this mode.
+        "--bar" if config.builtin_shell => Ok(()),
         "--bar" => {
             let mut command = Command::new("qs");
             command.arg("--path").arg(mywm_config::shell_qml("bar.qml")).arg("--no-duplicate").envs(config.theme_env());

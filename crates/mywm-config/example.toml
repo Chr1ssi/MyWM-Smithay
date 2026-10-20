@@ -28,6 +28,10 @@
 # Standard: $HOME/Bilder/Wallpaper. Muss ein absoluter Pfad sein.
 #screenshot_directory = "/home/nutzer/Bilder/Screenshots"
 #wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
+# Bar, Powermenü und Hinweise zeichnet der Compositor selbst, statt die Quickshell-Bar von
+# mywm-shell zu starten. Noch ohne Panels, Tray, Audio, Medien und Benachrichtigungen
+# (siehe docs/shell.md). Änderungen gelten nach Neustart.
+#builtin_shell = false
 
 # Optional: adaptive sync remains off except while a recognized game is visibly
 # fullscreen on this output. Der Compositor schaltet VRR selbst (DRM).

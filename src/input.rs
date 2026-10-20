@@ -32,11 +32,19 @@ enum Constraint {
     Confined(Option<RegionAttributes>),
 }
 
+/// What is under the pointer: a client's surface with the global position of its origin, or the built-in shell.
+enum PointerTarget {
+    Surface(WlSurface, Point<f64, Logical>),
+    Shell(crate::shell::ShellHit),
+}
+
 /// What a key press the compositor claims turns into.
 enum Intercepted {
     Action(Action),
     Vt(i32),
     Modal(crate::screenshot::ModalKey),
+    /// A key for the built-in shell's power menu.
+    Shell(Keysym),
     /// The release of a key whose press was intercepted.
     Release,
 }
@@ -193,6 +201,8 @@ impl State {
                         let action = action.filter(|a| !state.shortcuts_inhibited() || *a == Action::ReleaseShortcuts);
                         match action {
                             Some(action) => FilterResult::Intercept(Intercepted::Action(action)),
+                            // The power menu takes every other key, as the exclusive panel it was did.
+                            None if state.shell_takes_keyboard() => FilterResult::Intercept(Intercepted::Shell(handle.modified_sym())),
                             None => FilterResult::Forward,
                         }
                     },
@@ -216,6 +226,7 @@ impl State {
                             self.selection_key(key);
                         }
                     }
+                    Some(Intercepted::Shell(sym)) => self.shell_key(sym),
                     Some(Intercepted::Vt(vt)) => {
                         if let Some(session) = &mut self.session
                             && let Err(error) = session.change_vt(vt)
@@ -301,6 +312,15 @@ impl State {
             return self.picker_button(button, state);
         }
         let pointer = self.seat.get_pointer().unwrap();
+        // The shell's clicks: from a press on it until that button's release, unless a client holds the pointer.
+        if self.shell_holds_pointer() || (state == ButtonState::Pressed && !pointer.is_grabbed() && self.shell_at_pointer().is_some()) {
+            let hit = self.shell_at_pointer();
+            self.shell_button(button, state == ButtonState::Pressed, hit);
+            if !self.shell_holds_pointer() {
+                self.refresh_pointer_focus();
+            }
+            return;
+        }
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released && self.desktop.drag.is_some() {
             self.end_drag();
@@ -391,16 +411,35 @@ impl State {
         self.pointer_focus_over(self.window_at(self.pointer_location).as_ref())
     }
 
-    /// `pointer_focus` with the window under the pointer (`window_at`) already looked up.
+    /// `pointer_focus` with the window under the pointer (`window_at`) already looked up. A client gets no
+    /// focus while the pointer is over the shell or a button pressed on it is still down.
     fn pointer_focus_over(
         &self,
         window_hit: Option<&(smithay::desktop::Window, Point<i32, Logical>)>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        if self.session_lock.is_active() {
-            return self.lock_surface_at_pointer();
+        if self.shell_holds_pointer() && !self.session_lock.is_active() {
+            return None;
         }
-        // Same order as drawn: overlays, popups and menus and fullscreen windows, panels, the
-        // other windows, then wallpapers and the like.
+        match self.pointer_target_over(window_hit)? {
+            PointerTarget::Surface(surface, origin) => Some((surface, origin)),
+            PointerTarget::Shell(_) => None,
+        }
+    }
+
+    /// What of the shell is under the pointer, if it is the shell's.
+    fn shell_at_pointer(&self) -> Option<crate::shell::ShellHit> {
+        match self.pointer_target_over(self.window_at(self.pointer_location).as_ref())? {
+            PointerTarget::Shell(hit) => Some(hit),
+            PointerTarget::Surface(..) => None,
+        }
+    }
+
+    fn pointer_target_over(&self, window_hit: Option<&(smithay::desktop::Window, Point<i32, Logical>)>) -> Option<PointerTarget> {
+        if self.session_lock.is_active() {
+            return self.lock_surface_at_pointer().map(|(surface, origin)| PointerTarget::Surface(surface, origin));
+        }
+        // Same order as drawn: the power menu, overlays, the notices, popups and menus and fullscreen
+        // windows, panels, the bar, the other windows, then wallpapers and the like.
         let surface_of = |(window, loc): &(smithay::desktop::Window, Point<i32, Logical>)| {
             window
                 .surface_under(self.pointer_location - loc.to_f64(), WindowSurfaceType::ALL)
@@ -409,22 +448,38 @@ impl State {
         let in_front = window_hit.filter(|(window, _)| {
             self.desktop.windows.iter().find(|m| &m.window == window).is_none_or(|m| m.shown_fullscreen)
         });
-        self.layer_surface_at(&[Layer::Overlay])
-            .or_else(|| in_front.and_then(surface_of))
-            .or_else(|| self.layer_surface_at(&[Layer::Top]))
-            .or_else(|| window_hit.and_then(surface_of))
-            .or_else(|| self.layer_surface_at(&[Layer::Bottom, Layer::Background]))
+        let surface = |hit: Option<(WlSurface, Point<f64, Logical>)>| hit.map(|(s, origin)| PointerTarget::Surface(s, origin));
+        self.shell_power_at_pointer()
+            .map(PointerTarget::Shell)
+            .or_else(|| surface(self.layer_surface_at(&[Layer::Overlay])))
+            .or_else(|| self.shell_notices_at_pointer().map(PointerTarget::Shell))
+            .or_else(|| surface(in_front.and_then(surface_of)))
+            .or_else(|| surface(self.layer_surface_at(&[Layer::Top])))
+            .or_else(|| self.shell_bar_at_pointer().map(PointerTarget::Shell))
+            .or_else(|| surface(window_hit.and_then(surface_of)))
+            .or_else(|| surface(self.layer_surface_at(&[Layer::Bottom, Layer::Background])))
     }
 
     fn pointer_motion(&mut self, time: u32) {
         self.update_pointer_monitor();
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
-        // One lookup per motion event serves the pointer focus and focus follows mouse.
+        // One lookup per motion event serves the pointer focus, the shell's hover and focus follows mouse.
         let window_hit = self.window_at(self.pointer_location);
-        let under = self.pointer_focus_over(window_hit.as_ref());
-        // Focus follows mouse, unless a panel holds the keyboard.
+        let target = self.pointer_target_over(window_hit.as_ref());
+        // A client holding the pointer (a drag) keeps it; the shell does not light up meanwhile.
+        let shell = match &target {
+            Some(PointerTarget::Shell(hit)) if !pointer.is_grabbed() => Some(*hit),
+            _ => None,
+        };
+        self.shell_hover(shell);
+        let under = match target {
+            Some(PointerTarget::Surface(surface, origin)) if !self.shell_holds_pointer() => Some((surface, origin)),
+            _ => None,
+        };
+        // Focus follows mouse, unless a panel or the shell's power menu holds the keyboard.
         if self.keyboard_layer().is_none()
+            && !self.shell_takes_keyboard()
             && let Some((window, _)) = &window_hit
             && let Some(id) = self.desktop.windows.iter().find(|m| &m.window == window).map(|m| m.id)
         {

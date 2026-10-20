@@ -103,6 +103,9 @@ pub struct Config {
     pub xwayland: bool,
     /// Native output setup (kanshi and wlr-randr work too).
     pub outputs: Vec<OutputConfig>,
+    /// The compositor draws the bar, the power menu and the notices itself instead of starting mywm-shell's
+    /// Quickshell bar (`--bar`). Read at startup.
+    pub builtin_shell: bool,
 }
 
 /// Where the generated theme lives (`MYWM_THEME_STATE`, else `$XDG_STATE_HOME/mywm/theme.json`).
@@ -179,6 +182,7 @@ impl Default for Config {
             rules: Vec::new(),
             xwayland: true,
             outputs: Vec::new(),
+            builtin_shell: false,
         }
     }
 }

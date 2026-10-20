@@ -769,9 +769,10 @@ impl State {
             self.set_keyboard_focus(surface);
             return;
         }
-        // A launcher or lock prompt holds the keyboard; windows look unfocused meanwhile.
+        // A launcher, lock prompt or the shell's power menu holds the keyboard; windows look unfocused meanwhile.
         let layer = self.keyboard_layer();
-        let focused = self.desktop.focused().filter(|_| layer.is_none());
+        let shell = self.shell_takes_keyboard();
+        let focused = self.desktop.focused().filter(|_| layer.is_none() && !shell);
         // A window that minimized itself while it had no focus is restored as soon as it gets the focus back.
         if let Some(id) = focused {
             self.restore_minimized(id);
@@ -782,11 +783,10 @@ impl State {
                 toplevel.send_pending_configure();
             }
         }
-        let surface = layer.clone().or_else(|| focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface()));
+        let surface = layer.clone().filter(|_| !shell).or_else(|| focused.and_then(|id| self.desktop.get(id)).and_then(|m| m.surface()));
         // X11 clients also need the X11 input focus; a wl_surface focus alone leaves Wine and
         // Proton games without keyboard input.
         let x11 = focused
-            .filter(|_| layer.is_none())
             .and_then(|id| self.desktop.get(id))
             .and_then(|m| m.window.x11_surface().cloned());
         if x11 != self.x11_focus {

@@ -18,7 +18,7 @@ cargo run -p mywm-settings -- [--config /pfad/zur/config.toml]
 - **Prüfung:** Vor dem Speichern prüft dieselbe Funktion wie im Compositor die Datei. Ungültiges
   (Werte außerhalb der Grenzen, doppelte Tasten, unbekannte Tasten) lässt sich nicht speichern; der Grund steht oben.
 - **Live:** Nach dem Speichern bekommt der laufende Compositor den Befehl zum Neuladen (über `MYWM_SOCKET`,
-  sonst `$XDG_RUNTIME_DIR/mywm.sock`). Felder mit „(Neustart)“ (Monitore, Idle, VRR, Xwayland) wirken erst
+  sonst `$XDG_RUNTIME_DIR/mywm.sock`). Felder mit „(Neustart)“ (Monitore, Idle, VRR, Xwayland, eingebaute Shell) wirken erst
   nach dem nächsten Start; die GUI sagt es nach dem Speichern.
 
 ## Seiten

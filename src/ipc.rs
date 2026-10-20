@@ -245,6 +245,9 @@ impl State {
     /// pointer. Without one (no bar, or it went away) the session ends at once, so the binding
     /// never leaves the user stuck.
     pub fn request_exit(&mut self) {
+        if self.shell.enabled {
+            return self.shell_confirm_logout();
+        }
         let monitor = self.pointer_monitor().unwrap_or(self.desktop.focused_monitor);
         let output = self.outputs.get(monitor).map(|e| e.id);
         let handler = self.logout_handler;

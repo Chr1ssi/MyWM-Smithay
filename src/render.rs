@@ -48,6 +48,8 @@ render_elements! {
     Window=CropRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
     /// A window shrunk into a workspace thumbnail of the overview.
     Thumbnail=CropRenderElement<smithay::backend::renderer::element::utils::RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
+    /// A picture of the built-in shell (bar, power menu, notices); captures show it.
+    Shell=smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement<GlesRenderer>,
 }
 
 impl OutputElement {
@@ -64,6 +66,7 @@ impl OutputElement {
             Self::Surface(_) => "surface",
             Self::Window(_) => "window",
             Self::Thumbnail(_) => "overview thumbnail",
+            Self::Shell(_) => "shell",
             _ => "element",
         }
     }
@@ -157,9 +160,11 @@ impl State {
             }
             return elements;
         }
+        elements.extend(self.shell_power_elements(renderer, output));
         if let Some(overview) = self.overview_elements(renderer, output, blanks) {
             // The top layer stays on top: notifications, and what to do while picking what to share.
             elements.extend(layer_elements(renderer, output, &[Layer::Overlay]));
+            elements.extend(self.shell_notice_elements(renderer, output));
             elements.extend(overview);
             let markers = self.edge_marker_elements(output);
             elements.extend(self.scene_elements(renderer, output, false, Vec::new(), markers, Vec::new(), blanks));
@@ -178,10 +183,10 @@ impl State {
     /// Windows are drawn only on the output their workspace is on and are cut off at its edge.
     /// Tiles scrolled out of view lie beyond the edge in the shared coordinate space, where the
     /// neighbouring monitor would otherwise show them.
-    /// Stacking, front to back: `Overlay` layer, popups and menus of unmanaged windows, fullscreen
-    /// windows, `Top` layer (the bar), the edge `markers`, the other windows each behind its own
-    /// border (so a dialog in front covers the border of the window behind it), `behind` (shadows,
-    /// blur), `Bottom` and `Background` layers, the wallpaper.
+    /// Stacking, front to back: `Overlay` layer, the shell's notices, popups and menus of unmanaged windows,
+    /// fullscreen windows, `Top` layer, the shell's bar, the edge `markers`, the other windows each behind its
+    /// own border (so a dialog in front covers the border of the window behind it), `behind` (shadows,
+    /// blur), `Bottom` and `Background` layers, the wallpaper. (The power menu is in front of all of it.)
     #[allow(clippy::too_many_arguments)]
     fn scene_elements(
         &self,
@@ -201,6 +206,9 @@ impl State {
 
         // With the overview the `Overlay` layer is drawn in front of it (see `draw_output`).
         let mut elements = if with_windows { layer_elements(renderer, &[Layer::Overlay]) } else { Vec::new() };
+        if with_windows {
+            elements.extend(self.shell_notice_elements(renderer, output));
+        }
         let (mut unmanaged, mut fullscreen, mut regular) = (Vec::new(), Vec::new(), Vec::new());
         for window in self.space.elements().rev().filter(|_| with_windows) {
             if !self.space.element_bbox(window).is_some_and(|bbox| bbox.overlaps(geo)) {
@@ -278,6 +286,7 @@ impl State {
         elements.extend(unmanaged);
         elements.extend(fullscreen);
         elements.extend(layer_elements(renderer, &[Layer::Top]));
+        elements.extend(self.shell_bar_elements(renderer, output));
         elements.extend(markers);
         elements.extend(regular);
         elements.extend(behind);

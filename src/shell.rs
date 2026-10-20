@@ -1,0 +1,760 @@
+//! The built-in shell (`builtin_shell = true`): the bar on every monitor, the power menu and the notices at the
+//! top right, drawn by the compositor itself (`mywm-ui`) instead of mywm-shell's Quickshell bar.
+//!
+//! Pictures are painted on the CPU only when what they show changes, and uploaded as textures; a frame only
+//! places them. What they show comes from the same state the bar protocol sends (so `ipc_dirty` says when
+//! to look again), plus pointer hover, the clock and the power menu's countdown.
+//!
+//! In front-to-back order the power menu covers everything, the notices sit behind the clients' `Overlay`
+//! layer and the bar behind fullscreen windows and the clients' `Top` layer, as their Quickshell windows did.
+use std::time::{Duration, Instant};
+
+use mywm_config::Action;
+use mywm_ui::{
+    Scene, Theme,
+    bar::{self, BarModel, BarTarget, Workspace},
+    clock::{self, LocalTime},
+    i18n::Language,
+    notices::{self, NoticeTarget, NoticesModel},
+    power::{self, PowerAction, PowerModel, PowerTarget},
+    text::Fonts,
+    theme::{BAR_HEIGHT, Palette},
+};
+use smithay::{
+    backend::{
+        allocator::Fourcc,
+        renderer::{
+            element::{Kind, memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement}},
+            gles::GlesRenderer,
+        },
+    },
+    input::keyboard::{Keysym, keysyms},
+    output::Output,
+    reexports::calloop::{channel, timer::{TimeoutAction, Timer}},
+    utils::{Logical, Physical, Point, Rectangle, Size, Transform},
+};
+
+use crate::{State, render::OutputElement};
+
+const BTN_LEFT: u32 = 0x110;
+/// How often the power menu redraws while its card resizes or counts down.
+const FRAME: Duration = Duration::from_millis(16);
+
+/// A scene and its pixels, ready to be shown.
+struct Painted<T> {
+    scene: Scene<T>,
+    buffer: MemoryRenderBuffer,
+    /// Pixels of the buffer, for its whole size.
+    pixels: (i32, i32),
+}
+
+struct Bar {
+    output: Output,
+    /// What `painted` shows, at `scale`.
+    model: Option<BarModel>,
+    scale: f64,
+    painted: Option<Painted<BarTarget>>,
+}
+
+/// The open power menu.
+pub struct PowerMenu {
+    output: Output,
+    pending: Option<PowerAction>,
+    /// When the countdown of `pending` began.
+    started: Instant,
+    error: Option<String>,
+    /// The card changes its size from the first to the second over `power::RESIZE_MS` from the instant.
+    resize: ((f32, f32), (f32, f32), Instant),
+    hover: Option<PowerTarget>,
+    focus: Option<PowerTarget>,
+    /// `systemctl` runs; the menu waits for its outcome.
+    running: bool,
+    /// Tells this menu apart from a later one, for the timer that keeps it moving.
+    id: u64,
+    /// That timer runs (it ends by itself once nothing moves or the menu is gone).
+    ticking: bool,
+    model: Option<PowerModel>,
+    painted: Option<Painted<PowerTarget>>,
+    /// The dimming over the whole monitor (one pixel, stretched).
+    backdrop: MemoryRenderBuffer,
+}
+
+impl PowerMenu {
+    fn size(&self, now: Instant) -> (f32, f32) {
+        let (from, to, at) = self.resize;
+        let t = power::ease_out_cubic(now.duration_since(at).as_secs_f32() * 1000.0 / power::RESIZE_MS as f32);
+        (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t)
+    }
+
+    fn progress(&self, now: Instant) -> f32 {
+        if self.pending.is_none() {
+            return 1.0;
+        }
+        if self.running {
+            return 0.0;
+        }
+        1.0 - now.duration_since(self.started).as_secs_f32() * 1000.0 / power::COUNTDOWN_MS as f32
+    }
+
+    /// Whether the picture still changes by itself.
+    fn animating(&self, now: Instant) -> bool {
+        (self.pending.is_some() && !self.running) || now.duration_since(self.resize.2).as_millis() < u128::from(power::RESIZE_MS)
+    }
+}
+
+/// What the pointer is over, of the shell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellHit {
+    Bar(usize, BarTarget),
+    /// The power menu's card (`Some`) or the dimmed monitor around it.
+    Power(Option<PowerTarget>),
+    Notices(NoticeTarget),
+}
+
+pub struct Shell {
+    pub enabled: bool,
+    fonts: Option<Fonts>,
+    theme: Theme,
+    language: Language,
+    time_language: Language,
+    clock: String,
+    bars: Vec<Bar>,
+    pub power: Option<PowerMenu>,
+    notices: Option<(Output, NoticesModel, Painted<NoticeTarget>)>,
+    /// The configuration error the user closed; it shows again once the error changes.
+    dismissed_config_error: Option<String>,
+    hover: Option<ShellHit>,
+    /// A button went down on the shell; its release belongs to the shell too.
+    pressed: Option<(u32, Option<ShellHit>)>,
+    /// Something only the shell knows of changed (hover, clock, countdown, theme).
+    dirty: bool,
+    /// The outcome of `systemctl reboot|poweroff`.
+    systemctl: Option<channel::Sender<i32>>,
+    menus_opened: u64,
+}
+
+fn palette(config: &mywm_config::Config) -> Palette {
+    let a = &config.appearance;
+    let color = |c: mywm_config::HexColor| mywm_ui::Color::parse(&c.css()).unwrap_or(mywm_ui::Color::TRANSPARENT);
+    Palette {
+        background: color(a.background),
+        surface: color(a.surface),
+        text: color(a.text),
+        muted: color(a.muted_text),
+        accent: color(a.active_border),
+        border: color(a.inactive_border),
+    }
+}
+
+fn load_theme(config: &mywm_config::Config) -> Theme {
+    let json = mywm_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
+    Theme::new(palette(config), json.as_deref())
+}
+
+fn clock_text(language: Language) -> (String, Duration) {
+    match LocalTime::now() {
+        Some(now) => (clock::bar_text(&now, language), Duration::from_secs(now.seconds_to_next_minute().into())),
+        None => (String::new(), Duration::from_secs(60)),
+    }
+}
+
+fn paint<T: Clone>(scene: Scene<T>, fonts: &mut Fonts, scale: f64) -> Option<Painted<T>> {
+    let pixmap = mywm_ui::paint::paint(&scene, fonts, scale as f32)?;
+    let pixels = (pixmap.width() as i32, pixmap.height() as i32);
+    let buffer = MemoryRenderBuffer::from_slice(pixmap.data(), Fourcc::Abgr8888, pixels, 1, Transform::Normal, None);
+    Some(Painted { scene, buffer, pixels })
+}
+
+/// `painted` at `location` (logical, relative to the output) on an output at `scale`.
+fn element<T>(renderer: &mut GlesRenderer, painted: &Painted<T>, location: (f64, f64), scale: f64) -> Option<OutputElement> {
+    let size = Size::<i32, Logical>::from((painted.scene.width.round() as i32, painted.scene.height.round() as i32));
+    stretched(renderer, &painted.buffer, painted.pixels, location, size, scale)
+}
+
+fn stretched(
+    renderer: &mut GlesRenderer,
+    buffer: &MemoryRenderBuffer,
+    pixels: (i32, i32),
+    location: (f64, f64),
+    size: Size<i32, Logical>,
+    scale: f64,
+) -> Option<OutputElement> {
+    let location = Point::<f64, Physical>::from((location.0 * scale, location.1 * scale));
+    // The buffer has scale 1: its `src` is in pixels, and `size` says how large it shows.
+    let src = Rectangle::<f64, Logical>::from_size((f64::from(pixels.0), f64::from(pixels.1)).into());
+    match MemoryRenderBufferRenderElement::from_buffer(renderer, location, buffer, None, Some(src), Some(size), Kind::Unspecified) {
+        Ok(element) => Some(OutputElement::from(element)),
+        Err(error) => {
+            tracing::warn!("cannot upload a picture of the shell: {error}");
+            None
+        }
+    }
+}
+
+impl Shell {
+    pub fn new(config: &mywm_config::Config) -> Self {
+        let time_language = clock::time_language();
+        Self {
+            enabled: config.builtin_shell,
+            fonts: None,
+            theme: load_theme(config),
+            language: Language::from_env(),
+            time_language,
+            clock: clock_text(time_language).0,
+            bars: Vec::new(),
+            power: None,
+            notices: None,
+            dismissed_config_error: None,
+            hover: None,
+            pressed: None,
+            dirty: true,
+            systemctl: None,
+            menus_opened: 0,
+        }
+    }
+}
+
+impl State {
+    /// Start the shell's helpers: the fonts load on a worker thread, the clock ticks every minute.
+    pub fn shell_init(&mut self) {
+        if !self.shell.enabled {
+            return;
+        }
+        let (sender, fonts) = channel::channel();
+        let watched = self.loop_handle.insert_source(fonts, |event, _, state: &mut State| {
+            if let channel::Event::Msg(fonts) = event {
+                state.shell.fonts = Some(fonts);
+                state.shell.dirty = true;
+            }
+        });
+        let spawned = watched.is_ok()
+            && std::thread::Builder::new()
+                .name("shell-fonts".into())
+                .spawn(move || {
+                    let _ = sender.send(Fonts::load());
+                })
+                .is_ok();
+        if !spawned {
+            tracing::error!("cannot load the fonts of the shell; the bar stays empty");
+        }
+        let (_, next) = clock_text(self.shell.time_language);
+        let ticking = self.loop_handle.insert_source(Timer::from_duration(next), |_, _, state| {
+            let (text, next) = clock_text(state.shell.time_language);
+            if text != state.shell.clock {
+                state.shell.clock = text;
+                state.shell.dirty = true;
+            }
+            TimeoutAction::ToDuration(next)
+        });
+        if let Err(error) = ticking {
+            tracing::warn!("the clock of the bar cannot tick: {}", error.error);
+        }
+        let (sender, results) = channel::channel();
+        match self.loop_handle.insert_source(results, |event, _, state: &mut State| {
+            if let channel::Event::Msg(code) = event {
+                state.power_finished(code);
+            }
+        }) {
+            Ok(_) => self.shell.systemctl = Some(sender),
+            Err(error) => tracing::warn!("restart and shut down are not available: {}", error.error),
+        }
+    }
+
+    /// Re-read the generated colors (after the wallpaper picker or a config reload).
+    pub fn shell_reload_theme(&mut self) {
+        if self.shell.enabled {
+            self.shell.theme = load_theme(&self.config);
+            for bar in &mut self.shell.bars {
+                bar.model = None;
+            }
+            self.shell.notices = None;
+            if let Some(menu) = &mut self.shell.power {
+                menu.model = None;
+            }
+            self.shell.dirty = true;
+        }
+    }
+
+    /// How much of the top of every monitor the bar keeps free of windows.
+    pub fn shell_reserved_top(&self) -> i32 {
+        if self.shell.enabled { BAR_HEIGHT as i32 } else { 0 }
+    }
+
+    /// Bring the pictures up to date with what they show; called once per event loop iteration, before the
+    /// bar protocol's clients get the same news.
+    pub fn shell_refresh(&mut self) {
+        if !self.shell.enabled || self.shell.fonts.is_none() || !(self.ipc_dirty || self.shell.dirty) {
+            return;
+        }
+        self.shell.dirty = false;
+        let Some(mut fonts) = self.shell.fonts.take() else { return };
+        let now = Instant::now();
+        let mut redraw: Vec<Output> = Vec::new();
+
+        let outputs: Vec<Output> = self.outputs.iter().map(|e| e.output.clone()).collect();
+        self.shell.bars.retain(|bar| outputs.contains(&bar.output));
+        for (monitor, output) in outputs.iter().enumerate() {
+            let Some(model) = self.bar_model(monitor, output) else { continue };
+            let scale = output.current_scale().fractional_scale();
+            let index = match self.shell.bars.iter().position(|b| &b.output == output) {
+                Some(index) => index,
+                None => {
+                    self.shell.bars.push(Bar { output: output.clone(), model: None, scale, painted: None });
+                    self.shell.bars.len() - 1
+                }
+            };
+            let bar = &mut self.shell.bars[index];
+            if bar.model.as_ref() == Some(&model) && bar.scale == scale {
+                continue;
+            }
+            bar.painted = paint(bar::scene(&model, &self.shell.theme, &mut fonts), &mut fonts, scale);
+            bar.model = Some(model);
+            bar.scale = scale;
+            redraw.push(output.clone());
+        }
+
+        let first = outputs.first().cloned();
+        let model = first.as_ref().and_then(|output| Some((output.clone(), self.notices_model(output)?)));
+        let current = self.shell.notices.as_ref().map(|(output, model, _)| (output.clone(), model.clone()));
+        if model != current {
+            if let Some((output, _)) = &current {
+                redraw.push(output.clone());
+            }
+            self.shell.notices = model.and_then(|(output, model)| {
+                let scene = notices::scene(&model, &self.shell.theme, &mut fonts)?;
+                let painted = paint(scene, &mut fonts, output.current_scale().fractional_scale())?;
+                redraw.push(output.clone());
+                Some((output, model, painted))
+            });
+        }
+
+        if let Some(menu) = &mut self.shell.power {
+            let model = PowerModel {
+                pending: menu.pending,
+                progress: menu.progress(now),
+                error: menu.error.clone(),
+                size: menu.size(now),
+                hover: menu.hover,
+                focus: menu.focus,
+                language: self.shell.language,
+            };
+            if menu.model.as_ref() != Some(&model) {
+                let scale = menu.output.current_scale().fractional_scale();
+                menu.painted = paint(power::scene(&model, &self.shell.theme, &mut fonts), &mut fonts, scale);
+                menu.model = Some(model);
+                redraw.push(menu.output.clone());
+            }
+        }
+
+        self.shell.fonts = Some(fonts);
+        for output in redraw {
+            self.queue_redraw_output(&output);
+        }
+    }
+
+    fn bar_model(&self, monitor: usize, output: &Output) -> Option<BarModel> {
+        let geo = self.space.output_geometry(output)?;
+        let desk = self.desktop.desk.monitors.get(monitor)?;
+        let workspaces = desk
+            .workspaces
+            .entries
+            .iter()
+            .map(|w| Workspace { number: w.number as u32, occupied: !w.windows.is_empty() })
+            .collect();
+        let hover = match self.shell.hover {
+            Some(ShellHit::Bar(m, target)) if m == monitor => Some(target),
+            _ => None,
+        };
+        Some(BarModel {
+            width: geo.size.w as f32,
+            workspaces,
+            active: Some(desk.workspaces.active as u32),
+            scratchpad_visible: self.desktop.scratchpad_visible,
+            scratchpad_occupied: !self.desktop.scratchpad.windows.is_empty(),
+            // Media, the panels and the status of Bluetooth, notifications and audio come with the shell's
+            // services; until then the buttons show what the Quickshell bar shows without them.
+            media: None,
+            clock: self.shell.clock.clone(),
+            capturing: self.capturing(),
+            control_icon: "󰒓".into(),
+            notifications: 0,
+            audio: None,
+            open_panel: None,
+            power_open: self.shell.power.as_ref().is_some_and(|m| &m.output == output),
+            hover,
+            language: self.shell.language,
+        })
+    }
+
+    fn notices_model(&self, output: &Output) -> Option<NoticesModel> {
+        let geo = self.space.output_geometry(output)?;
+        let config_error = self.config_error.clone().filter(|error| Some(error) != self.shell.dismissed_config_error.as_ref());
+        let hover = match self.shell.hover {
+            Some(ShellHit::Notices(target)) => Some(target),
+            _ => None,
+        };
+        let model = NoticesModel {
+            output_width: geo.size.w as f32,
+            choosing: self.share_kinds().is_some(),
+            picking: self.picked_color(),
+            config_error,
+            hover,
+            language: self.shell.language,
+        };
+        (model.choosing || model.picking.is_some() || model.config_error.is_some()).then_some(model)
+    }
+
+    /// Where the power menu's card is on its output (logical, relative to the output).
+    fn power_card_origin(&self, menu: &PowerMenu) -> Option<(f64, f64)> {
+        let geo = self.space.output_geometry(&menu.output)?;
+        let painted = menu.painted.as_ref()?;
+        let x = ((f64::from(geo.size.w) - f64::from(painted.scene.width)) / 2.0).round();
+        let y = ((f64::from(geo.size.h) - f64::from(painted.scene.height)) / 2.0).round();
+        Some((x, y))
+    }
+
+    fn notices_origin(&self, output: &Output, painted: &Painted<NoticeTarget>) -> Option<(f64, f64)> {
+        let geo = self.space.output_geometry(output)?;
+        Some((f64::from(geo.size.w) - f64::from(notices::RIGHT) - f64::from(painted.scene.width), f64::from(notices::TOP)))
+    }
+
+    /// The bar of `output`, front to back.
+    pub fn shell_bar_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
+        let scale = output.current_scale().fractional_scale();
+        let bar = self.shell.bars.iter().find(|b| &b.output == output).and_then(|b| b.painted.as_ref());
+        bar.and_then(|painted| element(renderer, painted, (0.0, 0.0), scale)).into_iter().collect()
+    }
+
+    /// The notices on `output`, front to back.
+    pub fn shell_notice_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
+        let Some((on, _, painted)) = self.shell.notices.as_ref().filter(|(on, _, _)| on == output) else { return Vec::new() };
+        let scale = on.current_scale().fractional_scale();
+        let origin = self.notices_origin(on, painted);
+        origin.and_then(|origin| element(renderer, painted, origin, scale)).into_iter().collect()
+    }
+
+    /// The power menu on `output` and the dimming behind it, front to back.
+    pub fn shell_power_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
+        let Some(menu) = self.shell.power.as_ref().filter(|m| &m.output == output) else { return Vec::new() };
+        let Some(geo) = self.space.output_geometry(output) else { return Vec::new() };
+        let scale = output.current_scale().fractional_scale();
+        let card = menu
+            .painted
+            .as_ref()
+            .zip(self.power_card_origin(menu))
+            .and_then(|(painted, origin)| element(renderer, painted, origin, scale));
+        let backdrop = stretched(renderer, &menu.backdrop, (1, 1), (0.0, 0.0), geo.size, scale);
+        card.into_iter().chain(backdrop).collect()
+    }
+
+    /// What of the shell is at the pointer, among the parts in front of the clients' `Overlay` layer.
+    pub fn shell_power_at_pointer(&self) -> Option<ShellHit> {
+        let menu = self.shell.power.as_ref()?;
+        let geo = self.space.output_geometry(&menu.output)?;
+        if !geo.to_f64().contains(self.pointer_location) {
+            return None;
+        }
+        let local = self.pointer_location - geo.loc.to_f64();
+        let card = self.power_card_origin(menu).zip(menu.painted.as_ref());
+        let target = card.and_then(|((x, y), painted)| painted.scene.target_at((local.x - x) as f32, (local.y - y) as f32));
+        Some(ShellHit::Power(target))
+    }
+
+    /// The notices at the pointer (they lie behind the clients' `Overlay` layer).
+    pub fn shell_notices_at_pointer(&self) -> Option<ShellHit> {
+        let (output, _, painted) = self.shell.notices.as_ref()?;
+        let geo = self.space.output_geometry(output)?;
+        let (x, y) = self.notices_origin(output, painted)?;
+        let local = self.pointer_location - geo.loc.to_f64();
+        painted.scene.target_at((local.x - x) as f32, (local.y - y) as f32).map(ShellHit::Notices)
+    }
+
+    /// The bar at the pointer (it lies behind fullscreen windows and the clients' `Top` layer).
+    pub fn shell_bar_at_pointer(&self) -> Option<ShellHit> {
+        let monitor = self.outputs.iter().position(|e| {
+            self.space.output_geometry(&e.output).is_some_and(|geo| geo.to_f64().contains(self.pointer_location))
+        })?;
+        let output = &self.outputs[monitor].output;
+        let geo = self.space.output_geometry(output)?;
+        let painted = self.shell.bars.iter().find(|b| &b.output == output)?.painted.as_ref()?;
+        let local = self.pointer_location - geo.loc.to_f64();
+        painted.scene.target_at(local.x as f32, local.y as f32).map(|target| ShellHit::Bar(monitor, target))
+    }
+
+    /// Whether a button pressed on the shell is still down (its release belongs to the shell).
+    pub fn shell_holds_pointer(&self) -> bool {
+        self.shell.pressed.is_some()
+    }
+
+    /// The pointer moved; `hit` is what of the shell is under it now.
+    pub fn shell_hover(&mut self, hit: Option<ShellHit>) {
+        if hit == self.shell.hover {
+            return;
+        }
+        if self.shell.hover.is_none() && hit.is_some() {
+            // The client the pointer left may have set another cursor (a text cursor).
+            self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
+            self.queue_redraw_cursor();
+        }
+        self.shell.hover = hit;
+        if let Some(menu) = &mut self.shell.power {
+            menu.hover = match hit {
+                Some(ShellHit::Power(target)) => target.filter(|t| *t != PowerTarget::Card),
+                _ => None,
+            };
+        }
+        self.shell.dirty = true;
+    }
+
+    /// A button changed on the shell (`hit`: what is under the pointer). Like a QML `MouseArea`, a click
+    /// happens when the button is released over what it was pressed on.
+    pub fn shell_button(&mut self, button: u32, pressed: bool, hit: Option<ShellHit>) {
+        if pressed {
+            if self.shell.pressed.is_none() {
+                self.shell.pressed = Some((button, hit));
+                // Like a click on a panel that takes no keyboard: the clients get it back.
+                self.note_click(None);
+            }
+            return;
+        }
+        let Some((down, on)) = self.shell.pressed else { return };
+        if down != button {
+            return;
+        }
+        self.shell.pressed = None;
+        if on != hit || button != BTN_LEFT {
+            return;
+        }
+        match hit {
+            Some(ShellHit::Bar(monitor, target)) => self.bar_clicked(monitor, target),
+            Some(ShellHit::Power(None)) => self.power_cancel(),
+            Some(ShellHit::Power(Some(target))) => self.power_activate(target),
+            Some(ShellHit::Notices(NoticeTarget::DismissConfigError)) => {
+                self.shell.dismissed_config_error = self.config_error.clone();
+                self.shell.dirty = true;
+            }
+            Some(ShellHit::Notices(NoticeTarget::Background)) | None => {}
+        }
+    }
+
+    fn bar_clicked(&mut self, monitor: usize, target: BarTarget) {
+        match target {
+            BarTarget::Workspace(number) => self.select_workspace_on(monitor, number as usize),
+            BarTarget::NewWorkspace => self.new_workspace_on(monitor),
+            BarTarget::Scratchpad => self.run_action(Action::ToggleScratchpad),
+            BarTarget::Power => {
+                let output = self.outputs.get(monitor).map(|e| e.output.clone());
+                match (&self.shell.power, output) {
+                    (Some(menu), Some(output)) if menu.output == output => self.power_cancel(),
+                    (_, Some(output)) => self.power_open(output, None),
+                    _ => {}
+                }
+            }
+            // The panels come with the shell's services.
+            BarTarget::Panel(_) | BarTarget::Background => {}
+        }
+    }
+
+    /// Whether the shell holds the keyboard (the power menu is open).
+    pub fn shell_takes_keyboard(&self) -> bool {
+        self.shell.power.is_some()
+    }
+
+    /// A key pressed while the shell holds the keyboard.
+    pub fn shell_key(&mut self, sym: Keysym) {
+        let Some(menu) = &mut self.shell.power else { return };
+        match sym.raw() {
+            keysyms::KEY_Escape => self.power_cancel(),
+            keysyms::KEY_Return | keysyms::KEY_KP_Enter => match menu.focus {
+                Some(target) => self.power_activate(target),
+                None if menu.pending.is_some() => self.power_execute(),
+                None => {}
+            },
+            keysyms::KEY_space => {
+                if let Some(target) = menu.focus {
+                    self.power_activate(target);
+                }
+            }
+            raw @ (keysyms::KEY_Tab | keysyms::KEY_ISO_Left_Tab) => {
+                let chain = power::focus_chain(menu.pending.is_some());
+                let position = menu.focus.and_then(|f| chain.iter().position(|t| *t == f));
+                let next = match (raw == keysyms::KEY_Tab, position) {
+                    (true, Some(i)) => (i + 1) % chain.len(),
+                    (false, Some(i)) => (i + chain.len() - 1) % chain.len(),
+                    (true, None) => 0,
+                    (false, None) => chain.len() - 1,
+                };
+                menu.focus = chain.get(next).copied();
+                self.shell.dirty = true;
+            }
+            _ => {}
+        }
+    }
+
+    /// The exit binding: ask on the monitor under the pointer, counting down to the logout.
+    pub fn shell_confirm_logout(&mut self) {
+        let monitor = self.pointer_monitor().unwrap_or(self.desktop.focused_monitor);
+        if let Some(output) = self.outputs.get(monitor).or(self.outputs.first()).map(|e| e.output.clone()) {
+            self.power_open(output, Some(PowerAction::Logout));
+        }
+    }
+
+    /// Open the power menu on `output`, counting down to `pending` if given.
+    fn power_open(&mut self, output: Output, pending: Option<PowerAction>) {
+        let Some(geo) = self.space.output_geometry(&output) else { return };
+        let monitor = (geo.size.w as f32, geo.size.h as f32);
+        let size = power::card_size(false, monitor);
+        let now = Instant::now();
+        self.power_close();
+        let pixel = [power::BACKDROP.r, power::BACKDROP.g, power::BACKDROP.b, power::BACKDROP.a];
+        // Premultiplied: the color is black, so only the alpha stays.
+        let premultiplied = [0, 0, 0, pixel[3]];
+        self.shell.menus_opened += 1;
+        self.shell.power = Some(PowerMenu {
+            output,
+            pending: None,
+            started: now,
+            error: None,
+            // Opening shows the card at its size at once.
+            resize: (size, size, now - Duration::from_millis(power::RESIZE_MS.into())),
+            hover: None,
+            focus: None,
+            running: false,
+            id: self.shell.menus_opened,
+            ticking: false,
+            model: None,
+            painted: None,
+            backdrop: MemoryRenderBuffer::from_slice(&premultiplied, Fourcc::Abgr8888, (1, 1), 1, Transform::Normal, None),
+        });
+        if let Some(action) = pending {
+            self.power_choose(action);
+        }
+        self.shell.dirty = true;
+        self.sync_focus();
+    }
+
+    /// A tile or the menu's button was activated (clicked, or Enter/Space on the focused one).
+    fn power_activate(&mut self, target: PowerTarget) {
+        match target {
+            PowerTarget::Tile(PowerAction::Lock) => {
+                self.power_close();
+                self.run_action(Action::Lock);
+            }
+            PowerTarget::Tile(action) => self.power_choose(action),
+            PowerTarget::Cancel => self.power_cancel(),
+            PowerTarget::Card => {}
+        }
+    }
+
+    /// Count down to `action`.
+    fn power_choose(&mut self, action: PowerAction) {
+        let Some(geo) = self.shell.power.as_ref().and_then(|m| self.space.output_geometry(&m.output)) else { return };
+        let Some(menu) = &mut self.shell.power else { return };
+        let now = Instant::now();
+        let from = menu.size(now);
+        menu.pending = Some(action);
+        menu.error = None;
+        menu.started = now;
+        menu.focus = None;
+        menu.resize = (from, power::card_size(true, (geo.size.w as f32, geo.size.h as f32)), now);
+        self.shell.dirty = true;
+        self.power_tick();
+    }
+
+    /// Keep the menu's picture moving while it resizes or counts down, and act when the countdown ends.
+    fn power_tick(&mut self) {
+        let Some(menu) = &mut self.shell.power else { return };
+        if menu.ticking {
+            return;
+        }
+        let id = menu.id;
+        let ticker = self.loop_handle.insert_source(Timer::from_duration(FRAME), move |_, _, state: &mut State| {
+            let now = Instant::now();
+            let Some(menu) = state.shell.power.as_mut().filter(|m| m.id == id) else { return TimeoutAction::Drop };
+            state.shell.dirty = true;
+            if menu.pending.is_some() && !menu.running && menu.progress(now) <= 0.0 {
+                menu.ticking = false;
+                state.power_execute();
+                return TimeoutAction::Drop;
+            }
+            if menu.animating(now) {
+                TimeoutAction::ToDuration(FRAME)
+            } else {
+                menu.ticking = false;
+                TimeoutAction::Drop
+            }
+        });
+        match ticker {
+            Ok(_) => menu.ticking = true,
+            Err(error) => tracing::warn!("the power menu cannot count down: {}", error.error),
+        }
+    }
+
+    /// Carry out the pending action now.
+    fn power_execute(&mut self) {
+        let Some(menu) = &mut self.shell.power else { return };
+        let Some(action) = menu.pending.filter(|_| !menu.running) else { return };
+        self.shell.dirty = true;
+        match action.systemctl() {
+            None => {
+                self.power_close();
+                if action == PowerAction::Logout {
+                    tracing::info!("logging out from the power menu");
+                    self.loop_signal.stop();
+                }
+            }
+            Some(verb) => {
+                menu.running = true;
+                let Some(sender) = self.shell.systemctl.clone() else { return self.power_finished(-1) };
+                let mut command = std::process::Command::new("systemctl");
+                command.arg(verb);
+                match command.spawn() {
+                    Ok(mut child) => {
+                        std::thread::spawn(move || {
+                            let code = child.wait().map_or(-1, |status| status.code().unwrap_or(-1));
+                            let _ = sender.send(code);
+                        });
+                    }
+                    Err(error) => {
+                        tracing::warn!("cannot run systemctl {verb}: {error}");
+                        self.power_finished(-1);
+                    }
+                }
+            }
+        }
+    }
+
+    /// `systemctl` ended with `code`.
+    fn power_finished(&mut self, code: i32) {
+        let language = self.shell.language;
+        let Some(menu) = &mut self.shell.power else { return };
+        menu.running = false;
+        if code == 0 {
+            self.power_close();
+            return;
+        }
+        tracing::warn!("systemctl {:?} failed with {code}", menu.pending.and_then(PowerAction::systemctl));
+        menu.pending = None;
+        menu.error = Some(power::failure(language, code));
+        self.shell.dirty = true;
+    }
+
+    /// Escape, a click beside the card or "Cancel": stop the countdown and close.
+    fn power_cancel(&mut self) {
+        if self.shell.power.as_ref().is_some_and(|m| m.running) {
+            return;
+        }
+        self.power_close();
+    }
+
+    fn power_close(&mut self) {
+        let Some(menu) = self.shell.power.take() else { return };
+        if matches!(self.shell.hover, Some(ShellHit::Power(_))) {
+            self.shell.hover = None;
+        }
+        self.queue_redraw_output(&menu.output);
+        self.shell.dirty = true;
+        self.sync_focus();
+        self.refresh_pointer_focus();
+    }
+}

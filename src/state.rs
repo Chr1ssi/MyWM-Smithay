@@ -159,6 +159,8 @@ pub struct State {
     pub suppressed_keys: Vec<smithay::input::keyboard::Keycode>,
     /// While nested, Super belongs to the host, so bindings use Alt instead.
     pub remap_super: bool,
+    /// The built-in shell (bar, power menu, notices) when `builtin_shell` is on.
+    pub shell: crate::shell::Shell,
 }
 
 #[derive(Default)]
@@ -366,6 +368,7 @@ impl State {
             pointer_modifiers: Modifiers::default(),
             suppressed_keys: Vec::new(),
             remap_super,
+            shell: crate::shell::Shell::new(&config),
             config,
         };
         state.install_bindings();
@@ -420,10 +423,10 @@ impl State {
             tracing::warn!("{error}");
             self.config_error = Some(error);
         }
-        // Monitor and session settings need a restart; everything else applies live.
-        let Config { workspace_outputs, gaming_output, idle, vrr, .. } =
+        // Monitor and session settings and the choice of shell need a restart; everything else applies live.
+        let Config { workspace_outputs, gaming_output, idle, vrr, builtin_shell, .. } =
             std::mem::take(&mut self.config);
-        self.config = Config { workspace_outputs, gaming_output, idle, vrr, ..new };
+        self.config = Config { workspace_outputs, gaming_output, idle, vrr, builtin_shell, ..new };
         self.desktop.appearance = self.config.appearance.layout();
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.change_repeat_info(self.config.input.repeat_rate, self.config.input.repeat_delay);
@@ -436,6 +439,7 @@ impl State {
         self.blur_reset();
         self.blur_failed = false;
         self.wallpaper_reload();
+        self.shell_reload_theme();
         self.install_bindings();
         self.refresh();
         tracing::info!("configuration reloaded");
