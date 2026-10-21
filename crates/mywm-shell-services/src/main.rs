@@ -4,8 +4,9 @@
 //!
 //! Every source runs on its own thread and reconnects on its own: `audio` (PipeWire's default output), `media`
 //! (MPRIS players on the session bus), `bluetooth` (BlueZ on the system bus) and `notifications` (the
-//! notification service). Volume commands run `wpctl`, which WirePlumber turns into the device's route volume as
+//! notification service), and `apps` reads the desktop entries for the launcher when asked. Volume commands run `wpctl`, which WirePlumber turns into the device's route volume as
 //! the Quickshell panel's commands did.
+mod apps;
 mod audio;
 mod bluetooth;
 mod icons;
@@ -20,7 +21,9 @@ use std::{
     time::Duration,
 };
 
-use mywm_shell_protocol::{Bluetooth, Command, Event, MAX_LINE, MenuEntry, Notification, Player, Status, TrayItem, decode, encode};
+use mywm_shell_protocol::{
+    Application, Bluetooth, Command, Event, Image, MAX_LINE, MenuEntry, Notification, Player, Status, TrayItem, decode, encode,
+};
 use tracing_subscriber::EnvFilter;
 
 /// A source's news.
@@ -32,6 +35,8 @@ pub enum Update {
     Bluetooth(Option<Bluetooth>),
     Notification(Box<Notification>),
     Closed(u32),
+    Applications(Vec<Application>),
+    AppIcon(String, Image),
 }
 
 /// How long a source waits before it tries again after its service went away or never came.
@@ -93,6 +98,12 @@ fn main() {
     if let Err(error) = started {
         tracing::error!("cannot start the notification service: {error}");
     }
+    let (app_requests, app_queue) = mpsc::channel();
+    let app_updates = updates.clone();
+    let started = std::thread::Builder::new().name("apps".into()).spawn(move || apps::run(app_queue, app_updates));
+    if let Err(error) = started {
+        tracing::error!("cannot read the applications: {error}");
+    }
     // The compositor closes stdin when it ends (or drops the pipe): so does this process.
     let read = std::thread::Builder::new().name("stdin".into()).spawn(move || {
         let stdin = std::io::stdin().lock();
@@ -141,6 +152,9 @@ fn main() {
                 Some(Command::TrayMenuClick { address, id }) => {
                     let _ = tray_commands.send(tray::TrayCommand::MenuClick(address, id));
                 }
+                Some(Command::Applications) => {
+                    let _ = app_requests.send(());
+                }
                 Some(command) => {
                     let _ = commands.send(command);
                 }
@@ -183,6 +197,8 @@ fn main() {
             }
             Update::Notification(notification) => Event::Notification(*notification),
             Update::Closed(id) => Event::Closed { id },
+            Update::Applications(apps) => Event::Applications { apps },
+            Update::AppIcon(name, image) => Event::AppIcon { name, image },
         };
         if !write(&event) {
             return;

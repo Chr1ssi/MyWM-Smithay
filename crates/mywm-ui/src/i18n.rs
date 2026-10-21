@@ -53,10 +53,12 @@ pub fn language_code(locale: &str) -> &str {
 }
 
 const ENGLISH: &[(&str, &str)] = &[
+    ("%1 Apps  ·  ↑↓ Auswahl  ·  ↵ Start  ·  Esc", "%1 apps  ·  ↑↓ select  ·  ↵ launch  ·  Esc"),
     ("%1 verbunden", "%1 connected"),
     ("%1 Benachrichtigungen", "%1 notifications"),
     ("1 Benachrichtigung", "1 notification"),
     ("(Ohne Titel)", "(Untitled)"),
+    ("ANWENDUNGEN", "APPLICATIONS"),
     ("Abbrechen", "Cancel"),
     ("Abmelden", "Log out"),
     ("Aktion fehlgeschlagen (%1)", "Action failed (%1)"),
@@ -68,6 +70,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Anderes Mikrofon wählen", "Choose another microphone"),
     ("Anwendung", "Application"),
     ("Anwendungen", "Applications"),
+    ("App suchen …", "Search apps …"),
     ("Aufnahme", "Recording"),
     ("Aus", "Off"),
     ("Ausgabe", "Output"),
@@ -104,6 +107,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Keine aktiven Anwendungen", "No active applications"),
     ("Keine Benachrichtigungen", "No notifications"),
     ("Keine gekoppelten Geräte", "No paired devices"),
+    ("Keine passenden Anwendungen", "No matching applications"),
     ("Keine Termine an diesem Tag.", "No events on this day."),
     ("Keine Verbindung", "No connection"),
     ("Klick kopiert die Farbe · Esc: abbrechen", "Click copies the color · Esc: cancel"),
@@ -183,6 +187,7 @@ mod tests {
             include_str!("audio.rs"),
             include_str!("control.rs"),
             include_str!("calendar.rs"),
+            include_str!("launcher.rs"),
         ];
         let mut used = std::collections::BTreeSet::new();
         for source in sources {

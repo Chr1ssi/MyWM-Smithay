@@ -447,9 +447,17 @@ impl State {
 
     /// Start a program without a shell; the child is reaped in the background.
     pub fn spawn_command(&self, command: &[String], with_theme: bool) {
+        self.spawn_program(command, with_theme, None);
+    }
+
+    /// `spawn_command` in `directory` (else the compositor's own).
+    pub fn spawn_program(&self, command: &[String], with_theme: bool, directory: Option<&std::path::Path>) {
         let Some((program, args)) = command.split_first() else { return };
         let mut cmd = std::process::Command::new(program);
         cmd.args(args);
+        if let Some(directory) = directory {
+            cmd.current_dir(directory);
+        }
         cmd.env("WAYLAND_DISPLAY", &self.socket_name);
         if let Some(display) = self.x11_display_env() {
             cmd.env("DISPLAY", display);

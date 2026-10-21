@@ -134,6 +134,7 @@ PYTHONPATH=tests python3 tests/tray_smoke.py           # Tray: Symbol, Aktiviere
 PYTHONPATH=tests python3 tests/audio_smoke.py          # Audio-Panel: Regler, Stumm, Standardausgang
 PYTHONPATH=tests python3 tests/control_smoke.py        # Commandcenter: Bluetooth, Adressen, Nachtlicht
 PYTHONPATH=tests python3 tests/calendar_smoke.py       # Kalender-Panel: Termine, Formular, Monate
+PYTHONPATH=tests python3 tests/launcher_smoke.py       # Launcher: Suche, Starten, Terminal, Tastenwiederholung
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

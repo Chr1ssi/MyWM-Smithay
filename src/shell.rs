@@ -15,6 +15,7 @@ use mywm_ui::{
     bar::{self, BarModel, BarTarget, Workspace},
     clock::{self, LocalTime},
     i18n::Language,
+    launcher::LauncherTarget,
     notices::{self, NoticeTarget, NoticesModel},
     notifications::CardTarget,
     audio::AudioTarget,
@@ -32,7 +33,7 @@ use smithay::{
             gles::GlesRenderer,
         },
     },
-    input::keyboard::{Keysym, keysyms},
+    input::keyboard::{Keycode, Keysym, keysyms},
     output::Output,
     reexports::calloop::{channel, timer::{TimeoutAction, Timer}},
     utils::{Logical, Physical, Point, Rectangle, Size, Transform},
@@ -117,6 +118,7 @@ pub enum ShellHit {
     /// The open panel.
     Panel(PanelTarget),
     TrayMenu(MenuTarget),
+    Launcher(LauncherTarget),
 }
 
 pub struct Shell {
@@ -153,6 +155,12 @@ pub struct Shell {
     pub tray_menu: Option<crate::shell_tray::TrayMenuOpen>,
     /// The calendar panel's month, events and form.
     pub calendar: crate::shell_calendar::Calendar,
+    /// The open launcher, and the applications it lists.
+    pub launcher: Option<crate::shell_launcher::Launcher>,
+    pub apps: crate::shell_launcher::Apps,
+    /// The key the shell repeats while it is held, by its press (see `shell_key_pressed`).
+    repeating: Option<(Keycode, u64)>,
+    presses: u64,
 }
 
 fn palette(config: &mywm_config::Config) -> Palette {
@@ -239,6 +247,10 @@ impl Shell {
             panel: None,
             tray_menu: None,
             calendar: Default::default(),
+            launcher: None,
+            apps: Default::default(),
+            repeating: None,
+            presses: 0,
         }
     }
 }
@@ -309,6 +321,7 @@ impl State {
             }
             self.panel_repaint();
             self.tray_menu_repaint();
+            self.launcher_repaint();
             self.shell.dirty = true;
         }
     }
@@ -369,6 +382,7 @@ impl State {
 
         self.panel_refresh(&mut fonts, &mut redraw);
         self.tray_menu_refresh(&mut fonts, &mut redraw);
+        self.launcher_refresh(&mut fonts, &mut redraw);
 
         if let Some(menu) = &mut self.shell.power {
             let model = PowerModel {
@@ -475,9 +489,10 @@ impl State {
         bar.and_then(|painted| element(renderer, painted, (0.0, 0.0), scale)).into_iter().collect()
     }
 
-    /// The open panel and the notices on `output`, front to back.
+    /// The launcher, the open panel and the notices on `output`, front to back.
     pub fn shell_notice_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
-        let mut elements: Vec<OutputElement> = self.panel_elements(renderer, output).into_iter().collect();
+        let mut elements: Vec<OutputElement> = self.launcher_elements(renderer, output).into_iter().collect();
+        elements.extend(self.panel_elements(renderer, output));
         elements.extend(self.tray_menu_elements(renderer, output));
         let Some((on, _, painted)) = self.shell.notices.as_ref().filter(|(on, _, _)| on == output) else { return elements };
         let scale = on.current_scale().fractional_scale();
@@ -513,9 +528,9 @@ impl State {
         Some(ShellHit::Power(target))
     }
 
-    /// The open panel or the notices at the pointer (they lie behind the clients' `Overlay` layer).
+    /// The launcher, the open panel or the notices at the pointer (they lie behind the clients' `Overlay` layer).
     pub fn shell_notices_at_pointer(&self) -> Option<ShellHit> {
-        if let Some(hit) = self.panel_at_pointer().or_else(|| self.tray_menu_at_pointer()) {
+        if let Some(hit) = self.launcher_at_pointer().or_else(|| self.panel_at_pointer()).or_else(|| self.tray_menu_at_pointer()) {
             return Some(hit);
         }
         let (output, _, painted) = self.shell.notices.as_ref()?;
@@ -575,7 +590,7 @@ impl State {
                 }
                 // Like a click on a panel that takes no keyboard: the clients get it back.
                 self.note_click(None);
-                if !matches!(hit, Some(ShellHit::Panel(_) | ShellHit::TrayMenu(_) | ShellHit::Bar(..))) {
+                if !matches!(hit, Some(ShellHit::Panel(_) | ShellHit::TrayMenu(_) | ShellHit::Bar(..) | ShellHit::Launcher(_))) {
                     self.panel_pressed_elsewhere();
                 }
             }
@@ -617,6 +632,7 @@ impl State {
             Some(ShellHit::Notices(NoticeTarget::Toast(CardTarget::Action(id, index)))) => self.notification_invoke(id, index),
             Some(ShellHit::Panel(target)) => self.panel_clicked(target),
             Some(ShellHit::TrayMenu(target)) => self.tray_menu_clicked(target),
+            Some(ShellHit::Launcher(target)) => self.launcher_clicked(target),
             Some(ShellHit::Notices(NoticeTarget::Background | NoticeTarget::Toast(CardTarget::Card(_)))) | None => {}
         }
     }
@@ -627,6 +643,7 @@ impl State {
         match hit {
             ShellHit::Panel(target) => return self.panel_scroll(&target, steps),
             ShellHit::TrayMenu(_) => return self.tray_menu_scroll(steps),
+            ShellHit::Launcher(_) => return self.launcher_scroll(steps),
             ShellHit::Bar(_, BarTarget::Tray(index)) => return self.tray_scroll(index, steps),
             _ => {}
         }
@@ -669,12 +686,51 @@ impl State {
 
     /// Whether the shell holds the keyboard (the power menu is open, or the notification center was clicked).
     pub fn shell_takes_keyboard(&self) -> bool {
-        self.shell.power.is_some() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
+        self.shell.power.is_some() || self.launcher_takes_keyboard() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
+    }
+
+    /// A key pressed for the shell (`shell_key`), repeated while it is held if the keymap repeats it, at the
+    /// configured delay and rate: clients repeat keys themselves, and the Quickshell windows did.
+    pub fn shell_key_pressed(&mut self, keycode: Keycode, sym: Keysym, modified: bool, repeats: bool) {
+        self.shell.presses += 1;
+        self.shell.repeating = None;
+        self.shell_key(sym, modified);
+        if !repeats || !self.shell_takes_keyboard() {
+            return;
+        }
+        let press = self.shell.presses;
+        self.shell.repeating = Some((keycode, press));
+        let delay = Duration::from_millis(self.config.input.repeat_delay.max(1) as u64);
+        let interval = Duration::from_millis((1000 / self.config.input.repeat_rate.max(1)).max(1) as u64);
+        let timer = self.loop_handle.insert_source(Timer::from_duration(delay), move |_, _, state| {
+            if state.shell.repeating != Some((keycode, press)) {
+                return TimeoutAction::Drop;
+            }
+            if !state.shell_takes_keyboard() {
+                state.shell.repeating = None;
+                return TimeoutAction::Drop;
+            }
+            state.shell_key(sym, modified);
+            TimeoutAction::ToDuration(interval)
+        });
+        if let Err(error) = timer {
+            tracing::warn!("cannot repeat the key: {}", error.error);
+        }
+    }
+
+    /// A key went up: a repeat of it ends.
+    pub fn shell_key_released(&mut self, keycode: Keycode) {
+        if self.shell.repeating.is_some_and(|(held, _)| held == keycode) {
+            self.shell.repeating = None;
+        }
     }
 
     /// A key pressed while the shell holds the keyboard; `modified`: with Ctrl, Alt or Super.
     pub fn shell_key(&mut self, sym: Keysym, modified: bool) {
         let Some(menu) = &mut self.shell.power else {
+            if self.shell.launcher.is_some() {
+                return self.launcher_key(sym, modified);
+            }
             if self.calendar_key(sym, modified) {
                 return;
             }

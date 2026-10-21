@@ -43,8 +43,9 @@ enum Intercepted {
     Action(Action),
     Vt(i32),
     Modal(crate::screenshot::ModalKey),
-    /// A key for the built-in shell (its power menu, a panel); whether Ctrl, Alt or Super is held.
-    Shell(Keysym, bool),
+    /// A key for the built-in shell (its power menu, a panel, the launcher); whether Ctrl, Alt or Super is held,
+    /// and whether the keymap repeats the key.
+    Shell(Keysym, bool, bool),
     /// The release of a key whose press was intercepted.
     Release,
 }
@@ -70,6 +71,7 @@ impl State {
         tracing::debug!("action {action:?}");
         match action {
             Action::Terminal => self.spawn_command(&self.config.terminal.clone(), false),
+            Action::Launcher if self.builtin_launcher() => self.launcher_open(),
             Action::Launcher => self.spawn_command(&self.config.launcher.clone(), true),
             Action::Program(index) => {
                 let Some(binding) = self.config.program_bindings.values().nth(index) else { return };
@@ -203,7 +205,10 @@ impl State {
                             Some(action) => FilterResult::Intercept(Intercepted::Action(action)),
                             // The power menu takes every other key, as the exclusive panel it was did.
                             None if state.shell_takes_keyboard() => {
-                                FilterResult::Intercept(Intercepted::Shell(handle.modified_sym(), mods.ctrl || mods.alt || mods.logo))
+                                // SAFETY: the keymap is only asked here, while the lock is held; no reference to it is kept.
+                                let repeats = handle.xkb().lock().is_ok_and(|xkb| unsafe { xkb.keymap() }.key_repeats(keycode));
+                                let modified = mods.ctrl || mods.alt || mods.logo;
+                                FilterResult::Intercept(Intercepted::Shell(handle.modified_sym(), modified, repeats))
                             }
                             None => FilterResult::Forward,
                         }
@@ -228,7 +233,7 @@ impl State {
                             self.selection_key(key);
                         }
                     }
-                    Some(Intercepted::Shell(sym, modified)) => self.shell_key(sym, modified),
+                    Some(Intercepted::Shell(sym, modified, repeats)) => self.shell_key_pressed(keycode, sym, modified, repeats),
                     Some(Intercepted::Vt(vt)) => {
                         if let Some(session) = &mut self.session
                             && let Err(error) = session.change_vt(vt)
@@ -236,7 +241,7 @@ impl State {
                             tracing::warn!("cannot switch to VT {vt}: {error}");
                         }
                     }
-                    Some(Intercepted::Release) | None => {}
+                    Some(Intercepted::Release) | None => self.shell_key_released(keycode),
                 }
             }
             InputEvent::PointerMotionAbsolute { event } => {

@@ -151,6 +151,10 @@ impl State {
         let services = &mut self.shell.services;
         services.stdin = Some(stdin);
         services.started = Some(Instant::now());
+        // Read before the launcher first opens, as Quickshell read the entries at its start.
+        if self.builtin_launcher() {
+            self.services_send(mywm_shell_protocol::Command::Applications);
+        }
     }
 
     fn services_readable(&mut self, stdout: &mut ChildStdout) -> PostAction {
@@ -205,6 +209,8 @@ impl State {
                 Some(Event::Closed { id }) => self.shell_notification_closed(id),
                 Some(Event::Tray { items }) => self.shell_tray(items),
                 Some(Event::TrayMenu { address, menu }) => self.shell_tray_menu(address, menu),
+                Some(Event::Applications { apps }) => self.shell_apps(apps),
+                Some(Event::AppIcon { name, image }) => self.shell_app_icon(name, image),
                 Some(Event::Players { players }) => {
                     self.shell.services.players = players
                         .into_iter()
@@ -236,6 +242,7 @@ impl State {
             self.shell_changed();
         }
         self.shell_notifications_reset();
+        self.shell_apps_reset();
         if !self.shell.services.players.is_empty() {
             self.shell.services.players.clear();
             self.shell_changed();

@@ -57,15 +57,25 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   heutigen Tag. „+“ öffnet das Formular (Titel, Start, Ende, Ort, Kalender) für `mywm-calendar create`; Felder und
   Kalenderauswahl sehen aus wie Qt Quicks Fusion-Steuerelemente, mit der Schrift, die fontconfig für „Sans Serif“
   wählt (`fc-match`, wie Qt).
+- **Launcher** (Launcher-Binding, solange `launcher` in der Konfiguration nicht auf ein anderes Programm zeigt):
+  Karte in der Mitte des Monitors unter dem Zeiger mit Suchfeld; jedes getippte Wort muss in Name, generischem
+  Namen, Kommentar, Id oder Schlüsselwörtern vorkommen, Namen mit der Suche am Anfang stehen vorn. Pfeile und Tab
+  wählen, Enter oder ein Klick startet (mit `Path=` als Verzeichnis, mit `Terminal=true` im Terminal der
+  Konfiguration plus `-e`), Escape schließt. Die Einträge liest der Dienstprozess wie Quickshells `DesktopEntries`
+  (XDG-Verzeichnisse, `Name[de]` nach `LC_MESSAGES`/`LANG`, `Hidden`, `NoDisplay`, Exec-Zitate und Feldcodes) beim
+  Start und bei jedem Öffnen neu, die Symbole danach einzeln aus dem Icon-Theme. Klicks neben die Karte gehen an
+  die Fenster, die Tastatur bleibt beim Launcher.
 - **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
   Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
 
 ## Was noch fehlt
 
-Launcher, Wallpaper-Picker, Sperr- und Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
+Wallpaper-Picker, Sperr- und Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
 (bei Quickshell erreichte Tab jeden Knopf); im Kalenderformular wechselt Tab nur zwischen den vier Feldern. Die
-Felder kennen Tippen, Löschen, Pfeile, Pos1/Ende und Klicks, aber keine Auswahl, keine Zwischenablage und keine
-Tastenwiederholung, und der Cursor blinkt nicht. Datum und Uhrzeit
+Textfelder (Kalenderformular, Suche des Launchers) kennen Tippen, Löschen, Pfeile, Pos1/Ende, Klicks und gehaltene
+Tasten (mit `repeat_delay`/`repeat_rate` aus `[input]`), aber keine Auswahl und keine Zwischenablage, und der
+Cursor blinkt nicht. Der Launcher sortiert Namen ohne Groß-/Kleinschreibung statt nach ICU-Sortierregeln wie
+JavaScripts `localeCompare` und zeigt keine Scrollleiste. Datum und Uhrzeit
 kennen nur deutsche und englische Namen. Links in Benachrichtigungen erscheinen unterstrichen in Textfarbe, nicht
 wie bei Qt blau.
 
@@ -109,7 +119,12 @@ wie bei Qt blau.
   Fusion-Feldern; `src/shell_calendar.rs` ruft `mywm-calendar` auf, hält Monat, Termine und Formular und nimmt die
   Tasten der Felder.
 
-Nächste Schritte: im Dienstprozess PAM und greetd (Sperr- und Anmeldebildschirm), Launcher, Wallpaper-Picker.
+- `crates/mywm-ui/src/launcher.rs` (Suche, Sortierung, Karte nach `shell.qml`), `src/shell_launcher.rs` (Öffnen,
+  Tasten, Starten), `crates/mywm-shell-services/src/apps.rs` (Desktop-Einträge nach Quickshells
+  `desktopentry.cpp`). Hält die Shell die Tastatur, wiederholt der Compositor gehaltene Tasten selbst
+  (`shell_key_pressed`), wie es Clients für sich tun.
+
+Nächste Schritte: Wallpaper-Picker, im Dienstprozess PAM und greetd (Sperr- und Anmeldebildschirm).
 
 ## Test
 
@@ -132,6 +147,9 @@ nicht erlaubtes Zurück.
 `tests/calendar_smoke.py`: Platzhalter für `mywm-calendar` und `foot`: die Uhr öffnet das Panel (Termine des Monats
 und Kalender abgefragt), ein Termin ohne Titel wird nicht angelegt, getippter Titel und gewählter Kalender gehen an
 `mywm-calendar create`, danach lädt es neu; Monat vor und zurück, Kalender-App öffnen schließt das Panel.
+`tests/launcher_smoke.py`: Test-Apps wie in mywm-shells Launcher-Test: Suche über Schlüsselwörter, Symbol aus
+`Icon=`, Start mit Argumenten und Verzeichnis, Pfeil und Terminal-App, keine Treffer, gehaltene Rücktaste, Escape,
+Klick auf eine Zeile.
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und
 `CloseNotification` mit den passenden D-Bus-Signalen, Zentrale über die Glocke mit „Alle löschen“, Escape und
 Klick daneben. Nested meldet winit Drücken und Loslassen einer X-Mausradtaste je als

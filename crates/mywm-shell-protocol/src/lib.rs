@@ -15,6 +15,8 @@ pub const ICON_SIZE: u32 = 36;
 /// Covers are scaled down to just cover this many pixels (the media panel shows them 150 logical pixels high
 /// across its width, cut to fit), as Quickshell's `sourceSize`.
 pub const COVER_SIZE: (u32, u32) = (400, 200);
+/// Application icons are scaled to fit this many pixels each way (the launcher shows them 32 logical pixels large).
+pub const APP_ICON_SIZE: u32 = 64;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "kebab-case")]
@@ -30,6 +32,30 @@ pub enum Event {
     Tray { items: Vec<TrayItem> },
     /// The menu of a tray item, after `TrayMenu` or `TrayMenuShow`, or when it changed while shown.
     TrayMenu { address: String, menu: MenuEntry },
+    /// The applications of the desktop entries, after `Applications`; their icons follow one by one.
+    Applications { apps: Vec<Application> },
+    /// The picture of the icon `name` (sent once per run of the services process).
+    AppIcon { name: String, image: Image },
+}
+
+/// An application to launch, from its desktop entry (as Quickshell's `DesktopEntries` reads them).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Application {
+    /// The file name without `.desktop`; in subdirectories of `applications/` prefixed with them, joined by `-`.
+    pub id: String,
+    /// In the language of `LC_MESSAGES` or `LANG` where the entry has it.
+    pub name: String,
+    pub generic_name: String,
+    pub comment: String,
+    pub keywords: Vec<String>,
+    /// The icon the launcher shows: a theme icon name or a file path, empty without one.
+    pub icon: String,
+    /// `Exec` split into arguments, field codes removed.
+    pub command: Vec<String>,
+    /// `Path`, empty without one.
+    pub working_directory: String,
+    pub terminal: bool,
 }
 
 /// What the bar and the panels show of the system.
@@ -279,6 +305,8 @@ pub enum Command {
     /// A submenu of it is about to show.
     TrayMenuShow { address: String, id: i32 },
     TrayMenuClick { address: String, id: i32 },
+    /// The launcher opened: send the applications (and the icons not sent yet).
+    Applications,
 }
 
 /// `message` as one line, with its newline.
