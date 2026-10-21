@@ -18,10 +18,10 @@ CONTENT_X = 460  # the panel's content: the panel in the middle, 400 wide, 20 in
 PREVIOUS_MONTH = (CONTENT_X + 12, 120)
 NEXT_MONTH = (CONTENT_X + 305 + 12, 120)
 ADD = (736, 433)
-TITLE_FIELD = (CONTENT_X + 100, 472)
-CHOICE = (CONTENT_X + 100, 568)
-SECOND_CALENDAR = (CONTENT_X + 100, 596)
-CREATE = (CONTENT_X + 180, 601)
+TITLE_FIELD = (CONTENT_X + 100, 474)
+CHOICE = (CONTENT_X + 100, 606)
+SECOND_CALENDAR = (CONTENT_X + 100, 643)  # in the open list, over the create button
+CREATE = (CONTENT_X + 180, 645)
 # On a day without events (the first of the month, after paging back), the card of an event is only a line of text,
 # so the button is 33 higher than on a day with one (DejaVu Sans, as in the nested session).
 OPEN_APP = (CONTENT_X + 180, 676)

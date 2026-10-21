@@ -60,7 +60,8 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   Die Termine liefert `mywm-calendar events <Monatserster> <8. des Folgemonats>` (khal), die Kalender
   `mywm-calendar calendars`, jeweils in einem eigenen Thread; jedes Öffnen beginnt wie bei Quickshell neu beim
   heutigen Tag. „+“ öffnet das Formular (Titel, Start, Ende, Ort, Kalender) für `mywm-calendar create`; Felder und
-  Kalenderauswahl sehen aus wie Qt Quicks Fusion-Steuerelemente (in Qts Standardgröße von 9 pt).
+  Kalenderauswahl sind abgerundete Kästen im Stil der Shell (Akzentrand beim Fokus, die offene Liste liegt undurchsichtig
+  darüber).
 - **Launcher** (Launcher-Binding, solange `launcher` in der Konfiguration nicht auf ein anderes Programm zeigt):
   Karte in der Mitte des Monitors unter dem Zeiger mit Suchfeld; jedes getippte Wort muss in Name, generischem
   Namen, Kommentar, Id oder Schlüsselwörtern vorkommen, Namen mit der Suche am Anfang stehen vorn. Pfeile und Tab
@@ -159,7 +160,7 @@ wie bei Qt blau.
   macht).
 
 - `crates/mywm-ui/src/calendar.rs`: Inhalt des Kalender-Panels (`CalendarPanelInteractive.qml`) mit den
-  Fusion-Feldern; `src/shell_calendar.rs` ruft `mywm-calendar` auf, hält Monat, Termine und Formular und nimmt die
+  Formularfeldern; `src/shell_calendar.rs` ruft `mywm-calendar` auf, hält Monat, Termine und Formular und nimmt die
   Tasten der Felder.
 
 - `crates/mywm-ui/src/launcher.rs` (Suche, Sortierung, Karte nach `shell.qml`), `src/shell_launcher.rs` (Öffnen,

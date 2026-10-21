@@ -1,7 +1,6 @@
 //! The calendar panel's content (`CalendarPanelInteractive.qml`): a month to page through, the selected day's events
 //! and the next ones from `mywm-calendar` (khal), a form that creates an event on the selected day, and a button
-//! that opens the calendar app. The form's fields and calendar choice are Qt Quick's Fusion controls, which keep
-//! their own look and size (Qt's default 9 pt) instead of the shell's theme.
+//! that opens the calendar app. The form's fields and calendar choice are rounded boxes in the shell's theme.
 use crate::{
     Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme,
     bar::{BUTTON_HEIGHT, button_shape},
@@ -248,28 +247,12 @@ pub enum CalendarTarget {
 
 const SPACING: f32 = 14.0;
 const TEXT: TextStyle = TextStyle::new(14.0);
-/// Qt's default font size (9 pt at 96 dpi).
-const CONTROL_TEXT: TextStyle = TextStyle::new(12.0);
-const CONTROL_HEIGHT: f32 = 24.0;
-const ITEM_HEIGHT: f32 = 26.0;
-const CONTROL_PADDING: f32 = 4.0;
-
-/// The Fusion palette's colors (Qt's own, the controls do not follow the shell's theme).
-mod fusion {
-    use crate::Color;
-
-    pub const BASE: Color = Color::rgba(0xff, 0xff, 0xff, 255);
-    pub const TEXT: Color = Color::rgba(0, 0, 0, 255);
-    pub const PLACEHOLDER: Color = Color::rgba(0, 0, 0, 128);
-    pub const OUTLINE: Color = Color::rgba(0xab, 0xab, 0xab, 255);
-    pub const HIGHLIGHTED_OUTLINE: Color = Color::rgba(0x26, 0x70, 0x9e, 255);
-    pub const HIGHLIGHT: Color = Color::rgba(0x30, 0x8c, 0xc6, 255);
-    pub const HIGHLIGHTED_TEXT: Color = Color::rgba(0xff, 0xff, 0xff, 255);
-    pub const TOP_SHADOW: Color = Color::rgba(0, 0, 0, 18);
-    pub const ARROW: Color = Color::rgba(0x44, 0x44, 0x44, 255);
-    pub const POPUP: Color = Color::rgba(0xef, 0xef, 0xef, 255);
-    pub const SHADOW: Color = Color::rgba(0, 0, 0, 16);
-}
+const FIELD_TEXT: TextStyle = TextStyle::new(14.0);
+const FIELD_HEIGHT: f32 = 36.0;
+/// A form row is a field and the space below it.
+const FIELD_ROW: f32 = FIELD_HEIGHT + 8.0;
+const FIELD_PADDING: f32 = 12.0;
+const ITEM_HEIGHT: f32 = 34.0;
 
 fn label(content: &mut Content, rect: Rect, text: String, style: TextStyle, color: Color, align: Align) {
     content.push(Node::Label { rect, text, style, color, align });
@@ -298,84 +281,73 @@ fn fitted_width(measure: &mut impl Measure, text: &str) -> f32 {
 
 /// How far a field `width` wide scrolls its line to the left: just enough that the cursor shows.
 fn scrolled(measure: &mut impl Measure, input: &Input, width: f32) -> f32 {
-    let cursor_x = measure.width(&input.text[..input.cursor], CONTROL_TEXT);
-    (cursor_x - (width - 2.0 * CONTROL_PADDING) + 1.0).max(0.0)
+    let cursor_x = measure.width(&input.text[..input.cursor], FIELD_TEXT);
+    (cursor_x - (width - 2.0 * FIELD_PADDING) + 1.0).max(0.0)
 }
 
 /// The cursor position nearest to `x` (from the left edge of a field `width` wide showing `input`).
 pub fn cursor_at(measure: &mut impl Measure, input: &Input, width: f32, x: f32) -> usize {
-    let x = x - CONTROL_PADDING + scrolled(measure, input, width);
-    input.nearest(measure, CONTROL_TEXT, x)
+    let x = x - FIELD_PADDING + scrolled(measure, input, width);
+    input.nearest(measure, FIELD_TEXT, x)
 }
 
-/// A Fusion `TextField`: the line scrolls so that the cursor stays in view.
-fn text_field(content: &mut Content, measure: &mut impl Measure, area: Rect, input: &Input, placeholder: &str, focused: bool, field: Field) {
-    let outline = if focused { fusion::HIGHLIGHTED_OUTLINE } else { fusion::OUTLINE };
-    rect(content, area, 2.0, fusion::BASE, Some((1.0, outline)));
-    if focused {
-        rect(content, area.inset(1.0), 1.7, Color::TRANSPARENT, Some((1.0, fusion::HIGHLIGHTED_OUTLINE.with_alpha(40.0 / 255.0))));
-    }
-    rect(content, Rect::new(area.x + 2.0, area.y + 1.0, area.w - 4.0, 1.0), 0.0, fusion::TOP_SHADOW, None);
-    let inner = Rect::new(area.x + CONTROL_PADDING, area.y, area.w - 2.0 * CONTROL_PADDING, area.h);
-    let cursor_x = measure.width(&input.text[..input.cursor], CONTROL_TEXT);
+/// The box of a field and of the calendar choice: a rounded card, outlined in the accent color while it has focus.
+fn field_box(content: &mut Content, theme: &Theme, area: Rect, focused: bool) {
+    let border = if focused { (1.5, theme.accent) } else { (1.0, theme.glass_border()) };
+    rect(content, area, ROW_RADIUS, theme.glass_surface(), Some(border));
+}
+
+/// A text field: the line scrolls so that the cursor stays in view.
+#[allow(clippy::too_many_arguments)]
+fn text_field(content: &mut Content, theme: &Theme, measure: &mut impl Measure, area: Rect, input: &Input, placeholder: &str, focused: bool, field: Field) {
+    field_box(content, theme, area, focused);
+    let inner = Rect::new(area.x + FIELD_PADDING, area.y, area.w - 2.0 * FIELD_PADDING, area.h);
+    let cursor_x = measure.width(&input.text[..input.cursor], FIELD_TEXT);
     let scrolled = scrolled(measure, input, area.w);
     content.push(Node::Clip(Some(inner)));
     if input.text.is_empty() {
-        label(content, inner, placeholder.to_owned(), CONTROL_TEXT, fusion::PLACEHOLDER, Align::Left);
+        label(content, inner, placeholder.to_owned(), FIELD_TEXT, theme.muted.faded(0.8), Align::Left);
     } else {
         // Wide enough that the line is not cut off with "…": the clip cuts it.
-        let line = Rect::new(inner.x - scrolled, inner.y, measure.width(&input.text, CONTROL_TEXT).ceil() + 1.0, inner.h);
-        label(content, line, input.text.clone(), CONTROL_TEXT, fusion::TEXT, Align::Left);
+        let line = Rect::new(inner.x - scrolled, inner.y, measure.width(&input.text, FIELD_TEXT).ceil() + 1.0, inner.h);
+        label(content, line, input.text.clone(), FIELD_TEXT, theme.text, Align::Left);
     }
     if focused {
-        let height = measure.line_height(CONTROL_TEXT);
+        let height = measure.line_height(FIELD_TEXT);
         let cursor = Rect::new((inner.x + cursor_x - scrolled).round(), area.y + ((area.h - height) / 2.0).round(), 1.0, height);
-        rect(content, cursor, 0.0, fusion::TEXT, None);
+        rect(content, cursor, 0.0, theme.text, None);
     }
     content.push(Node::Clip(None));
     content.target(area, PanelTarget::Calendar(CalendarTarget::Field(field)));
 }
 
-/// A Fusion `ComboBox`: a light gradient, the choice and an arrow.
-fn choice(content: &mut Content, area: Rect, text: Option<&str>) {
-    rect(content, area, 2.0, fusion::BASE, Some((1.0, fusion::OUTLINE)));
-    // The button's gradient, one line at a time, from #fefefe to #eeeeee with a lighter bottom line.
-    let rows = (area.h - 2.0).max(0.0) as usize;
-    for row in 0..rows {
-        let value = if row + 1 == rows { 0xf0 } else { (254.0 - row as f32 * 0.8).round() as u8 };
-        rect(content, Rect::new(area.x + 1.0, area.y + 1.0 + row as f32, area.w - 2.0, 1.0), 0.0, Color::rgba(value, value, value, 255), None);
-    }
+/// The calendar choice: the chosen calendar and a chevron.
+fn choice(content: &mut Content, theme: &Theme, area: Rect, text: Option<&str>, open: bool) {
+    field_box(content, theme, area, open);
+    let text_w = area.w - 2.0 * FIELD_PADDING - 24.0;
     if let Some(text) = text {
-        let inner = Rect::new(area.x + CONTROL_PADDING, area.y, area.w - 2.0 * CONTROL_PADDING - 20.0, area.h);
-        label(content, inner, text.to_owned(), CONTROL_TEXT, fusion::TEXT, Align::Left);
+        label(content, Rect::new(area.x + FIELD_PADDING, area.y, text_w, area.h), text.to_owned(), FIELD_TEXT, theme.text, Align::Left);
     }
-    // The arrow: a triangle 7 wide and 4 high, its rows on half pixels as Qt antialiases it.
-    for row in 0..4 {
-        let width = 7.0 - 2.0 * row as f32;
-        let line = Rect::new(area.right() - 13.5 + row as f32, area.y + 10.0 + row as f32, width, 1.0);
-        rect(content, line, 0.0, fusion::ARROW, None);
-    }
+    let chevron = TextStyle::new(16.0).icons(true);
+    label(content, Rect::new(area.right() - FIELD_PADDING - 16.0, area.y, 16.0, area.h), "󰅀".into(), chevron, theme.muted, Align::Center);
     content.target(area, PanelTarget::Calendar(CalendarTarget::Choice));
 }
 
-/// The open list of the calendar choice, over it: the calendar under the pointer, else the chosen one, highlighted.
-fn choice_list(content: &mut Content, area: Rect, names: &[String], chosen: Option<usize>, hover: Option<&PanelTarget>) {
-    let list = Rect::new(area.x, area.y, area.w, names.len() as f32 * ITEM_HEIGHT + 2.0);
-    rect(content, list.translated(1.0, 1.0), 0.0, fusion::SHADOW, None);
-    rect(content, list, 0.0, fusion::POPUP, Some((1.0, fusion::OUTLINE)));
+/// The open list of the calendar choice, over it: opaque, as it lies over other content. The calendar under the
+/// pointer, else the chosen one, is highlighted.
+fn choice_list(content: &mut Content, theme: &Theme, area: Rect, names: &[String], chosen: Option<usize>, hover: Option<&PanelTarget>) {
+    let list = Rect::new(area.x, area.y, area.w, names.len() as f32 * ITEM_HEIGHT + 8.0);
+    rect(content, list, ROW_RADIUS + 2.0, theme.background, Some((1.0, theme.glass_border())));
     let hovered = names.iter().enumerate().map(|(i, _)| i).find(|i| hover == Some(&PanelTarget::Calendar(CalendarTarget::Calendar(*i))));
     let highlighted = hovered.or(chosen);
     for (index, name) in names.iter().enumerate() {
-        let item = Rect::new(list.x + 1.0, list.y + 1.0 + index as f32 * ITEM_HEIGHT, list.w - 2.0, ITEM_HEIGHT);
-        let color = if highlighted == Some(index) {
-            rect(content, item, 0.0, fusion::HIGHLIGHT, None);
-            fusion::HIGHLIGHTED_TEXT
-        } else {
-            fusion::TEXT
-        };
-        let style = CONTROL_TEXT.bold(chosen == Some(index));
-        let text = Rect::new(item.x + 7.0, item.y, (item.w - 14.0).max(0.0), item.h);
-        label(content, text, name.clone(), style, color, Align::Left);
+        let item = Rect::new(list.x + 4.0, list.y + 4.0 + index as f32 * ITEM_HEIGHT, list.w - 8.0, ITEM_HEIGHT);
+        if highlighted == Some(index) {
+            rect(content, item, ROW_RADIUS - 2.0, theme.surface, None);
+        }
+        let color = if chosen == Some(index) { theme.accent } else { theme.text };
+        let text = Rect::new(item.x + 8.0, item.y, (item.w - 16.0).max(0.0), item.h);
+        label(content, text, name.clone(), FIELD_TEXT.bold(chosen == Some(index)), color, Align::Left);
         content.target(item, PanelTarget::Calendar(CalendarTarget::Calendar(index)));
     }
 }
@@ -480,22 +452,23 @@ pub fn content(model: &CalendarModel, hover: Option<&PanelTarget>, theme: &Theme
         let focused = |field| form.focus == Some(field);
         let half = (width - 8.0) / 2.0;
         let fields = [
-            (Field::Title, Rect::new(0.0, y, width, CONTROL_HEIGHT), tr("Titel")),
-            (Field::Start, Rect::new(0.0, y + 32.0, half, CONTROL_HEIGHT), "Start (HH:MM)"),
-            (Field::End, Rect::new(half + 8.0, y + 32.0, half, CONTROL_HEIGHT), tr("Ende (HH:MM)")),
-            (Field::Location, Rect::new(0.0, y + 64.0, width, CONTROL_HEIGHT), tr("Ort (optional)")),
+            (Field::Title, Rect::new(0.0, y, width, FIELD_HEIGHT), tr("Titel")),
+            (Field::Start, Rect::new(0.0, y + FIELD_ROW, half, FIELD_HEIGHT), "Start (HH:MM)"),
+            (Field::End, Rect::new(half + 8.0, y + FIELD_ROW, half, FIELD_HEIGHT), tr("Ende (HH:MM)")),
+            (Field::Location, Rect::new(0.0, y + 2.0 * FIELD_ROW, width, FIELD_HEIGHT), tr("Ort (optional)")),
         ];
         for (field, area, placeholder) in fields {
-            text_field(&mut content, measure, area, form.input(field), placeholder, focused(field), field);
+            text_field(&mut content, theme, measure, area, form.input(field), placeholder, focused(field), field);
         }
-        let area = Rect::new(0.0, y + 96.0, width, CONTROL_HEIGHT);
-        choice(&mut content, area, form.calendar.and_then(|index| model.calendars.get(index)).map(String::as_str));
+        let area = Rect::new(0.0, y + 3.0 * FIELD_ROW, width, FIELD_HEIGHT);
+        let chosen = form.calendar.and_then(|index| model.calendars.get(index)).map(String::as_str);
+        choice(&mut content, theme, area, chosen, form.choosing);
         if form.choosing && !model.calendars.is_empty() {
             choice_area = Some(area);
         }
         let text = if form.saving { tr("Wird gespeichert …") } else { tr("Termin erstellen") };
-        button(&mut content, theme, Rect::new(0.0, y + 128.0, width, BUTTON_HEIGHT), text, false, !form.saving, CalendarTarget::Create, hover);
-        y += 128.0 + BUTTON_HEIGHT + SPACING;
+        button(&mut content, theme, Rect::new(0.0, y + 4.0 * FIELD_ROW, width, BUTTON_HEIGHT), text, false, !form.saving, CalendarTarget::Create, hover);
+        y += 4.0 * FIELD_ROW + BUTTON_HEIGHT + SPACING;
     }
 
     if let Some(error) = model.error {
@@ -538,7 +511,7 @@ pub fn content(model: &CalendarModel, hover: Option<&PanelTarget>, theme: &Theme
 
     // The open list lies over everything after the choice (and takes the clicks there).
     if let Some(area) = choice_area {
-        choice_list(&mut content, area, &model.calendars, model.form.calendar, hover);
+        choice_list(&mut content, theme, area, &model.calendars, model.form.calendar, hover);
     }
     content
 }
@@ -629,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn the_form_has_qts_controls_and_lists_the_calendars_over_the_rest() {
+    fn the_form_has_rounded_fields_and_lists_the_calendars_over_the_rest() {
         let mut model = model();
         model.creating = true;
         model.form.calendar = Some(0);
@@ -637,8 +610,8 @@ mod tests {
         let title = target(&closed, CalendarTarget::Field(Field::Title)).unwrap();
         let end = target(&closed, CalendarTarget::Field(Field::End)).unwrap();
         let choice = target(&closed, CalendarTarget::Choice).unwrap();
-        assert_eq!((title.h, end.x, end.w), (24.0, 184.0, 176.0));
-        assert_eq!(choice.y, title.y + 96.0);
+        assert_eq!((title.h, end.x, end.w), (36.0, 184.0, 176.0));
+        assert_eq!(choice.y, title.y + 3.0 * 44.0);
         let texts = texts(&closed);
         for text in ["Title", "09:00", "10:00", "Location (optional)", "Arbeit", "Create event"] {
             assert!(texts.contains(&text.to_owned()), "{text} missing in {texts:?}");
@@ -651,25 +624,25 @@ mod tests {
         model.form.choosing = true;
         let open = content(&model, None, &theme(), &mut Mono, 360.0, Language::English);
         let second = target(&open, CalendarTarget::Calendar(1)).unwrap();
-        assert_eq!(second, Rect::new(1.0, choice.y + 27.0, 358.0, 26.0));
+        assert_eq!(second, Rect::new(4.0, choice.y + 4.0 + 34.0, 352.0, 34.0));
         // Over the button below the choice, the list takes the click.
         let create = target(&open, CalendarTarget::Create).unwrap();
         let mut scene: Scene<PanelTarget> = Scene::new(360.0, open.height);
         open.targets.iter().for_each(|(rect, t)| scene.target(*rect, *t));
-        assert_eq!(scene.target_at(create.x + 10.0, second.y + 5.0), Some(PanelTarget::Calendar(CalendarTarget::Calendar(1))));
+        assert_eq!(scene.target_at(create.x + 10.0, second.y + 10.0), Some(PanelTarget::Calendar(CalendarTarget::Calendar(1))));
     }
 
     #[test]
     fn a_click_puts_the_cursor_between_the_nearest_characters() {
-        // `Mono` makes the 12 px characters 6 wide; the text starts 4 in.
+        // `Mono` makes the 14 px characters 7 wide; the text starts 12 in.
         let input = Input::new("09:00");
         assert_eq!(cursor_at(&mut Mono, &input, 176.0, 0.0), 0);
-        assert_eq!(cursor_at(&mut Mono, &input, 176.0, 4.0 + 6.0 * 2.0 + 2.0), 2);
-        assert_eq!(cursor_at(&mut Mono, &input, 176.0, 4.0 + 6.0 * 2.0 + 4.0), 3);
+        assert_eq!(cursor_at(&mut Mono, &input, 176.0, 12.0 + 7.0 * 2.0 + 3.0), 2);
+        assert_eq!(cursor_at(&mut Mono, &input, 176.0, 12.0 + 7.0 * 2.0 + 4.0), 3);
         assert_eq!(cursor_at(&mut Mono, &input, 176.0, 170.0), 5);
         // A long line scrolled to its end: the field's left edge is far into it.
         let long = Input::new(&"x".repeat(100));
-        assert_eq!(cursor_at(&mut Mono, &long, 176.0, 4.0), 100 - 28);
+        assert_eq!(cursor_at(&mut Mono, &long, 176.0, 12.0), 100 - 22);
     }
 
     #[test]
