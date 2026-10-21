@@ -160,8 +160,8 @@ pub enum Node {
     Rect { rect: Rect, radius: f32, fill: Color, border: Option<(f32, Color)> },
     /// One line centered vertically in `rect`, cut off with "…" where it is wider.
     Label { rect: Rect, text: String, style: TextStyle, color: Color, align: Align },
-    /// Lines broken at words to the width of `rect`, from its top (`wrapMode: Text.Wrap`).
-    Paragraph { rect: Rect, text: String, style: TextStyle, color: Color },
+    /// Lines broken at words to the width of `rect`, from its top (`wrapMode: Text.Wrap`), each aligned in it.
+    Paragraph { rect: Rect, text: String, style: TextStyle, color: Color, align: Align },
     /// A stroked circular arc with round caps: angles in radians, 0 to the right, growing clockwise.
     Arc { center: (f32, f32), radius: f32, width: f32, color: Color, start: f32, sweep: f32 },
     /// Styled runs broken at words to the width of `rect`, at most `max_lines` lines, the last one cut off with
@@ -179,7 +179,7 @@ impl Node {
         match self {
             Node::Rect { rect, radius, fill, border } => Node::Rect { rect: rect.translated(dx, dy), radius, fill, border },
             Node::Label { rect, text, style, color, align } => Node::Label { rect: rect.translated(dx, dy), text, style, color, align },
-            Node::Paragraph { rect, text, style, color } => Node::Paragraph { rect: rect.translated(dx, dy), text, style, color },
+            Node::Paragraph { rect, text, style, color, align } => Node::Paragraph { rect: rect.translated(dx, dy), text, style, color, align },
             Node::Arc { center, radius, width, color, start, sweep } => {
                 Node::Arc { center: (center.0 + dx, center.1 + dy), radius, width, color, start, sweep }
             }
@@ -198,7 +198,7 @@ impl Node {
                 Node::Rect { rect, radius, fill: fill.faded(factor), border: border.map(|(w, c)| (w, c.faded(factor))) }
             }
             Node::Label { rect, text, style, color, align } => Node::Label { rect, text, style, color: color.faded(factor), align },
-            Node::Paragraph { rect, text, style, color } => Node::Paragraph { rect, text, style, color: color.faded(factor) },
+            Node::Paragraph { rect, text, style, color, align } => Node::Paragraph { rect, text, style, color: color.faded(factor), align },
             Node::Arc { center, radius, width, color, start, sweep } => {
                 Node::Arc { center, radius, width, color: color.faded(factor), start, sweep }
             }

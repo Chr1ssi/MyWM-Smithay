@@ -534,7 +534,7 @@ impl State {
         }
     }
 
-    fn spawn_reaped(mut cmd: std::process::Command, what: &str) {
+    pub(crate) fn spawn_reaped(mut cmd: std::process::Command, what: &str) {
         match cmd.spawn() {
             Ok(mut child) => {
                 std::thread::spawn(move || {

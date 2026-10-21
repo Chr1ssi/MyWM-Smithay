@@ -26,6 +26,7 @@ mod screenshot;
 mod session;
 mod shell;
 mod shell_calendar;
+mod shell_greeter;
 mod shell_launcher;
 mod shell_lock;
 mod shell_control;
@@ -131,6 +132,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     shutdown::install(&event_loop.handle())?;
 
     xwayland::start(&mut state);
+    // `--greeter` alone: the built-in login screen.
+    let builtin_greeter = args.get(1).is_some_and(|a| a == "--greeter") && args.get(2).is_none();
+    if builtin_greeter {
+        state.greeter_setup();
+    }
     state.shell_init();
 
     if let Err(error) = ipc::init(&event_loop.handle(), &mut state) {
@@ -153,12 +159,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // `--greeter <command>`: the login screen; the compositor ends with it, so greetd can start the session.
+    // `--greeter <command>`: the login screen; the compositor ends with it, so greetd can start the session. (Without
+    // a command the built-in one shows, set up above.)
     match args.get(1).map(String::as_str) {
-        Some("--greeter") => match args.get(2) {
-            Some(cmd) => state.spawn_greeter(cmd),
-            None => return Err("--greeter requires the login screen's command".into()),
-        },
+        Some("--greeter") => {
+            if let Some(cmd) = args.get(2) {
+                state.spawn_greeter(cmd);
+            }
+        }
         Some(cmd) => state.spawn_command(&["sh".into(), "-c".into(), cmd.into()], false),
         None => {}
     }

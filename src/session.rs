@@ -214,7 +214,7 @@ impl State {
     }
 
     /// Lock the session with the built-in lock screen. It also takes over a session whose locker is gone.
-    fn own_lock(&mut self) {
+    pub(crate) fn own_lock(&mut self) {
         if self.session_lock.is_own() {
             return;
         }

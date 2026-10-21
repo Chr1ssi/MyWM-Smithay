@@ -65,7 +65,8 @@ let
     // cfg.greeter.settings
   );
 
-  # greetd's session for the login screen: mywm with nothing but greeter.qml; it ends once a session starts.
+  # greetd's session for the login screen: mywm with nothing but greeter.qml (or its own login screen); it ends
+  # once a session starts.
   greeterLaunch = pkgs.writeShellScript "mywm-greeter" ''
     export XDG_SESSION_TYPE=wayland
     export MYWM_CONFIG=${greeterConfig}
@@ -76,8 +77,9 @@ let
     # The greeter user has no state directory; messages go to the journal.
     export MYWM_LOG_FILE=off RUST_LOG=warn
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}") cfg.greeter.environment)}
-    exec ${pkgs.dbus}/bin/dbus-run-session ${cfg.package}/bin/mywm-compositor --greeter \
-      "qs --path ${cfg.package}/share/mywm/quickshell/greeter.qml"
+    exec ${pkgs.dbus}/bin/dbus-run-session ${cfg.package}/bin/mywm-compositor --greeter ${
+      lib.optionalString (!cfg.greeter.builtin) ''"qs --path ${cfg.package}/share/mywm/quickshell/greeter.qml"''
+    }
   '';
 in
 {
@@ -124,6 +126,10 @@ in
         greetd with mywm's own login screen (`greeter.qml` of mywm-shell, in the look of the
         lock screen), shown by `mywm-compositor --greeter`. Needs `greeterDirectory` for the
         wallpaper and colors'';
+
+      builtin = lib.mkEnableOption ''
+        the login screen the compositor draws itself (`mywm-compositor --greeter` without a
+        command; looks and works like greeter.qml, without Quickshell)'';
 
       user = lib.mkOption {
         type = lib.types.nullOr lib.types.str;

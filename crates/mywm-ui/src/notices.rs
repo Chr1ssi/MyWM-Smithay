@@ -69,7 +69,7 @@ pub fn scene(model: &NoticesModel, theme: &Theme, measure: &mut impl Measure) ->
         let nodes = vec![
             Node::Rect { rect: Rect::new(0.0, 0.0, width, height), radius: RADIUS, fill: theme.glass(), border: Some((2.0, theme.alert)) },
             label(PADDING, PADDING, inner, title_h, format!("󰑊 {}", tr("Was soll geteilt werden?")), title, theme.text),
-            Node::Paragraph { rect: Rect::new(PADDING, PADDING + title_h + 4.0, inner, body_h), text: text.into(), style: body, color: theme.text },
+            Node::Paragraph { rect: Rect::new(PADDING, PADDING + title_h + 4.0, inner, body_h), text: text.into(), style: body, color: theme.text, align: Align::Left },
         ];
         cards.push(Card { height, nodes, targets: Vec::new() });
     }
@@ -90,7 +90,7 @@ pub fn scene(model: &NoticesModel, theme: &Theme, measure: &mut impl Measure) ->
             Node::Rect { rect: Rect::new(0.0, 0.0, width, height), radius: RADIUS, fill: theme.glass(), border: Some((1.0, theme.glass_border())) },
             Node::Rect { rect: swatch, radius: 12.0, fill: swatch_color, border: Some((1.0, theme.border)) },
             label(left, top, column, title_h, heading, title, theme.text),
-            Node::Paragraph { rect: Rect::new(left, top + title_h + 4.0, column, body_h), text: text.into(), style: body, color: theme.muted },
+            Node::Paragraph { rect: Rect::new(left, top + title_h + 4.0, column, body_h), text: text.into(), style: body, color: theme.muted, align: Align::Left },
         ];
         cards.push(Card { height, nodes, targets: Vec::new() });
     }
@@ -112,9 +112,9 @@ pub fn scene(model: &NoticesModel, theme: &Theme, measure: &mut impl Measure) ->
         button_shape(&mut button, theme, close, "×", false, false, false, model.hover == Some(NoticeTarget::DismissConfigError));
         nodes.extend(button.nodes);
         let body_top = PADDING + row_h + 4.0;
-        nodes.push(Node::Paragraph { rect: Rect::new(PADDING, body_top, inner, body_h), text: error.clone(), style: body, color: theme.text });
+        nodes.push(Node::Paragraph { rect: Rect::new(PADDING, body_top, inner, body_h), text: error.clone(), style: body, color: theme.text, align: Align::Left });
         let note_rect = Rect::new(PADDING, body_top + body_h + 4.0, inner, note_h);
-        nodes.push(Node::Paragraph { rect: note_rect, text: note_text.into(), style: note, color: theme.muted });
+        nodes.push(Node::Paragraph { rect: note_rect, text: note_text.into(), style: note, color: theme.muted, align: Align::Left });
         cards.push(Card { height, nodes, targets: vec![(close, NoticeTarget::DismissConfigError)] });
     }
 

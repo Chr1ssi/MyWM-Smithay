@@ -11,7 +11,7 @@ use cosmic_text::{
 };
 use tiny_skia::Pixmap;
 
-use crate::{Color, Measure, TextStyle, markup::Span, theme};
+use crate::{Align, Color, Measure, TextStyle, markup::Span, theme};
 
 const ELLIPSIS: &str = "…";
 
@@ -45,6 +45,8 @@ enum Lines {
     One,
     /// Broken at words to a width.
     Wrapped(f32),
+    /// Broken at words to a width, each line centered in it.
+    Centered(f32),
     /// Broken at words to a width, at most this many lines, the last one cut off with "…".
     Limited(f32, usize),
 }
@@ -149,7 +151,9 @@ impl Fonts {
         let mut buffer = Buffer::new(&mut self.system, Metrics::new(style.size * scale, (line_height * scale).max(1.0)));
         let (width, wrap) = match lines {
             Lines::One => (None, Wrap::None),
-            Lines::Wrapped(width) | Lines::Limited(width, _) => (Some((width * scale).max(1.0)), Wrap::WordOrGlyph),
+            Lines::Wrapped(width) | Lines::Centered(width) | Lines::Limited(width, _) => {
+                (Some((width * scale).max(1.0)), Wrap::WordOrGlyph)
+            }
         };
         buffer.set_wrap(wrap);
         if let Lines::Limited(_, max_lines) = lines {
@@ -158,7 +162,8 @@ impl Fonts {
         buffer.set_size(width, None);
         let sans = self.sans.as_deref();
         let base = attrs(style, sans);
-        buffer.set_rich_text(spans.iter().map(|span| (span.text.as_str(), span_attrs(style, span, sans))), &base, Shaping::Advanced, None);
+        let align = matches!(lines, Lines::Centered(_)).then_some(cosmic_text::Align::Center);
+        buffer.set_rich_text(spans.iter().map(|span| (span.text.as_str(), span_attrs(style, span, sans))), &base, Shaping::Advanced, align);
         buffer.shape_until_scroll(&mut self.system, false);
         buffer
     }
@@ -210,10 +215,14 @@ impl Fonts {
         self.draw(pixmap, &Self::plain(text), style, Lines::One, color, at, scale, clip);
     }
 
-    /// Draw `text` broken at words to `width`, from `at`.
+    /// Draw `text` broken at words to `width`, from `at`, each line aligned in the width.
     #[allow(clippy::too_many_arguments)]
-    pub fn draw_paragraph(&mut self, pixmap: &mut Pixmap, text: &str, style: TextStyle, color: Color, at: (f32, f32), width: f32, scale: f32, clip: Clip) {
-        self.draw(pixmap, &Self::plain(text), style, Lines::Wrapped(width), color, at, scale, clip);
+    pub fn draw_paragraph(&mut self, pixmap: &mut Pixmap, text: &str, style: TextStyle, color: Color, at: (f32, f32), (width, align): (f32, Align), scale: f32, clip: Clip) {
+        let lines = match align {
+            Align::Left => Lines::Wrapped(width),
+            Align::Center => Lines::Centered(width),
+        };
+        self.draw(pixmap, &Self::plain(text), style, lines, color, at, scale, clip);
     }
 
     /// Draw styled runs broken at words to `width`, at most `max_lines` lines, from `at`.

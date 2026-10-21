@@ -50,19 +50,25 @@ const PASSWORD_CAPACITY: usize = 256;
 #[derive(Default)]
 pub struct LockScreen {
     /// What was typed; zeroed before it goes.
-    password: String,
+    pub(crate) password: String,
     /// The attempt being checked; keys wait meanwhile, as the disabled field did.
-    checking: Option<u64>,
-    attempts: u64,
+    pub(crate) checking: Option<u64>,
+    pub(crate) attempts: u64,
     /// What the last check said; nothing before the first one and while checking.
     pub message: Option<LockMessage>,
+    /// The message is an error (the password field turns red).
+    pub failed: bool,
+    /// The field or (on the login screen) button that has the keyboard.
+    pub focus: LockTarget,
+    /// The login screen (`--greeter`): what it asks besides the password.
+    pub greeter: Option<crate::shell_greeter::Greeter>,
     /// Where the checks answer: the attempt and its outcome, `None` if the check itself failed.
     results: Option<channel::Sender<(u64, Option<AuthOutcome>)>>,
     /// The backdrop's id and color, and a count that changes with the color, for damage tracking.
     backdrop: Option<(Id, [f32; 4], CommitCounter)>,
     /// The dimming over the background.
     dim: Option<Id>,
-    /// The clock and the card as painted, on which output, at which scale and where.
+    /// The clock and the card (and the login screen's islands) as painted.
     painted: Option<Shown>,
     /// The theme's image while locked; `None` shows the theme's background.
     source: Option<PathBuf>,
@@ -81,8 +87,8 @@ struct Shown {
     output: Output,
     model: LockModel,
     scale: f64,
-    origin: (f32, f32),
-    painted: Painted<LockTarget>,
+    /// Each scene and where its origin lies on the output.
+    painted: Vec<(Painted<LockTarget>, (f32, f32))>,
 }
 
 struct Background {
@@ -117,7 +123,7 @@ fn pixel_size(geo: Rectangle<i32, Logical>, output: &Output) -> Size<i32, Physic
 }
 
 /// Overwrite `text` before it is emptied, so the password does not stay in memory.
-fn wipe(text: &mut String) {
+pub fn wipe(text: &mut String) {
     // SAFETY: zero bytes are valid UTF-8.
     unsafe { text.as_mut_vec() }.fill(0);
     text.clear();
@@ -201,10 +207,20 @@ impl State {
         // An attempt of an earlier lock answers too late to count.
         lock.checking = None;
         lock.message = None;
+        lock.failed = false;
         lock.locks += 1;
-        // lock.qml read the theme when it started: its colors and its image.
-        let json = mywm_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
-        lock.source = json.as_deref().and_then(mywm_ui::theme::generated_source).map(PathBuf::from);
+        lock.focus = match &lock.greeter {
+            Some(greeter) if greeter.user.text.is_empty() => LockTarget::User,
+            _ => LockTarget::Password,
+        };
+        // lock.qml read the theme when it started: its colors and its image. The login screen's image is its own.
+        lock.source = match &lock.greeter {
+            Some(greeter) => greeter.background.clone(),
+            None => {
+                let json = mywm_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
+                json.as_deref().and_then(mywm_ui::theme::generated_source).map(PathBuf::from)
+            }
+        };
         self.shell_reload_theme();
         self.shell_release_pointer();
         self.shell.hover = None;
@@ -222,32 +238,79 @@ impl State {
         self.shell.hover = None;
     }
 
-    /// A key pressed on the lock screen: typing, Backspace and Return; nothing while a check runs.
+    /// What Tab moves through.
+    fn lock_focus_chain(&self) -> Vec<LockTarget> {
+        let greeter = self.shell.lock.greeter.as_ref();
+        lock_screen::focus_chain(greeter.is_some(), greeter.map_or(0, |g| g.sessions.len()), greeter.is_some())
+    }
+
+    /// A key pressed on the lock or login screen: Tab moves the focus; a field takes typing, Backspace and Return
+    /// (the user field also Delete, the arrows, Home and End); a button Return and Space. Nothing while a check
+    /// runs.
     pub fn lock_key(&mut self, sym: Keysym, modified: bool) {
-        let lock = &mut self.shell.lock;
-        if lock.checking.is_some() {
+        if self.shell.lock.checking.is_some() {
             return;
         }
-        match sym.raw() {
-            keysyms::KEY_Return | keysyms::KEY_KP_Enter => return self.lock_submit(),
-            keysyms::KEY_BackSpace => {
-                lock.password.pop();
-            }
-            _ => match sym.key_char().filter(|c| !c.is_control() && !modified) {
-                Some(c) => lock.password.push(c),
-                None => return,
+        let raw = sym.raw();
+        if matches!(raw, keysyms::KEY_Tab | keysyms::KEY_ISO_Left_Tab) {
+            let chain = self.lock_focus_chain();
+            let lock = &mut self.shell.lock;
+            let position = chain.iter().position(|t| *t == lock.focus).unwrap_or(0);
+            let next = if raw == keysyms::KEY_Tab { position + 1 } else { position + chain.len() - 1 };
+            lock.focus = chain[next % chain.len()];
+            self.shell.dirty = true;
+            return;
+        }
+        let typed = sym.key_char().filter(|c| !c.is_control() && !modified);
+        let lock = &mut self.shell.lock;
+        match lock.focus {
+            LockTarget::Password => match raw {
+                keysyms::KEY_Return | keysyms::KEY_KP_Enter => return self.lock_submit(),
+                keysyms::KEY_BackSpace => {
+                    lock.password.pop();
+                }
+                _ => match typed {
+                    Some(c) => lock.password.push(c),
+                    None => return,
+                },
             },
+            LockTarget::User => {
+                let Some(user) = lock.greeter.as_mut().map(|g| &mut g.user) else { return };
+                match raw {
+                    keysyms::KEY_Return | keysyms::KEY_KP_Enter => lock.focus = LockTarget::Password,
+                    keysyms::KEY_BackSpace => user.backspace(),
+                    keysyms::KEY_Delete | keysyms::KEY_KP_Delete => user.delete(),
+                    keysyms::KEY_Left | keysyms::KEY_KP_Left => user.left(),
+                    keysyms::KEY_Right | keysyms::KEY_KP_Right => user.right(),
+                    keysyms::KEY_Home | keysyms::KEY_KP_Home => user.home(),
+                    keysyms::KEY_End | keysyms::KEY_KP_End => user.end(),
+                    _ => match typed {
+                        Some(c) => user.insert(c.encode_utf8(&mut [0; 4])),
+                        None => return,
+                    },
+                }
+            }
+            button => {
+                if matches!(raw, keysyms::KEY_Return | keysyms::KEY_KP_Enter | keysyms::KEY_space) {
+                    self.lock_clicked(button);
+                }
+                return;
+            }
         }
         self.shell.dirty = true;
     }
 
-    /// Check the typed password, unless there is none or a check runs.
+    /// Check the typed password, unless there is none or a check runs; on the login screen, log in.
     pub fn lock_submit(&mut self) {
+        if self.shell.lock.greeter.is_some() {
+            return self.greeter_submit();
+        }
         let lock = &mut self.shell.lock;
         if lock.checking.is_some() || lock.password.is_empty() {
             return;
         }
         lock.message = None;
+        lock.failed = false;
         lock.attempts += 1;
         let attempt = lock.attempts;
         lock.checking = Some(attempt);
@@ -269,8 +332,8 @@ impl State {
     /// unlocks. Like lock.qml shows it, every other outcome but too many tries reads as a wrong password.
     fn lock_checked(&mut self, attempt: u64, outcome: Option<AuthOutcome>) {
         let lock = &mut self.shell.lock;
-        // An answer for an earlier attempt or an earlier lock counts for nothing.
-        if lock.checking != Some(attempt) || !self.session_lock.is_own() {
+        // An answer for an earlier attempt or an earlier lock counts for nothing; the login screen never unlocks.
+        if lock.checking != Some(attempt) || !self.session_lock.is_own() || lock.greeter.is_some() {
             return;
         }
         lock.checking = None;
@@ -278,6 +341,7 @@ impl State {
         if outcome == Some(AuthOutcome::Success) {
             return self.own_unlock();
         }
+        lock.failed = true;
         lock.message = Some(match outcome {
             Some(AuthOutcome::MaxTries) => LockMessage::TooManyTries,
             _ => LockMessage::WrongPassword,
@@ -306,16 +370,26 @@ impl State {
         };
         let now = LocalTime::now();
         let lock = &self.shell.lock;
+        let greeter = lock.greeter.as_ref();
         let model = LockModel {
             output: (geo.size.w as f32, geo.size.h as f32),
             time: now.as_ref().map(clock::lock_time).unwrap_or_default(),
             date: now.as_ref().map(|now| clock::lock_date(now, self.shell.time_language)).unwrap_or_default(),
             // lock.qml showed `$USER`.
-            user: std::env::var("USER").unwrap_or_default(),
+            user: greeter.map_or_else(|| std::env::var("USER").unwrap_or_default(), |g| g.user.text.clone()),
+            ask_user: greeter.map(|g| g.user.cursor),
             password_len: lock.password.chars().count(),
             busy: lock.checking.is_some(),
-            message: lock.message,
-            submit_hovered: self.shell.hover == Some(ShellHit::Lock(LockTarget::Submit)),
+            message: lock.message.clone(),
+            failed: lock.failed,
+            focus: lock.focus,
+            hover: match self.shell.hover {
+                Some(ShellHit::Lock(target)) => Some(target),
+                _ => None,
+            },
+            sessions: greeter.map(|g| g.sessions.iter().map(|s| s.name.clone()).collect()).unwrap_or_default(),
+            session: greeter.map_or(0, |g| g.session),
+            show_power: greeter.is_some(),
             language: self.shell.language,
         };
         let scale = output.current_scale().fractional_scale();
@@ -331,9 +405,11 @@ impl State {
         {
             redraw.push(shown.output);
         }
-        let (scene, origin) = lock_screen::scene(&model, &self.shell.theme, fonts);
-        self.shell.lock.painted =
-            paint(scene, fonts, scale).map(|painted| Shown { output: output.clone(), model, scale, origin, painted });
+        let painted = lock_screen::scenes(&model, &self.shell.theme, fonts)
+            .into_iter()
+            .filter_map(|(scene, origin)| Some((paint(scene, fonts, scale)?, origin)))
+            .collect();
+        self.shell.lock.painted = Some(Shown { output: output.clone(), model, scale, painted });
         redraw.push(output);
     }
 
@@ -351,14 +427,30 @@ impl State {
             return None;
         }
         let local = self.pointer_location - geo.loc.to_f64();
-        let (x, y) = shown.origin;
-        shown.painted.scene.target_at((local.x as f32) - x, (local.y as f32) - y).map(ShellHit::Lock)
+        shown
+            .painted
+            .iter()
+            .rev()
+            .find_map(|(painted, (x, y))| painted.scene.target_at((local.x as f32) - x, (local.y as f32) - y))
+            .map(ShellHit::Lock)
     }
 
-    /// A click on the lock screen.
+    /// A click (or Return on a button) on the lock or login screen: a field takes the keyboard, unless a check
+    /// runs.
     pub fn lock_clicked(&mut self, target: LockTarget) {
-        if target == LockTarget::Submit {
-            self.lock_submit();
+        match target {
+            LockTarget::Submit => self.lock_submit(),
+            LockTarget::User | LockTarget::Password => {
+                let lock = &mut self.shell.lock;
+                if lock.checking.is_none() && (target == LockTarget::Password || lock.greeter.is_some()) {
+                    lock.focus = target;
+                    self.shell.dirty = true;
+                }
+            }
+            LockTarget::Session(index) => self.greeter_pick_session(index),
+            LockTarget::Reboot => self.greeter_power("reboot"),
+            LockTarget::Poweroff => self.greeter_power("poweroff"),
+            LockTarget::Card => {}
         }
     }
 
@@ -430,8 +522,9 @@ impl State {
         let mut elements = Vec::new();
         let lock = &mut self.shell.lock;
         if let Some(shown) = lock.painted.as_ref().filter(|s| &s.output == output) {
-            let origin = (f64::from(shown.origin.0), f64::from(shown.origin.1));
-            elements.extend(element(renderer, &shown.painted, origin, scale));
+            for (painted, (x, y)) in shown.painted.iter().rev() {
+                elements.extend(element(renderer, painted, (f64::from(*x), f64::from(*y)), scale));
+            }
         }
         let solid = |id: &Id, commit: CommitCounter, color: [f32; 4]| {
             let element = SolidColorRenderElement::new(id.clone(), area, commit, color, Kind::Unspecified);

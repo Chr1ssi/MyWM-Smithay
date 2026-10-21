@@ -39,6 +39,9 @@ die Idle-Sperre sind aus), `greeter.environment` setzt z. B. das Cursor-Theme. W
 Farben (`theme.json`) spiegelt die Sitzung bei jedem Themewechsel in `greeterDirectory`. Mit
 Plymouth beendet greetd den Bootsplash selbst (`plymouth quit --retain-splash`), so bleibt dessen
 letztes Bild stehen, bis mywm den Bildschirm übernimmt, statt eines schwarzen Bildschirms.
+Mit `programs.mywm.greeter.builtin = true` zeichnet der Compositor den Anmeldebildschirm selbst
+(`mywm-compositor --greeter` ohne Befehl, siehe `docs/shell.md`), ohne Quickshell; Standard bleibt
+`greeter.qml`.
 
 Logging: Die Sitzung „mywm“ schreibt nur Warnungen, Fehler und Abstürze nach
 `~/.local/state/mywm/compositor.log`. Mit `programs.mywm.devSession = true` gibt es zusätzlich

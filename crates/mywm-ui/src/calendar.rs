@@ -500,7 +500,7 @@ pub fn content(model: &CalendarModel, hover: Option<&PanelTarget>, theme: &Theme
     if let Some(error) = model.error {
         let text = error.text(language);
         let height = measure.paragraph_height(text, TEXT, width);
-        content.push(Node::Paragraph { rect: Rect::new(0.0, y, width, height), text: text.to_owned(), style: TEXT, color: theme.muted });
+        content.push(Node::Paragraph { rect: Rect::new(0.0, y, width, height), text: text.to_owned(), style: TEXT, color: theme.muted, align: Align::Left });
         y += height + SPACING;
     }
     let selected = model.selected.iso();

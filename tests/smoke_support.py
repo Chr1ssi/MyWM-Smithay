@@ -54,7 +54,8 @@ def wait(cond, timeout=8):
 
 
 class Compositor:
-    def __init__(self, config="", extra_env=None, windows=0, extra_args="", top="", layout="us"):
+    def __init__(self, config="", extra_env=None, windows=0, extra_args="", top="", layout="us", argv=None):
+        """`argv`: the compositor's arguments instead of the command that starts the `windows` and `extra_args`."""
         self.dir = tempfile.mkdtemp()
         self.sock = f"{self.dir}/ctl.sock"
         # An empty wallpaper directory, so the compositor does not draw one from the user's pictures.
@@ -78,7 +79,8 @@ class Compositor:
         # from an earlier run would otherwise move focus by hovering over a new window.
         subprocess.run(["xdotool", "mousemove", "1279", "799"], check=False)
         self.log = open(f"{self.dir}/log", "w")
-        self.process = subprocess.Popen([DEBUG_BINARY, clients], env=env, stdout=self.log, stderr=subprocess.STDOUT)
+        self.process = subprocess.Popen([DEBUG_BINARY, *(argv if argv is not None else [clients])], env=env, stdout=self.log,
+                                        stderr=subprocess.STDOUT)
         assert wait(lambda: os.path.exists(self.sock)), "bar socket missing"
         # The window clients start one after the other; tests count on all of them being there.
         assert wait(lambda: open(f"{self.dir}/log").read().count("new window") >= windows, 30), "the windows did not appear"

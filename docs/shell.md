@@ -89,12 +89,25 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   abgedunkelt, bis dahin die Hintergrundfarbe; auf dem Monitor mit Workspace 1 Uhr, Datum (ausgeschriebene Namen)
   und die Karte mit Initiale, `$USER`, Passwortfeld (Punkte, rot nach einem abgelehnten Passwort) und Knopf, der
   beim Überfahren aufleuchtet und wie Enter prüft. Das Feld kennt Tippen, Rücktaste und Enter.
+- **Anmeldebildschirm** (`mywm-compositor --greeter` ohne Befehl, im NixOS-Modul
+  `programs.mywm.greeter.builtin = true`): wie `greeter.qml` die Karte des Sperrbildschirms mit Feld für den
+  Benutzer (`MYWM_GREETER_USER` füllt es vor, dann hat das Passwort die Tastatur), unten links die Sitzungen aus
+  `MYWM_GREETER_SESSIONS` (nach Dateiname, erstes `Name=` und `Exec=` ohne Feldcodes; nur bei mehr als einer),
+  unten rechts Neustart und Ausschalten (`systemctl reboot|poweroff`), als Hintergrund `MYWM_GREETER_BACKGROUND`.
+  Tab geht wie bei Qt durch Felder und Knöpfe, Enter im Benutzerfeld zum Passwort, Enter oder Leertaste auf einem
+  Knopf drückt ihn. Er liegt von Anfang an hinter der eigenen Sperre: keine Bindings (außer Programm-Bindings mit
+  `allow_when_locked`), kein Client erreichbar. Die Anmeldung läuft über greetd (`$GREETD_SOCK`) mit
+  `mywm-shell-services --login`, einem eigenen Prozess je Versuch, wie Quickshells `Greetd`: jede Frage bekommt
+  das Passwort, Fehlermeldungen von PAM erscheinen, „Sitzung startet …“, dann endet der Compositor mit Code 0, und
+  greetd startet die Sitzung. Eine liegengebliebene Sitzung („a session is already being configured“) bricht er ab
+  und beginnt neu. Dienstprozess und Nachtlicht laufen hier nicht. `--greeter "<Befehl>"` startet wie bisher den
+  Befehl (`greeter.qml`).
 - **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
   Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
 
 ## Was noch fehlt
 
-Der Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
+In den Panels führt Tab noch nicht von Knopf zu Knopf
 (bei Quickshell erreichte Tab jeden Knopf); im Kalenderformular wechselt Tab nur zwischen den vier Feldern. Die
 Textfelder (Kalenderformular, Suche des Launchers, Filter des Pickers) kennen Tippen, Löschen, Pfeile, Pos1/Ende, Klicks und gehaltene
 Tasten (mit `repeat_delay`/`repeat_rate` aus `[input]`), aber keine Auswahl und keine Zwischenablage, und der
@@ -160,8 +173,8 @@ wie bei Qt blau.
 - `crates/mywm-ui/src/lock_screen.rs` (Uhr und Karte), `src/shell_lock.rs` (Passwort, Prüfung, Hintergrund), `own_lock`/`own_unlock` in `src/session.rs` (eigene
   Sperrzustände neben denen von `ext-session-lock`), `crates/mywm-shell-services/src/pam.rs` (die Prüfung wie
   Quickshells `PamContext`: nur `pam_authenticate`, jede Frage bekommt das Passwort).
-
-Nächster Schritt: greetd (Anmeldebildschirm).
+- `src/shell_greeter.rs` (Sitzungen, Anmeldung, Knöpfe des Anmeldebildschirms), `crates/mywm-shell-services/src/login.rs`
+  (greetds IPC: JSON mit vorangestellter Länge).
 
 ## Test
 
@@ -197,6 +210,10 @@ Passwort, eine Prüfung, die mittendrin stirbt, und ein fremder Sperrer (`mywm-t
 das Fenster bekommt keine Taste, der Rand des Felds wird rot; das richtige Passwort entsperrt mit einem Klick auf den
 Knopf. Ein Fenster unter dem ruhenden Zeiger verliert ihn beim Sperren; das Bild eines erst danach geschriebenen
 `theme.json` erscheint abgedunkelt.
+`tests/greeter_smoke.py`: `--greeter` mit zwei Monitoren gegen nachgebautes greetd (`tests/fake_greetd.py` aus
+mywm-shell): Karte nur auf dem ersten, Bindings tun nichts, falsches Passwort (`create_session`, `response wrong`,
+roter Rand), Tab und Enter wählen die zweite Sitzung, das richtige Passwort startet sie ohne Feldcodes, der
+Compositor endet mit 0; „Ausschalten“ ruft `systemctl poweroff` (ein Platzhalter vorn im `PATH`).
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und
 `CloseNotification` mit den passenden D-Bus-Signalen, Zentrale über die Glocke mit „Alle löschen“, Escape und
 Klick daneben. Nested meldet winit Drücken und Loslassen einer X-Mausradtaste je als

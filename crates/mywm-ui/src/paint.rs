@@ -48,9 +48,9 @@ pub fn paint<T>(scene: &Scene<T>, fonts: &mut Fonts, scale: f32) -> Option<Pixma
                 let top = rect.y + (rect.h - fonts.line_height(*style)) / 2.0;
                 fonts.draw_line(&mut pixmap, &text, *style, *color, (x, top), scale, bounds);
             }
-            Node::Paragraph { rect, text, style, color } => {
+            Node::Paragraph { rect, text, style, color, align } => {
                 if color.a > 0 && !text.is_empty() {
-                    fonts.draw_paragraph(&mut pixmap, text, *style, *color, (rect.x, rect.y), rect.w, scale, bounds);
+                    fonts.draw_paragraph(&mut pixmap, text, *style, *color, (rect.x, rect.y), (rect.w, *align), scale, bounds);
                 }
             }
             Node::Arc { center, radius, width, color, start, sweep } => {

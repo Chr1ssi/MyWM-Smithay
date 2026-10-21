@@ -311,9 +311,13 @@ impl State {
             Ok(_) => self.shell.systemctl = Some(sender),
             Err(error) => tracing::warn!("restart and shut down are not available: {}", error.error),
         }
+        self.shell_lock_init();
+        // The login screen is no session: no services on the greeter's D-Bus, no night light.
+        if self.shell.lock.greeter.is_some() {
+            return self.greeter_start();
+        }
         self.services_start();
         self.night_light_restore();
-        self.shell_lock_init();
     }
 
     /// Something the shell shows changed outside the compositor's own state.

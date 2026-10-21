@@ -10,6 +10,7 @@ mod apps;
 mod audio;
 mod bluetooth;
 mod icons;
+mod login;
 mod media;
 mod notifications;
 mod pam;
@@ -51,6 +52,10 @@ fn main() -> std::process::ExitCode {
     // The lock screen's password check, a process per attempt (see `pam`).
     if std::env::args().nth(1).as_deref() == Some("--authenticate") {
         return pam::run();
+    }
+    // The login screen's login through greetd, a process per attempt (see `login`).
+    if std::env::args().nth(1).as_deref() == Some("--login") {
+        return login::run();
     }
     let (updates, news) = mpsc::channel();
     for (name, run) in [("audio", audio::run as fn(mpsc::Sender<Update>)), ("media", media::run)] {

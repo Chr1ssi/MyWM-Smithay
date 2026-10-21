@@ -404,9 +404,43 @@ impl AuthOutcome {
     }
 }
 
+/// What the compositor's login screen asks of `mywm-shell-services --login`: one JSON object on its stdin.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub user: String,
+    pub password: String,
+    /// The session to start once greetd accepted the password.
+    pub command: Vec<String>,
+}
+
+/// What `mywm-shell-services --login` tells on its stdout, one JSON object per line, as greetd answers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "kebab-case")]
+pub enum LoginEvent {
+    /// An error message of PAM that asks nothing (greeter.qml showed those).
+    Message { text: String },
+    /// greetd refused the password (`auth_error`).
+    Wrong,
+    /// greetd could not be reached or answered with another error.
+    Error { description: String },
+    /// The password was accepted; the session is being started.
+    Launching,
+    /// greetd starts the session once the login screen is gone.
+    Started,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_events_read_back() {
+        for event in [LoginEvent::Message { text: "Konto gesperrt".into() }, LoginEvent::Wrong, LoginEvent::Launching] {
+            let line = serde_json::to_string(&event).expect("serializes");
+            assert_eq!(serde_json::from_str::<LoginEvent>(&line).ok(), Some(event));
+        }
+        assert_eq!(serde_json::to_string(&LoginEvent::Started).ok().as_deref(), Some(r#"{"event":"started"}"#));
+    }
 
     #[test]
     fn only_the_exact_word_counts() {
