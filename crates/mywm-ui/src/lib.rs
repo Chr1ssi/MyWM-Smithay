@@ -24,6 +24,7 @@ pub mod scene;
 pub mod text;
 pub mod theme;
 pub mod tray_menu;
+pub mod wallpaper_picker;
 
 pub use scene::{Align, Color, Measure, Node, Rect, Scene, TextStyle};
 pub use theme::Theme;

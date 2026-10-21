@@ -18,6 +18,8 @@ pub struct Shaders {
     pub tex: GlesTexProgram,
     pub ring: GlesPixelProgram,
     pub shadow: GlesPixelProgram,
+    /// A leaning tile of the wallpaper picker (`shell_wallpaper`).
+    pub tile: GlesTexProgram,
 }
 
 const ROUNDED_SDF: &str = "
@@ -117,6 +119,71 @@ void main() {{
     )
 }
 
+/// A tile of the wallpaper picker, drawn leaning in its bounding box (`size`, physical pixels): every point is
+/// straightened again and painted as the tile's parts are there (`tile`: its rectangle in the box before it leans;
+/// `lean`: how far a point moves per pixel below the tile's top, and at the top). The surface color, the picture
+/// (the texture filling `image`, shown inside `inner`) if `has_image`, the dimming, the border; all edges smoothed.
+/// Colors are premultiplied.
+fn tile_shader() -> String {
+    format!(
+        "#version 100
+//_DEFINES_
+#if defined(EXTERNAL)
+#extension GL_OES_EGL_image_external : require
+#endif
+{PRECISION}
+#if defined(EXTERNAL)
+uniform samplerExternalOES tex;
+#else
+uniform sampler2D tex;
+#endif
+uniform float alpha;
+varying vec2 v_coords;
+#if defined(DEBUG_FLAGS)
+uniform float tint;
+#endif
+uniform vec2 size;
+uniform vec4 tile;
+uniform vec2 lean;
+uniform vec4 image;
+uniform vec4 inner;
+uniform float has_image;
+uniform float border;
+uniform vec4 surface;
+uniform vec4 dim;
+uniform vec4 border_color;
+float inside(vec2 q, vec4 r) {{
+    vec2 d = min(q - r.xy, r.xy + r.zw - q);
+    return clamp(d.x + 0.5, 0.0, 1.0) * clamp(d.y + 0.5, 0.0, 1.0);
+}}
+vec4 over(vec4 top, vec4 below) {{
+    return top + below * (1.0 - top.a);
+}}
+void main() {{
+    vec2 p = v_coords * size;
+    vec2 q = vec2(p.x - lean.y - lean.x * (p.y - tile.y), p.y);
+    vec4 color = surface;
+    if (has_image > 0.5) {{
+        vec4 picture = texture2D(tex, (q - image.xy) / image.zw);
+#if defined(NO_ALPHA)
+        picture = vec4(picture.rgb, 1.0);
+#endif
+        color = over(picture * inside(q, inner), color);
+    }}
+    color = over(dim, color);
+    float ring = 1.0 - inside(q, vec4(tile.xy + vec2(border), tile.zw - vec2(2.0 * border)));
+    color = over(border_color * ring, color);
+    color *= inside(q, tile) * alpha;
+#if defined(DEBUG_FLAGS)
+    if (tint == 1.0)
+        color = vec4(0.0, 0.2, 0.0, 0.2) + color * 0.8;
+#endif
+    gl_FragColor = color;
+}}
+"
+    )
+}
+
 pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
     let tex = renderer.compile_custom_texture_shader(
         tex_shader(),
@@ -142,7 +209,22 @@ pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
             UniformName::new("strength", UniformType::_1f),
         ],
     )?;
-    Ok(Shaders { tex, ring, shadow })
+    let tile = renderer.compile_custom_texture_shader(
+        tile_shader(),
+        &[
+            UniformName::new("size", UniformType::_2f),
+            UniformName::new("tile", UniformType::_4f),
+            UniformName::new("lean", UniformType::_2f),
+            UniformName::new("image", UniformType::_4f),
+            UniformName::new("inner", UniformType::_4f),
+            UniformName::new("has_image", UniformType::_1f),
+            UniformName::new("border", UniformType::_1f),
+            UniformName::new("surface", UniformType::_4f),
+            UniformName::new("dim", UniformType::_4f),
+            UniformName::new("border_color", UniformType::_4f),
+        ],
+    )?;
+    Ok(Shaders { tex, ring, shadow, tile })
 }
 
 /// Uniforms of the ring around a window frame (physical pixels; premultiplied color).

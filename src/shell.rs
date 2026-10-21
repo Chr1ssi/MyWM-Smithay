@@ -44,7 +44,7 @@ use crate::{State, render::OutputElement};
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 /// How often the power menu redraws while its card resizes or counts down.
-const FRAME: Duration = Duration::from_millis(16);
+pub const FRAME: Duration = Duration::from_millis(16);
 
 /// A scene and its pixels, ready to be shown.
 pub struct Painted<T> {
@@ -119,6 +119,8 @@ pub enum ShellHit {
     Panel(PanelTarget),
     TrayMenu(MenuTarget),
     Launcher(LauncherTarget),
+    /// The wallpaper picker's tiles or field (`Some`), or the dimmed monitor around them.
+    Picker(Option<mywm_ui::wallpaper_picker::PickerTarget>),
 }
 
 pub struct Shell {
@@ -158,6 +160,9 @@ pub struct Shell {
     /// The open launcher, and the applications it lists.
     pub launcher: Option<crate::shell_launcher::Launcher>,
     pub apps: crate::shell_launcher::Apps,
+    /// The open wallpaper picker.
+    pub picker: Option<crate::shell_wallpaper::Picker>,
+    pub pickers_opened: u64,
     /// The key the shell repeats while it is held, by its press (see `shell_key_pressed`).
     repeating: Option<(Keycode, u64)>,
     presses: u64,
@@ -201,7 +206,7 @@ pub fn element<T>(renderer: &mut GlesRenderer, painted: &Painted<T>, location: (
     stretched(renderer, &painted.buffer, painted.pixels, location, size, scale)
 }
 
-fn stretched(
+pub fn stretched(
     renderer: &mut GlesRenderer,
     buffer: &MemoryRenderBuffer,
     pixels: (i32, i32),
@@ -249,6 +254,8 @@ impl Shell {
             calendar: Default::default(),
             launcher: None,
             apps: Default::default(),
+            picker: None,
+            pickers_opened: 0,
             repeating: None,
             presses: 0,
         }
@@ -322,6 +329,7 @@ impl State {
             self.panel_repaint();
             self.tray_menu_repaint();
             self.launcher_repaint();
+            self.wallpaper_picker_repaint();
             self.shell.dirty = true;
         }
     }
@@ -383,6 +391,7 @@ impl State {
         self.panel_refresh(&mut fonts, &mut redraw);
         self.tray_menu_refresh(&mut fonts, &mut redraw);
         self.launcher_refresh(&mut fonts, &mut redraw);
+        self.wallpaper_picker_refresh(&mut fonts, &mut redraw);
 
         if let Some(menu) = &mut self.shell.power {
             let model = PowerModel {
@@ -489,9 +498,10 @@ impl State {
         bar.and_then(|painted| element(renderer, painted, (0.0, 0.0), scale)).into_iter().collect()
     }
 
-    /// The launcher, the open panel and the notices on `output`, front to back.
+    /// The wallpaper picker, the launcher, the open panel and the notices on `output`, front to back.
     pub fn shell_notice_elements(&self, renderer: &mut GlesRenderer, output: &Output) -> Vec<OutputElement> {
-        let mut elements: Vec<OutputElement> = self.launcher_elements(renderer, output).into_iter().collect();
+        let mut elements = self.wallpaper_picker_elements(renderer, output);
+        elements.extend(self.launcher_elements(renderer, output));
         elements.extend(self.panel_elements(renderer, output));
         elements.extend(self.tray_menu_elements(renderer, output));
         let Some((on, _, painted)) = self.shell.notices.as_ref().filter(|(on, _, _)| on == output) else { return elements };
@@ -528,9 +538,10 @@ impl State {
         Some(ShellHit::Power(target))
     }
 
-    /// The launcher, the open panel or the notices at the pointer (they lie behind the clients' `Overlay` layer).
+    /// The wallpaper picker, the launcher, the open panel or the notices at the pointer (they lie behind the
+    /// clients' `Overlay` layer).
     pub fn shell_notices_at_pointer(&self) -> Option<ShellHit> {
-        if let Some(hit) = self.launcher_at_pointer().or_else(|| self.panel_at_pointer()).or_else(|| self.tray_menu_at_pointer()) {
+        if let Some(hit) = self.wallpaper_picker_at_pointer().or_else(|| self.launcher_at_pointer()).or_else(|| self.panel_at_pointer()).or_else(|| self.tray_menu_at_pointer()) {
             return Some(hit);
         }
         let (output, _, painted) = self.shell.notices.as_ref()?;
@@ -633,6 +644,7 @@ impl State {
             Some(ShellHit::Panel(target)) => self.panel_clicked(target),
             Some(ShellHit::TrayMenu(target)) => self.tray_menu_clicked(target),
             Some(ShellHit::Launcher(target)) => self.launcher_clicked(target),
+            Some(ShellHit::Picker(target)) => self.wallpaper_picker_clicked(target),
             Some(ShellHit::Notices(NoticeTarget::Background | NoticeTarget::Toast(CardTarget::Card(_)))) | None => {}
         }
     }
@@ -644,6 +656,7 @@ impl State {
             ShellHit::Panel(target) => return self.panel_scroll(&target, steps),
             ShellHit::TrayMenu(_) => return self.tray_menu_scroll(steps),
             ShellHit::Launcher(_) => return self.launcher_scroll(steps),
+            ShellHit::Picker(target) => return self.wallpaper_picker_scroll(target, steps),
             ShellHit::Bar(_, BarTarget::Tray(index)) => return self.tray_scroll(index, steps),
             _ => {}
         }
@@ -686,7 +699,7 @@ impl State {
 
     /// Whether the shell holds the keyboard (the power menu is open, or the notification center was clicked).
     pub fn shell_takes_keyboard(&self) -> bool {
-        self.shell.power.is_some() || self.launcher_takes_keyboard() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
+        self.shell.power.is_some() || self.wallpaper_picker_takes_keyboard() || self.launcher_takes_keyboard() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
     }
 
     /// A key pressed for the shell (`shell_key`), repeated while it is held if the keymap repeats it, at the
@@ -728,6 +741,9 @@ impl State {
     /// A key pressed while the shell holds the keyboard; `modified`: with Ctrl, Alt or Super.
     pub fn shell_key(&mut self, sym: Keysym, modified: bool) {
         let Some(menu) = &mut self.shell.power else {
+            if self.shell.picker.is_some() {
+                return self.wallpaper_picker_key(sym, modified);
+            }
             if self.shell.launcher.is_some() {
                 return self.launcher_key(sym, modified);
             }
@@ -783,9 +799,11 @@ impl State {
         let size = power::card_size(false, monitor);
         let now = Instant::now();
         self.power_close();
-        // As the QML bar: the power menu closes the panel and the tray menu.
+        // As the QML bar: the power menu closes the panel and the tray menu. It takes the keyboard from the
+        // wallpaper picker, which closed it.
         self.panel_close();
         self.tray_menu_close();
+        self.wallpaper_picker_close();
         let pixel = [power::BACKDROP.r, power::BACKDROP.g, power::BACKDROP.b, power::BACKDROP.a];
         // Premultiplied: the color is black, so only the alpha stays.
         let premultiplied = [0, 0, 0, pixel[3]];

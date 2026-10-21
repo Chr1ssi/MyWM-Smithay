@@ -54,6 +54,7 @@ pub fn language_code(locale: &str) -> &str {
 
 const ENGLISH: &[(&str, &str)] = &[
     ("%1 Apps  ·  ↑↓ Auswahl  ·  ↵ Start  ·  Esc", "%1 apps  ·  ↑↓ select  ·  ↵ launch  ·  Esc"),
+    ("%1 / %2  ·  ← → Auswahl  ·  ↵ Anwenden  ·  Esc", "%1 / %2  ·  ← → select  ·  ↵ apply  ·  Esc"),
     ("%1 verbunden", "%1 connected"),
     ("%1 Benachrichtigungen", "%1 notifications"),
     ("1 Benachrichtigung", "1 notification"),
@@ -75,9 +76,13 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Aus", "Off"),
     ("Ausgabe", "Output"),
     ("Ausschalten", "Shut down"),
+    ("Auswahl konnte nicht gespeichert werden.", "The selection could not be saved."),
     ("Automatisch in %1 Sekunden", "Automatically in %1 seconds"),
     ("Benachrichtigung", "Notification"),
     ("Benachrichtigungen", "Notifications"),
+    ("Bilder filtern …", "Filter images …"),
+    ("Bilder werden geladen …", "Loading images …"),
+    ("Bildordner konnte nicht gelesen werden: %1", "The image folder could not be read: %1"),
     ("Bitte Titel sowie gültige Start- und Endzeit eingeben.", "Please enter a title and a valid start and end time."),
     ("Bluetooth ist aus", "Bluetooth is off"),
     (
@@ -86,12 +91,14 @@ const ENGLISH: &[(&str, &str)] = &[
     ),
     ("Commandcenter", "Command center"),
     ("Der Termin konnte nicht erstellt werden.", "The event could not be created."),
+    ("Dieses Bild kann nicht geladen werden.", "This image cannot be loaded."),
     ("Ende (HH:MM)", "End (HH:MM)"),
     ("Esc zum Schließen", "Esc to close"),
     ("Farbpipette", "Color picker"),
     ("Ganztägig", "All day"),
     ("Gekoppelt", "Paired"),
     ("Geräte", "Devices"),
+    ("Gespeicherte Auswahl konnte nicht gelesen werden.", "The saved selection could not be read."),
     (
         "Fenster anklicken · Kachel daneben oder Enter: ganzer Monitor · D: dynamisch, mit den Cast-Tasten umschaltbar · Esc: abbrechen",
         "Click a window · tile beside it or Enter: whole monitor · D: dynamic, switchable with the cast keys · Esc: cancel",
@@ -108,6 +115,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Keine Benachrichtigungen", "No notifications"),
     ("Keine gekoppelten Geräte", "No paired devices"),
     ("Keine passenden Anwendungen", "No matching applications"),
+    ("Keine passenden Bilder gefunden", "No matching images found"),
     ("Keine Termine an diesem Tag.", "No events on this day."),
     ("Keine Verbindung", "No connection"),
     ("Klick kopiert die Farbe · Esc: abbrechen", "Click copies the color · Esc: cancel"),
@@ -188,6 +196,7 @@ mod tests {
             include_str!("control.rs"),
             include_str!("calendar.rs"),
             include_str!("launcher.rs"),
+            include_str!("wallpaper_picker.rs"),
         ];
         let mut used = std::collections::BTreeSet::new();
         for source in sources {

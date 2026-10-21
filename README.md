@@ -44,7 +44,7 @@ sie braucht ein Portal/Programm, das diese Protokolle spricht), `wlr-output-mana
 Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, Helfer-Modi
 `--wallpaper`, `--wallpaper-list`, `--theme-from-wallpaper`, `--theme-from-state`, `--bar`,
 `--launcher` der Binary; das Binding `wallpaper` startet den Picker über `--wallpaper-picker` erst bei
-Bedarf, und er beendet sich nach dem Schließen; `--wallpaper` hält ihn stattdessen dauerhaft bereit). Das Wallpaper selbst zeichnet der Compositor: Er liest die Auswahl aus
+Bedarf, und er beendet sich nach dem Schließen (mit `builtin_shell` öffnet es den eingebauten Picker); `--wallpaper` hält ihn stattdessen dauerhaft bereit). Das Wallpaper selbst zeichnet der Compositor: Er liest die Auswahl aus
 `$XDG_STATE_HOME/mywm/wallpaper.json` (sonst das erste Bild in `wallpaper_directory`), skaliert sie
 einmal in einem eigenen Thread über alle Monitore und lädt sie beim Theme-Reload des Pickers neu. Der
 Quickshell-Picker (`mywm-shell`) sieht aus wie bisher, zeichnet aber keinen eigenen Hintergrund mehr.
@@ -135,6 +135,7 @@ PYTHONPATH=tests python3 tests/audio_smoke.py          # Audio-Panel: Regler, St
 PYTHONPATH=tests python3 tests/control_smoke.py        # Commandcenter: Bluetooth, Adressen, Nachtlicht
 PYTHONPATH=tests python3 tests/calendar_smoke.py       # Kalender-Panel: Termine, Formular, Monate
 PYTHONPATH=tests python3 tests/launcher_smoke.py       # Launcher: Suche, Starten, Terminal, Tastenwiederholung
+PYTHONPATH=tests python3 tests/wallpaper_picker_smoke.py # Wallpaper-Picker: Filter, Speichern, Theme, Klicks
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

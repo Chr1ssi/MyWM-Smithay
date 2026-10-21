@@ -131,6 +131,30 @@ pub fn current_wallpaper(state: &Path, wallpaper_directory: &Path) -> Result<Pat
     }
 }
 
+/// The picker's saved choice in `state`, a `file://` URL: `Ok(None)` if nothing is saved, `Err` if the file is
+/// not one the picker wrote.
+pub fn saved_wallpaper(state: &Path) -> Result<Option<String>> {
+    let Ok(text) = fs::read_to_string(state) else { return Ok(None) };
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .filter(|saved| saved["version"] == 1)
+        .and_then(|saved| saved["wallpaper"].as_str().map(str::to_owned))
+        .filter(|url| url.starts_with("file:///"))
+        .map(Some)
+        .ok_or_else(|| "not a saved wallpaper choice".into())
+}
+
+/// Save `wallpaper` as the picker's choice in `state` (replacing the file at once); its URL.
+pub fn save_wallpaper(state: &Path, wallpaper: &Path) -> Result<String> {
+    let url = file_url(wallpaper.to_str().ok_or("the path is not UTF-8")?);
+    if let Some(directory) = state.parent() {
+        fs::create_dir_all(directory)?;
+    }
+    let saved = serde_json::json!({"version": 1, "wallpaper": url});
+    write_atomic(state, &(saved.to_string() + "\n"))?;
+    Ok(url)
+}
+
 fn first_wallpaper(directory: &Path) -> Result<PathBuf> {
     let mut candidates = fs::read_dir(directory)?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
@@ -493,6 +517,22 @@ mod tests {
             PathBuf::from("/tmp/Bild #1% ä.png")
         );
         assert!(decode_file_url("https://example.com/wallpaper.png").is_none());
+    }
+
+    #[test]
+    fn the_saved_choice_reads_back_and_a_foreign_file_does_not() {
+        let dir = std::env::temp_dir().join(format!("mywm-theme-choice-{}", std::process::id()));
+        let state = dir.join("mywm/wallpaper.json");
+        assert_eq!(saved_wallpaper(&state).unwrap(), None);
+        let url = save_wallpaper(&state, Path::new("/tmp/a #1 100%.png")).unwrap();
+        assert_eq!(url, "file:///tmp/a%20%231%20100%25.png");
+        assert_eq!(fs::read_to_string(&state).unwrap(), format!("{{\"version\":1,\"wallpaper\":\"{url}\"}}\n"));
+        assert_eq!(saved_wallpaper(&state).unwrap(), Some(url));
+        for foreign in ["not json", r#"{"version":2,"wallpaper":"file:///a"}"#, r#"{"version":1,"wallpaper":"/a"}"#] {
+            fs::write(&state, foreign).unwrap();
+            assert!(saved_wallpaper(&state).is_err(), "{foreign}");
+        }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -65,17 +65,28 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   (XDG-Verzeichnisse, `Name[de]` nach `LC_MESSAGES`/`LANG`, `Hidden`, `NoDisplay`, Exec-Zitate und Feldcodes) beim
   Start und bei jedem Öffnen neu, die Symbole danach einzeln aus dem Icon-Theme. Klicks neben die Karte gehen an
   die Fenster, die Tastatur bleibt beim Launcher.
+- **Wallpaper-Picker** (Wallpaper-Binding): über dem abgedunkelten Monitor unter dem Zeiger die Bilder aus
+  `wallpaper_directory` als Karussell schräg gestellter Kacheln, das gewählte breit in der Mitte, die Nachbarn als
+  Streifen daneben; ein neues gleitet in 180 ms an seinen Platz. Er öffnet auf dem Bild in Gebrauch, das Feld filtert
+  nach Dateinamen, Pfeile, Tab, Mausrad über den Kacheln oder ein Klick auf einen Nachbarn wählen (am letzten Bild ist
+  Schluss), Enter oder ein Klick auf das gewählte übernimmt es, Escape oder ein Klick daneben schließen. Übernommen
+  wird ein Bild erst, wenn es sich laden lässt; dann speichert er es als `file://`-Adresse in
+  `$XDG_STATE_HOME/mywm/wallpaper.json`, das Wallpaper wechselt sofort, und das Farbschema erzeugt
+  `--theme-from-wallpaper` im Hintergrund. Jedes Öffnen liest Ordner und Auswahl neu und vergisst beim Schließen
+  alles, wie der Quickshell-Picker, der nur bei Bedarf lief.
 - **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
   Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
 
 ## Was noch fehlt
 
-Wallpaper-Picker, Sperr- und Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
+Sperr- und Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
 (bei Quickshell erreichte Tab jeden Knopf); im Kalenderformular wechselt Tab nur zwischen den vier Feldern. Die
-Textfelder (Kalenderformular, Suche des Launchers) kennen Tippen, Löschen, Pfeile, Pos1/Ende, Klicks und gehaltene
+Textfelder (Kalenderformular, Suche des Launchers, Filter des Pickers) kennen Tippen, Löschen, Pfeile, Pos1/Ende, Klicks und gehaltene
 Tasten (mit `repeat_delay`/`repeat_rate` aus `[input]`), aber keine Auswahl und keine Zwischenablage, und der
 Cursor blinkt nicht. Der Launcher sortiert Namen ohne Groß-/Kleinschreibung statt nach ICU-Sortierregeln wie
-JavaScripts `localeCompare` und zeigt keine Scrollleiste. Datum und Uhrzeit
+JavaScripts `localeCompare` und zeigt keine Scrollleiste. Die Kanten der Picker-Kacheln sind geglättet (bei Qt
+treppig), über ihnen bleibt der Zeiger ein Pfeil (bei Qt eine Hand), und scheitert das Farbschema, steht das nur im
+Log, weil der Picker dann schon zu ist. Datum und Uhrzeit
 kennen nur deutsche und englische Namen. Links in Benachrichtigungen erscheinen unterstrichen in Textfarbe, nicht
 wie bei Qt blau.
 
@@ -124,7 +135,14 @@ wie bei Qt blau.
   `desktopentry.cpp`). Hält die Shell die Tastatur, wiederholt der Compositor gehaltene Tasten selbst
   (`shell_key_pressed`), wie es Clients für sich tun.
 
-Nächste Schritte: Wallpaper-Picker, im Dienstprozess PAM und greetd (Sperr- und Anmeldebildschirm).
+- `crates/mywm-ui/src/wallpaper_picker.rs` (Maße des Karussells nach `wallpaper.qml`, Texte, Treffer auf schrägen
+  Kacheln), `src/shell_wallpaper.rs` (Ordner lesen, Bilder in Worker-Threads dekodieren, höchstens zwei zugleich, nur
+  für die sichtbaren Kacheln und auf die Größe der breiten Kachel verkleinert, Speichern, Theme). Die Kacheln zeichnet
+  die GPU: ein Shader (`tile` in `src/effects.rs`) richtet jeden Punkt wieder gerade und malt dort Fläche, Bild,
+  Abdunklung und Rahmen. Auf der CPU kostete eine Kachel bei 2560×1440 um 14 ms, das Gleiten bräuchte das jeden
+  Frame; so malt die CPU nur die Texte neu.
+
+Nächste Schritte: im Dienstprozess PAM und greetd (Sperr- und Anmeldebildschirm).
 
 ## Test
 
@@ -150,6 +168,10 @@ und Kalender abgefragt), ein Termin ohne Titel wird nicht angelegt, getippter Ti
 `tests/launcher_smoke.py`: Test-Apps wie in mywm-shells Launcher-Test: Suche über Schlüsselwörter, Symbol aus
 `Icon=`, Start mit Argumenten und Verzeichnis, Pfeil und Terminal-App, keine Treffer, gehaltene Rücktaste, Escape,
 Klick auf eine Zeile.
+`tests/wallpaper_picker_smoke.py`: Bilder wie in mywm-shells Picker-Test (Leerzeichen, `#` und `%` im Namen) und
+ein kaputtes: Filter und Enter speichern, Wallpaper und Theme folgen; Start auf dem Bild in Gebrauch, das kaputte wird
+abgelehnt, keine Treffer, Escape, Klick daneben, Klick auf Nachbar und gewähltes, gehaltener Pfeil endet am letzten,
+Mausrad.
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und
 `CloseNotification` mit den passenden D-Bus-Signalen, Zentrale über die Glocke mit „Alle löschen“, Escape und
 Klick daneben. Nested meldet winit Drücken und Loslassen einer X-Mausradtaste je als

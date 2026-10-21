@@ -50,6 +50,8 @@ render_elements! {
     Thumbnail=CropRenderElement<smithay::backend::renderer::element::utils::RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
     /// A picture of the built-in shell (bar, power menu, notices); captures show it.
     Shell=smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement<GlesRenderer>,
+    /// A leaning tile of the wallpaper picker, cut off at the sides of its carousel.
+    Tile=CropRenderElement<crate::shell_wallpaper::TileElement>,
 }
 
 impl OutputElement {
@@ -67,6 +69,7 @@ impl OutputElement {
             Self::Window(_) => "window",
             Self::Thumbnail(_) => "overview thumbnail",
             Self::Shell(_) => "shell",
+            Self::Tile(_) => "wallpaper picker tile",
             _ => "element",
         }
     }
@@ -145,6 +148,7 @@ impl State {
         elements.extend(self.magnifier_elements(output).into_iter().map(OutputElement::from));
         elements.extend(self.overlay_elements(output).into_iter().map(OutputElement::from));
         self.wallpaper_prepare(renderer);
+        self.wallpaper_picker_prepare(renderer);
         if self.session_lock.is_active() {
             // A locked session shows the locker's surface (or plain black) and nothing else.
             if let Some(surface) = self.lock_surface_for(output) {

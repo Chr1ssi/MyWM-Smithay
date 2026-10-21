@@ -105,6 +105,7 @@ impl State {
             }
             Action::Reload => self.reload_config(),
             Action::Lock => self.start_locker(),
+            Action::Wallpaper if self.shell.enabled => self.wallpaper_picker_open(),
             Action::Wallpaper => self.open_wallpaper_picker(),
             Action::Overview => self.toggle_overview(),
             Action::ColorPicker => {

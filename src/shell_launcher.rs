@@ -57,9 +57,10 @@ impl State {
         // The monitor under the pointer (`MYWM_LAUNCHER_X`/`_Y`), else the first.
         let under = self.space.output_under(self.pointer_location).next().cloned();
         let Some(output) = under.or_else(|| self.outputs.first().map(|e| e.output.clone())) else { return };
-        // The panel and the tray menu lost the keyboard to it, which closed their windows.
+        // The panel, the tray menu and the wallpaper picker lost the keyboard to it, which closed their windows.
         self.panel_close();
         self.tray_menu_close();
+        self.wallpaper_picker_close();
         self.shell.launcher = Some(Launcher { output, query: Input::default(), selected: 0, scroll: 0.0, results: Vec::new(), model: None, painted: None });
         self.services_send(Command::Applications);
         self.sync_focus();

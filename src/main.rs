@@ -32,6 +32,7 @@ mod shell_notifications;
 mod shell_panels;
 mod shell_services;
 mod shell_tray;
+mod shell_wallpaper;
 mod shutdown;
 mod udev;
 mod wallpaper;
