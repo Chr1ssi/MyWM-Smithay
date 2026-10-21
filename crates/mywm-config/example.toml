@@ -28,9 +28,9 @@
 # Standard: $HOME/Bilder/Wallpaper. Muss ein absoluter Pfad sein.
 #screenshot_directory = "/home/nutzer/Bilder/Screenshots"
 #wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
-# Bar, Powermenü und Hinweise zeichnet der Compositor selbst, statt die Quickshell-Bar von
-# mywm-shell zu starten. Noch ohne Kalender-Panel (siehe docs/shell.md). Änderungen gelten nach Neustart.
-#builtin_shell = false
+# Bar, Launcher, Wallpaper-Picker, Sperrbildschirm und Hinweise zeichnet der Compositor selbst (siehe
+# docs/shell.md). Aus (nur für Tests) gibt es weder Bar noch Sperrbildschirm. Änderungen gelten nach Neustart.
+#builtin_shell = true
 
 # Optional: adaptive sync remains off except while a recognized game is visibly
 # fullscreen on this output. Der Compositor schaltet VRR selbst (DRM).
@@ -85,7 +85,7 @@
 #active_border = "#89b4fa"
 #inactive_border = "#45475a"
 #urgent_border = "#f38ba8"   # Fenster, das Aufmerksamkeit will (xdg-activation)
-# Gemeinsame Palette für WM und Quickshell.
+# Gemeinsame Palette für WM und Shell.
 #background = "#1e1e2e"
 #surface = "#313244"
 #text = "#cdd6f4"

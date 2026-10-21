@@ -15,7 +15,6 @@ let
     export XDG_CURRENT_DESKTOP=mywm
     export XDG_SESSION_DESKTOP=mywm
     export XDG_SESSION_TYPE=wayland
-    export MYWM_SHELL_DIR=${cfg.package}/share/mywm/quickshell
     export MYWM_POLKIT_AGENT=${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1
     ${lib.optionalString (cfg.greeterDirectory != null) ''
       export MYWM_GREETER_DIR=${lib.escapeShellArg cfg.greeterDirectory}
@@ -65,8 +64,7 @@ let
     // cfg.greeter.settings
   );
 
-  # greetd's session for the login screen: mywm with nothing but greeter.qml (or its own login screen); it ends
-  # once a session starts.
+  # greetd's session for the login screen: mywm with nothing but its login screen; it ends once a session starts.
   greeterLaunch = pkgs.writeShellScript "mywm-greeter" ''
     export XDG_SESSION_TYPE=wayland
     export MYWM_CONFIG=${greeterConfig}
@@ -77,9 +75,7 @@ let
     # The greeter user has no state directory; messages go to the journal.
     export MYWM_LOG_FILE=off RUST_LOG=warn
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}") cfg.greeter.environment)}
-    exec ${pkgs.dbus}/bin/dbus-run-session ${cfg.package}/bin/mywm-compositor --greeter ${
-      lib.optionalString (!cfg.greeter.builtin) ''"qs --path ${cfg.package}/share/mywm/quickshell/greeter.qml"''
-    }
+    exec ${pkgs.dbus}/bin/dbus-run-session ${cfg.package}/bin/mywm-compositor --greeter
   '';
 in
 {
@@ -123,13 +119,8 @@ in
 
     greeter = {
       enable = lib.mkEnableOption ''
-        greetd with mywm's own login screen (`greeter.qml` of mywm-shell, in the look of the
-        lock screen), shown by `mywm-compositor --greeter`. Needs `greeterDirectory` for the
-        wallpaper and colors'';
-
-      builtin = lib.mkEnableOption ''
-        the login screen the compositor draws itself (`mywm-compositor --greeter` without a
-        command; looks and works like greeter.qml, without Quickshell)'';
+        greetd with mywm's own login screen (in the look of the lock screen), shown by
+        `mywm-compositor --greeter`. Needs `greeterDirectory` for the wallpaper and colors'';
 
       user = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -194,10 +185,10 @@ in
 
     environment.systemPackages = [ cfg.package cfg.settingsPackage ];
     services.displayManager.sessionPackages =
-      [ (sessionPackage "mywm" "mywm" "Smithay-based tiling compositor with its own Quickshell shell" quiet) ]
+      [ (sessionPackage "mywm" "mywm" "Smithay-based tiling compositor with its built-in shell" quiet) ]
       ++ lib.optional cfg.devSession
         (sessionPackage "mywm-dev" "mywm (Dev)" "mywm with session log and frame statistics" verbose);
-    # The lock screen (mywm-shell's lock.qml) checks the password with this service.
+    # The built-in lock screen checks the password with this service.
     security.pam.services.mywm-lock = { };
 
     # Started by session-environment; pulls in graphical-session.target so systemd

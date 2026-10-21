@@ -2,8 +2,8 @@
 
 Der Compositor läuft als Sitzung (vom Display-Manager gestartet) oder nested in einem anderen
 Fenster zum Entwickeln (`cargo run`). Die Sitzung besteht aus `mywm-session` (Skript): es startet den
-Compositor und darin Wallpaper-Picker, Bar, einen Polkit-Agenten und die Portal-Umgebung. Sperre und
-Idle startet der Compositor selbst (Sperrbildschirm `lock.qml` aus mywm-shell, swayidle).
+Compositor und darin einen Polkit-Agenten und die Portal-Umgebung. Die Shell (Bar, Launcher, Picker,
+Sperrbildschirm) zeichnet der Compositor selbst; Idle startet er ebenfalls selbst (swayidle).
 
 ## NixOS (Flake)
 
@@ -31,7 +31,7 @@ PAM-Dienst `mywm-lock` für den Sperrbildschirm. Die Konfiguration liegt in `~/.
 und der offene Kernelmodul-Treiber wie bisher.
 
 Anmeldung: Mit `programs.mywm.greeter.enable = true` (und `programs.mywm.greeterDirectory`)
-richtet das Modul greetd mit dem Anmeldebildschirm aus mywm-shell ein. Er läuft in
+richtet das Modul greetd mit dem eingebauten Anmeldebildschirm ein. Er läuft in
 `mywm-compositor --greeter "<Befehl>"`, der endet, sobald der Anmeldebildschirm endet, damit
 greetd die gewählte Sitzung startet. `greeter.user` füllt den Benutzernamen vor,
 `greeter.settings` ist die mywm-Konfiguration dafür (Ausgänge, Tastatur, Eingabe; Xwayland und
@@ -39,9 +39,7 @@ die Idle-Sperre sind aus), `greeter.environment` setzt z. B. das Cursor-Theme. W
 Farben (`theme.json`) spiegelt die Sitzung bei jedem Themewechsel in `greeterDirectory`. Mit
 Plymouth beendet greetd den Bootsplash selbst (`plymouth quit --retain-splash`), so bleibt dessen
 letztes Bild stehen, bis mywm den Bildschirm übernimmt, statt eines schwarzen Bildschirms.
-Mit `programs.mywm.greeter.builtin = true` zeichnet der Compositor den Anmeldebildschirm selbst
-(`mywm-compositor --greeter` ohne Befehl, siehe `docs/shell.md`), ohne Quickshell; Standard bleibt
-`greeter.qml`.
+Den Anmeldebildschirm zeichnet der Compositor selbst (`mywm-compositor --greeter`, siehe `docs/shell.md`).
 
 Logging: Die Sitzung „mywm“ schreibt nur Warnungen, Fehler und Abstürze nach
 `~/.local/state/mywm/compositor.log`. Mit `programs.mywm.devSession = true` gibt es zusätzlich
@@ -57,9 +55,7 @@ als `*.1` erhalten.
    Compositor, sonst im `PATH`) in den `PATH`; `scripts/mywm-session` und
    `scripts/session-environment` ebenfalls (`MYWM_BINARY` und `MYWM_SESSION_ENVIRONMENT` zeigen
    sonst auf `mywm-compositor` und `session-environment` im `PATH`).
-3. Quickshell-Oberfläche: das Repo `mywm-shell` bereitstellen und `MYWM_SHELL_DIR` auf dessen
-   `quickshell/`-Ordner setzen.
-4. Session-Eintrag `/usr/share/wayland-sessions/mywm.desktop`:
+3. Session-Eintrag `/usr/share/wayland-sessions/mywm.desktop`:
    ```ini
    [Desktop Entry]
    Name=mywm
@@ -67,9 +63,9 @@ als `*.1` erhalten.
    Type=Application
    DesktopNames=mywm
    ```
-5. Portale: Dateien aus `portal/` installieren (siehe `docs/streaming.md`), für
+4. Portale: Dateien aus `portal/` installieren (siehe `docs/streaming.md`), für
    `XDG_CURRENT_DESKTOP=mywm` als `~/.config/xdg-desktop-portal/mywm-portals.conf`.
-6. Laufzeit-Programme: `quickshell`, `swayidle`, `wlopm`, `wl-clipboard` (Screenshot in
+5. Laufzeit-Programme: `swayidle`, `wlopm`, `wl-clipboard` (Screenshot in
    die Zwischenablage), `libnotify` (Benachrichtigung), `xwayland`, `polkit-gnome` (optional),
    `wireplumber` (`wpctl`: Lautstärke der eingebauten Bar), `fontconfig` (`fc-match`: Schrift der Formularfelder der
    eingebauten Shell).

@@ -46,7 +46,7 @@ pub struct Launcher {
 impl State {
     /// Whether the launcher binding opens the built-in launcher rather than a program of the configuration.
     pub fn builtin_launcher(&self) -> bool {
-        self.shell.enabled && self.config.launcher == mywm_config::Config::default().launcher
+        self.shell.enabled && self.config.launcher.is_none()
     }
 
     /// Open the launcher on the monitor under the pointer; an open one stays as it is (as `--no-duplicate` did).

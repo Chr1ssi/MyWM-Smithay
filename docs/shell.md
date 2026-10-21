@@ -1,10 +1,11 @@
 # Eingebaute Shell
 
-Mit `builtin_shell = true` (oberste Ebene der Config, gilt nach Neustart) zeichnet der Compositor die Bar,
-das Powermenü und die Hinweise oben rechts selbst, statt die Quickshell-Bar von mywm-shell zu starten
-(`--bar` startet dann nichts). Aussehen, Maße, Farben und Texte entsprechen der Quickshell-Bar
-(`bar.qml`, `BarButton.qml`, `BarIsland.qml`, `Theme.qml`, `I18n.qml`). Standard ist weiterhin die
-Quickshell-Bar, bis die eingebaute Shell alles kann.
+Der Compositor zeichnet die Shell selbst: Bar, Powermenü, Hinweise oben rechts, Launcher, Wallpaper-Picker,
+Sperrbildschirm, Anmeldebildschirm, Benachrichtigungen und Tray. Sie ist an, solange `builtin_shell = true` in der
+obersten Ebene der Config steht (Standard; gilt nach Neustart). Mit `builtin_shell = false` zeichnet der Compositor
+keine Shell, also auch keine Bar und keinen Sperrbildschirm; das ist nur für die nested Tests gedacht. Aussehen,
+Maße, Farben und Texte entsprechen der früheren Quickshell-Shell (`bar.qml`, `BarButton.qml`, `BarIsland.qml`,
+`Theme.qml`, `I18n.qml`), die es nicht mehr gibt.
 
 ## Was sie schon kann
 
@@ -89,8 +90,8 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   abgedunkelt, bis dahin die Hintergrundfarbe; auf dem Monitor mit Workspace 1 Uhr, Datum (ausgeschriebene Namen)
   und die Karte mit Initiale, `$USER`, Passwortfeld (Punkte, rot nach einem abgelehnten Passwort) und Knopf, der
   beim Überfahren aufleuchtet und wie Enter prüft. Das Feld kennt Tippen, Rücktaste und Enter.
-- **Anmeldebildschirm** (`mywm-compositor --greeter` ohne Befehl, im NixOS-Modul
-  `programs.mywm.greeter.builtin = true`): wie `greeter.qml` die Karte des Sperrbildschirms mit Feld für den
+- **Anmeldebildschirm** (`mywm-compositor --greeter` ohne Befehl, im NixOS-Modul die Standardeinstellung von
+  `programs.mywm.greeter`): die Karte des Sperrbildschirms mit Feld für den
   Benutzer (`MYWM_GREETER_USER` füllt es vor, dann hat das Passwort die Tastatur), unten links die Sitzungen aus
   `MYWM_GREETER_SESSIONS` (nach Dateiname, erstes `Name=` und `Exec=` ohne Feldcodes; nur bei mehr als einer),
   unten rechts Neustart und Ausschalten (`systemctl reboot|poweroff`), als Hintergrund `MYWM_GREETER_BACKGROUND`.

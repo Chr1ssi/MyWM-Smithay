@@ -327,7 +327,7 @@ impl State {
             xdisplay: None,
             override_redirect: Vec::new(),
             lock_manager_state: SessionLockManagerState::new::<State, _>(&dh, |_| true),
-            session_lock: SessionLock::new(&loop_handle),
+            session_lock: SessionLock::new(),
             idle_notifier_state: IdleNotifierState::new(&dh, loop_handle.clone()),
             input_activity: false,
             idle_inhibitors: HashMap::new(),
@@ -500,37 +500,6 @@ impl State {
                 tracing::error!("cannot start the login screen: {error}");
                 self.loop_signal.stop();
             }
-        }
-    }
-
-    /// Open the wallpaper picker at the pointer; it starts on demand (`--wallpaper-picker`) and ends when closed.
-    pub fn open_wallpaper_picker(&self) {
-        let exe = match mywm_config::current_exe() {
-            Ok(exe) => exe,
-            Err(error) => return tracing::warn!("cannot find the own binary for the wallpaper picker: {error}"),
-        };
-        let mut cmd = std::process::Command::new(exe);
-        cmd.arg("--wallpaper-picker")
-            .args([(self.pointer_location.x as i32).to_string(), (self.pointer_location.y as i32).to_string()])
-            .env("WAYLAND_DISPLAY", &self.socket_name)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped());
-        match cmd.spawn() {
-            Ok(child) => {
-                // Say why when it fails.
-                std::thread::spawn(move || match child.wait_with_output() {
-                    Ok(output) if !output.status.success() => {
-                        tracing::warn!(
-                            "the wallpaper picker could not be opened ({}): {}",
-                            output.status,
-                            String::from_utf8_lossy(&output.stderr).trim()
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(error) => tracing::warn!("the wallpaper picker command failed: {error}"),
-                });
-            }
-            Err(error) => tracing::warn!("cannot start the wallpaper picker: {error}"),
         }
     }
 

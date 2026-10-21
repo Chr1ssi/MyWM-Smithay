@@ -88,7 +88,8 @@ pub struct Config {
     pub idle: IdleConfig,
     pub keyboard: KeyboardConfig,
     pub terminal: Vec<String>,
-    pub launcher: Vec<String>,
+    /// A program that the launcher binding starts instead of the built-in launcher.
+    pub launcher: Option<Vec<String>>,
     pub program_bindings: BTreeMap<String, ProgramBinding>,
     pub bindings: Bindings,
     pub appearance: AppearanceConfig,
@@ -103,8 +104,8 @@ pub struct Config {
     pub xwayland: bool,
     /// Native output setup (kanshi and wlr-randr work too).
     pub outputs: Vec<OutputConfig>,
-    /// The compositor draws the bar, the power menu and the notices itself (with `mywm-shell-services`) instead of starting mywm-shell's
-    /// Quickshell bar (`--bar`). Read at startup.
+    /// The compositor draws the shell (bar, launcher, power menu, notices, lock screen, ...) itself, with
+    /// `mywm-shell-services`. Off, it draws none of it (nested tests). Read at startup.
     pub builtin_shell: bool,
 }
 
@@ -137,19 +138,6 @@ pub fn current_exe() -> std::io::Result<PathBuf> {
     Ok(exe)
 }
 
-/// Resolve the independently versioned shell at runtime.
-pub fn shell_qml(file: &str) -> PathBuf {
-    std::env::var_os("MYWM_SHELL_DIR")
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            // Sibling checkout of this repository: <parent>/mywm-shell/quickshell
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../mywm-shell/quickshell")
-        })
-        .join(file)
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -164,12 +152,7 @@ impl Default for Config {
             keyboard: KeyboardConfig::default(),
             terminal: vec!["foot".into()],
             program_bindings: BTreeMap::new(),
-            launcher: vec![
-                "qs".into(),
-                "--path".into(),
-                shell_qml("shell.qml").to_string_lossy().into_owned(),
-                "--no-duplicate".into(),
-            ],
+            launcher: None,
             bindings: Bindings::default(),
             appearance: AppearanceConfig::default(),
             float_dialogs: true,
@@ -182,7 +165,7 @@ impl Default for Config {
             rules: Vec::new(),
             xwayland: true,
             outputs: Vec::new(),
-            builtin_shell: false,
+            builtin_shell: true,
         }
     }
 }
@@ -392,7 +375,7 @@ impl Config {
         if !non_empty(&config.terminal) {
             return Err("terminal must contain a program, e.g. [\"foot\"]".into());
         }
-        if !non_empty(&config.launcher) {
+        if config.launcher.as_ref().is_some_and(|launcher| !non_empty(launcher)) {
             return Err("launcher must contain a program".into());
         }
         for (name, binding) in &config.program_bindings {

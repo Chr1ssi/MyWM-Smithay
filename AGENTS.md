@@ -24,7 +24,7 @@ latency** (especially for gaming). Primary target is **NixOS**.
   a misbehaving client must never be able to kill the compositor.
 - **Ease of use.** Sensible defaults, a small config surface, clear error messages.
   Keep the config schema stable (existing `config.toml` files must keep loading) and the bar
-  protocol (`mywm-ipc`) compatible with `mywm-shell` unless the user decides otherwise.
+  protocol (`mywm-ipc`) compatible with its clients unless the user decides otherwise.
 - **Effects stay selective.** Rounded corners, transparency, shadows, animations and
   blur exist already (`docs/effects.md`). New effects need a clear benefit, must be
   switchable, and must be cheap.
@@ -83,8 +83,7 @@ latency** (especially for gaming). Primary target is **NixOS**.
   user what needs testing; they merge after the hardware test.
 - Do not push changes that have not passed the relevant checks; report blockers instead.
 - Small, focused commits with an imperative, descriptive subject line (see `git log`).
-- When `mywm-shell` or this repo change in a way that
-  affects dependents, update and test the dependent `flake.lock` files in dependency
-  order (`mywm-shell` → this repo → the NixOS configuration).
+- When this repo changes in a way that affects the NixOS configuration, update and test its
+  `flake.lock` after pushing.
 - Never force-push, rewrite published history, or commit build output (`target/`,
   `result`).

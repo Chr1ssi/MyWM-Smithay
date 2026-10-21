@@ -52,8 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_mode = matches!(
         std::env::args().nth(1).as_deref(),
         Some(
-            "--lock" | "--idle" | "--wallpaper" | "--wallpaper-list" | "--wallpaper-picker" | "--theme-from-wallpaper"
-                | "--theme-from-state" | "--bar" | "--launcher"
+            "--lock" | "--idle" | "--theme-from-wallpaper" | "--theme-from-state"
         )
     );
     let log_file = if client_mode {
@@ -72,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Client modes used by the session scripts and swayidle.
     match std::env::args().nth(1).as_deref() {
-        Some("--lock") => return mywm_config::session::lock_and_wait(&config_or_default()),
+        Some("--lock") => return mywm_config::session::lock_and_wait(),
         Some("--idle") => return mywm_config::session::exec_idle(&config_or_default().idle),
         _ => {}
     }

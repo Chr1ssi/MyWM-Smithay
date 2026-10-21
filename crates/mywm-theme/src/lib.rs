@@ -310,17 +310,6 @@ pub fn wallpapers(directory: &str) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-/// `--wallpaper-list`: one `file://` URL per wallpaper (read by the picker).
-pub fn list(config: &mywm_config::Config) -> Result<()> {
-    let mut output = std::io::stdout().lock();
-    for path in wallpapers(&config.wallpaper_directory)? {
-        if let Some(path) = path.to_str() {
-            writeln!(output, "{}", file_url(path))?;
-        }
-    }
-    Ok(())
-}
-
 pub fn file_url(path: &str) -> String {
     let mut url = String::from("file://");
     for byte in path.bytes() {
@@ -346,64 +335,9 @@ pub fn wallpaper_state_path() -> Option<PathBuf> {
     Some(state_home()?.join("mywm/wallpaper.json"))
 }
 
-fn state_dir() -> Result<PathBuf> {
-    let home = state_home().ok_or("HOME or XDG_STATE_HOME is required for wallpaper persistence")?;
-    let dir = home.join("mywm");
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
-/// The Quickshell wallpaper picker with the helpers and paths it needs; the compositor draws the image.
-fn picker_process(config: &mywm_config::Config) -> Result<Command> {
-    let exe = mywm_config::current_exe()?;
-    let mut command = Command::new("qs");
-    command
-        .arg("--path")
-        .arg(mywm_config::shell_qml("wallpaper.qml"))
-        .arg("--no-duplicate")
-        .env("MYWM_WALLPAPER_HELPER", &exe)
-        .env("MYWM_THEME_HELPER", &exe)
-        .env("MYWM_WALLPAPER_DIRECTORY", &config.wallpaper_directory)
-        .env("MYWM_WALLPAPER_STATE", state_dir()?.join("wallpaper.json"))
-        .envs(config.theme_env());
-    Ok(command)
-}
-
-/// Replace this process by a resident wallpaper picker (`--wallpaper`) that waits for `openPicker` calls.
-pub fn run_wallpaper(config: &mywm_config::Config) -> Result<()> {
-    Err(picker_process(config)?.exec().into())
-}
-
-/// Show the picker at `(x, y)` (`--wallpaper-picker`): a running one moves there; otherwise this process
-/// becomes a picker that ends once it is closed, so nothing of it stays in memory between uses.
-pub fn open_picker(config: &mywm_config::Config, x: i32, y: i32) -> Result<()> {
-    let running = picker_command(x, y)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    if running {
-        return Ok(());
-    }
-    let mut command = picker_process(config)?;
-    command.env("MYWM_WALLPAPER_OPEN_AT", format!("{x},{y}"));
-    Err(command.exec().into())
-}
-
-/// The command that opens the picker of the running wallpaper layer at `(x, y)`.
-pub fn picker_command(x: i32, y: i32) -> Command {
-    let mut command = Command::new("qs");
-    command
-        .args(["ipc", "--path"])
-        .arg(mywm_config::shell_qml("wallpaper.qml"))
-        .args(["call", "wallpaper", "openPicker", &x.to_string(), &y.to_string()]);
-    command
-}
-
-/// Handle the helper modes of the binary (`--wallpaper`, `--theme-from-wallpaper`, ...).
+/// Handle the helper modes of the binary (`--theme-from-wallpaper`, `--theme-from-state`).
 /// `None` if `args` is not one of them.
 pub fn client_mode(args: &[String], config: &mywm_config::Config) -> Option<Result<()>> {
-    use std::os::unix::process::CommandExt;
     let arg = |n: usize| args.get(n).map(String::as_str);
     Some(match arg(1)? {
         "--theme-from-wallpaper" => match arg(2) {
@@ -414,27 +348,6 @@ pub fn client_mode(args: &[String], config: &mywm_config::Config) -> Option<Resu
             Some(state) => apply_from_wallpaper_state(Path::new(state), Path::new(arg(3).unwrap_or(&config.wallpaper_directory))),
             None => Err("--theme-from-state requires a wallpaper state path".into()),
         },
-        "--wallpaper-list" => list(config),
-        "--wallpaper" => run_wallpaper(config),
-        "--wallpaper-picker" => {
-            let coordinate = |n: usize| arg(n).map_or(Ok(0), |value| value.parse::<i32>());
-            match (coordinate(2), coordinate(3)) {
-                (Ok(x), Ok(y)) => open_picker(config, x, y),
-                _ => Err("--wallpaper-picker takes the position as two integers: X Y".into()),
-            }
-        }
-        // The compositor draws its own bar then; the session's startup still runs this mode.
-        "--bar" if config.builtin_shell => Ok(()),
-        "--bar" => {
-            let mut command = Command::new("qs");
-            command.arg("--path").arg(mywm_config::shell_qml("bar.qml")).arg("--no-duplicate").envs(config.theme_env());
-            Err(command.exec().into())
-        }
-        "--launcher" => {
-            let mut command = Command::new(&config.launcher[0]);
-            command.args(&config.launcher[1..]).envs(config.theme_env()).envs(config.terminal_env());
-            Err(command.exec().into())
-        }
         _ => return None,
     })
 }
@@ -573,13 +486,5 @@ mod tests {
     #[test]
     fn paths_are_encoded_without_interpreting_url_delimiters() {
         assert_eq!(file_url("/tmp/Bild #1% ä.png"), "file:///tmp/Bild%20%231%25%20%C3%A4.png");
-    }
-
-    #[test]
-    fn picker_command_uses_separate_coordinate_arguments() {
-        let command = picker_command(-1280, 720);
-        let args: Vec<_> = command.get_args().map(|s| s.to_str().unwrap()).collect();
-        let tail = &args[args.len() - 5..];
-        assert_eq!(tail, ["call", "wallpaper", "openPicker", "-1280", "720"]);
     }
 }

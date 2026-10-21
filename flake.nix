@@ -3,18 +3,13 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-    mywm-shell = {
-      url = "github:Chr1ssi/mywm-shell";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, mywm-shell, ... }:
+  outputs = { self, nixpkgs, ... }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      packageFor = pkgs: pkgs.callPackage ./nix/package.nix { shellSrc = mywm-shell; };
+      packageFor = pkgs: pkgs.callPackage ./nix/package.nix { };
       settingsFor = pkgs: pkgs.callPackage ./nix/settings.nix { };
     in
     {
@@ -71,7 +66,6 @@
               xterm
               xeyes
               xev
-              quickshell # the lock screen (lock.qml of the mywm-shell checkout next to this one)
               swayidle
               wlopm
               wlr-randr

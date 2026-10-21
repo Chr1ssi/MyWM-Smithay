@@ -104,7 +104,7 @@ pub static SETTINGS: &[Setting] = &[
     s("terminal", "Terminal", "Programm und Argumente, eine Angabe pro Zeile.", General, List, "[\"foot\"]"),
     s("wallpaper_directory", "Wallpaper-Ordner", "Absoluter Pfad.", General, Text, ""),
     s("screenshot_directory", "Screenshot-Ordner", "Absoluter Pfad.", General, Text, ""),
-    restart(s("builtin_shell", "Eingebaute Shell", "Bar, Powermenü und Hinweise zeichnet mywm selbst statt der Quickshell-Bar (noch ohne Kalender-Panel).", General, Bool, "false")),
+    restart(s("builtin_shell", "Eingebaute Shell", "Bar, Launcher, Picker, Sperrbildschirm und Hinweise zeichnet mywm selbst; aus nur für Tests ohne Shell.", General, Bool, "true")),
     restart(s("workspace_outputs", "Monitor-Reihenfolge", "Monitore in Workspace-Reihenfolge, eine Angabe pro Zeile.", General, List, "[]")),
     restart(s("idle.lock_after_seconds", "Sperren nach (s)", "0 = nie.", General, Int { min: 0, max: 86400 }, "300")),
     restart(s("idle.monitor_off_after_seconds", "Monitore aus nach (s)", "0 = nie; muss später als das Sperren sein.", General, Int { min: 0, max: 86400 }, "600")),

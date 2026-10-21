@@ -8,8 +8,8 @@ leicht, latenzarm (Gaming) und mit sauberem Screen-Capture (Streaming).
 **M0–M4** sind fertig: Skelett, Layout-Kern, Konfiguration, Multi-Monitor mit
 DRM/libinput, Gaming-Pfad (Direct Scanout mit Dmabuf-Feedback, VRR,
 Presentation-Time, explizite Sync, Relative Pointer/Pointer Constraints, Viewporter,
-Fractional Scale) und Desktop-Integration: Layer-Shell (Quickshell-Bar, Launcher),
-Sitzungssperre (`ext-session-lock`, Sperrbildschirm aus mywm-shell), Idle (`ext-idle-notify`/swayidle,
+Fractional Scale) und Desktop-Integration: Layer-Shell (Bar, Launcher der eingebauten Shell),
+Sitzungssperre (`ext-session-lock`, eingebauter Sperrbildschirm), Idle (`ext-idle-notify`/swayidle,
 `wlr-output-power-management`/wlopm), Xwayland für Legacy-Apps (Steam) und
 Bildschirmaufnahme (`wlr-screencopy` → OBS, Browser, grim). Der Compositor läuft im
 Alltag auf echter Hardware (NixOS, eigene Sitzung); die nested Smoke-Tests decken Layer-Shell,
@@ -28,7 +28,7 @@ Aufbau:
 - `crates/mywm-shell-services`, `crates/mywm-shell-protocol` – Dienstprozess der eingebauten Shell (PipeWire, MPRIS,
   BlueZ, Benachrichtigungsdienst) und seine Nachrichten
 - `crates/mywm-ui` – Bilder der eingebauten Shell (Bar, Powermenü, Hinweise; `builtin_shell = true`, siehe `docs/shell.md`)
-- `crates/mywm-ipc` – Bar-Protokoll `v1` (Befehle, Zustands-Snapshot) zwischen Compositor und `mywm-shell`
+- `crates/mywm-ipc` – Steuerprotokoll `v1` des Bar-Sockets (Befehle, Zustands-Snapshot)
 - `vendor/smithay` – smithay 0.7.0 mit kleinen Patches (Layer-Shell-Toleranz, X11-Fokus; `vendor/README.md`)
 - `src/` – Compositor; `udev.rs` ist das Hardware-Backend (DRM/GBM/libinput/libseat),
   `winit.rs` der nested Entwicklungsmodus (`desktop.rs` bildet das Modell auf Smithays `Space` ab)
@@ -42,12 +42,10 @@ Außerdem fertig: Fensteraufnahme (`ext-foreign-toplevel-list`, `ext-image-copy-
 sie braucht ein Portal/Programm, das diese Protokolle spricht), `wlr-output-management`
 (kanshi, wlr-randr: Modus, Position, Skalierung, Drehung; Ausgänge abschalten geht nicht),
 Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, Helfer-Modi
-`--wallpaper`, `--wallpaper-list`, `--theme-from-wallpaper`, `--theme-from-state`, `--bar`,
-`--launcher` der Binary; das Binding `wallpaper` startet den Picker über `--wallpaper-picker` erst bei
-Bedarf, und er beendet sich nach dem Schließen (mit `builtin_shell` öffnet es den eingebauten Picker); `--wallpaper` hält ihn stattdessen dauerhaft bereit). Das Wallpaper selbst zeichnet der Compositor: Er liest die Auswahl aus
+`--theme-from-wallpaper`, `--theme-from-state` der Binary). Picker, Bar, Launcher und Sperrbildschirm zeichnet
+der Compositor selbst (siehe `docs/shell.md`). Das Wallpaper selbst zeichnet der Compositor: Er liest die Auswahl aus
 `$XDG_STATE_HOME/mywm/wallpaper.json` (sonst das erste Bild in `wallpaper_directory`), skaliert sie
-einmal in einem eigenen Thread über alle Monitore und lädt sie beim Theme-Reload des Pickers neu. Der
-Quickshell-Picker (`mywm-shell`) sieht aus wie bisher, zeichnet aber keinen eigenen Hintergrund mehr.
+einmal in einem eigenen Thread über alle Monitore und lädt sie beim Theme-Reload des Pickers neu.
 Die Farben (`$XDG_STATE_HOME/mywm/theme.json`, Rollennamen wie bei Material You) kommen aus den
 Farbfamilien des Bildes: Die drei nach Fläche × Sättigung stärksten werden primary, secondary und
 tertiary, die Flächen nehmen den Farbton der dunklen Bildbereiche an, error ist immer ein kräftiges Rot,
@@ -105,7 +103,7 @@ Einzeln, in `nix develop .#smoke` und mit gesetztem `$DISPLAY` (z. B. Xvfb):
 PYTHONPATH=tests python3 tests/ipc_smoke.py           # Bar-Socket (braucht X)
 PYTHONPATH=tests python3 tests/multimonitor_smoke.py  # Multi-Monitor mit virtuellen Ausgängen
 PYTHONPATH=tests python3 tests/globals_smoke.py       # angebotene Wayland-Protokolle
-PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Power (lock.qml/swayidle/wlopm)
+PYTHONPATH=tests python3 tests/session_smoke.py       # Sperre, Idle, Monitor-Power (eingebauter Sperrbildschirm/swayidle/wlopm)
 PYTHONPATH=tests python3 tests/xwayland_smoke.py      # X11-Clients (xterm, xeyes)
 PYTHONPATH=tests python3 tests/screencopy_smoke.py    # Aufnahme mit grim
 PYTHONPATH=tests python3 tests/clipboard_smoke.py     # Kopieren/Einfügen (wl-clipboard)

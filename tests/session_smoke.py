@@ -1,7 +1,6 @@
 """Screen lock, idle notification and monitor power against the nested compositor.
 
-Needs quickshell (the lock screen of the mywm-shell checkout next to this one), swayidle and wlopm besides the
-usual tools.
+Needs swayidle and wlopm besides the usual tools.
 Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/session_smoke.py
 """
 import os, subprocess, time
@@ -22,7 +21,7 @@ os.makedirs(idle_dir, exist_ok=True)
 # swayidle runs as a client of the compositor: after 2 s without input it writes `idle`,
 # on activity it writes `resume`.
 idle_client = f"swayidle -w timeout 2 'touch {idle_dir}/idle' resume 'touch {idle_dir}/resume' & "
-comp = Compositor(windows=2, extra_args=idle_client)
+comp = Compositor(top="builtin_shell = true\n", windows=2, extra_args=idle_client)
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: s[0]["workspaces"].get(1))
@@ -58,7 +57,7 @@ try:
     assert wait(lambda: "winit on" in subprocess.check_output(["wlopm"], env=env).decode())
     print("output power OK")
 
-    # --- session lock (ext-session-lock via mywm-shell's lock.qml) ---
+    # --- session lock (ext-session-lock, the built-in lock screen) ---
     screenshot(f"{comp.dir}/before.png")
     before = pixel(f"{comp.dir}/before.png", 300, 400)
     result = subprocess.run(["./target/debug/mywm-compositor", "--lock"], env=env, timeout=15)

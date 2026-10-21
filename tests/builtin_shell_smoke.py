@@ -37,12 +37,6 @@ try:
     assert pixel(comp, 640, 60) != BACKGROUND, pixel(comp, 640, 60)
     print("bar drawn, window below it OK")
 
-    # The session's startup still runs `--bar`: with the built-in shell it starts nothing.
-    started = time.time()
-    helper = subprocess.run(["./target/debug/mywm-compositor", "--bar"], env=comp.env(), timeout=10)
-    assert helper.returncode == 0 and time.time() - started < 5, helper.returncode
-    print("--bar leaves the bar to the compositor OK")
-
     # "+" makes and shows a new workspace, "1" goes back.
     click(8 + 4 + 26 + 2 + 13, 22)
     bar.until(lambda s: len(s[0]["workspaces"]) == 2 and s[0]["active"] == 2)

@@ -62,6 +62,9 @@ class Compositor:
         os.makedirs(f"{self.dir}/wallpapers")
         if "wallpaper_directory" not in top:
             top = f'wallpaper_directory = "{self.dir}/wallpapers"\n' + top
+        # The built-in shell is on by default; tests without it keep the compositor alone (no bar), unless they ask.
+        if "builtin_shell" not in top:
+            top = "builtin_shell = false\n" + top
         with open(f"{self.dir}/config.toml", "w") as f:
             # `top` holds top-level keys, which must precede the first table.
             f.write(top + f'[keyboard]\nlayout = "{layout}"\n' + config)

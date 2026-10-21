@@ -16,7 +16,6 @@
   pipewire,
   pixman, # cursor plane on rotated outputs (smithay's renderer_pixman)
   linux-pam, # the built-in lock screen's password check (mywm-shell-services --authenticate)
-  quickshell,
   swayidle,
   wlopm,
   wl-clipboard,
@@ -29,7 +28,6 @@
   dbus,
   coreutils,
   util-linux, # waitpid: the session's startup script follows the compositor without polling
-  shellSrc,
 }:
 
 let
@@ -91,16 +89,15 @@ let
   };
 
   meta = {
-    description = "Smithay-based tiling Wayland compositor with its Quickshell shell and screen-cast portal";
+    description = "Smithay-based tiling Wayland compositor with its built-in shell and screen-cast portal";
     homepage = "https://github.com/Chr1ssi/MyWM-Smithay";
     license = lib.licenses.mit;
     mainProgram = "mywm-compositor";
     platforms = lib.platforms.linux;
   };
 in
-# The binaries with the shell, the session scripts, the portal files and the helpers they start.
-# A cheap copy, so that the shell and the helpers (`.override { quickshell = ...; }`) can change
-# without compiling Rust again.
+# The binaries, the session scripts, the portal files and the helpers they start. A cheap copy next to
+# the Rust build, so that the scripts can change without compiling Rust again.
 stdenvNoCC.mkDerivation {
   pname = "mywm";
   version = "0.1.0";
@@ -126,7 +123,6 @@ stdenvNoCC.mkDerivation {
     # mywm-shell-services next to the compositor, which starts it from there.
     cp ${unwrapped}/bin/mywm-compositor ${unwrapped}/bin/mywm-portal ${unwrapped}/bin/mywm-shell-services $out/bin/
     cp -r scripts $out/share/mywm/
-    cp -r ${shellSrc}/quickshell $out/share/mywm/quickshell
     install -Dm644 portal/mywm.portal $out/share/xdg-desktop-portal/portals/mywm.portal
     substitute portal/org.freedesktop.impl.portal.desktop.mywm.service \
       $out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.mywm.service \
@@ -141,9 +137,7 @@ stdenvNoCC.mkDerivation {
   # The helpers the compositor and the session start.
   postFixup = ''
     wrapProgram $out/bin/mywm-compositor \
-      --set-default MYWM_SHELL_DIR $out/share/mywm/quickshell \
       --prefix PATH : ${lib.makeBinPath [
-        quickshell
         swayidle
         wlopm
         wl-clipboard

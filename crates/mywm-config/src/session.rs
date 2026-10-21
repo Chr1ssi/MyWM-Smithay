@@ -1,4 +1,4 @@
-//! Session helpers: the screen locker command, the `--lock` client that asks the
+//! Session helpers: the `--lock` client that asks the
 //! compositor to lock, and the idle daemon arguments.
 use std::{
     io::{BufRead, BufReader, Write},
@@ -7,21 +7,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{Config, IdleConfig, keys::Result};
-
-/// The lock screen of mywm-shell (`lock.qml`) with the theme's colors. It unlocks through PAM (service `mywm-lock`).
-pub fn locker(config: &Config) -> Command {
-    let mut command = Command::new("qs");
-    command.arg("--path").arg(crate::shell_qml("lock.qml")).envs(config.theme_env());
-    command
-}
+use crate::{IdleConfig, keys::Result};
 
 /// Ask the running compositor over `$MYWM_SOCKET` to lock and wait until it confirms.
-/// Without a socket (another compositor), run the locker directly.
-pub fn lock_and_wait(config: &Config) -> Result<()> {
+/// Without a socket (another compositor) there is nothing to ask.
+pub fn lock_and_wait() -> Result<()> {
     let Some(path) = std::env::var_os("MYWM_SOCKET") else {
-        let status = locker(config).status()?;
-        return status.success().then_some(()).ok_or_else(|| "the screen locker exited unsuccessfully".into());
+        return Err("MYWM_SOCKET is not set: this is not a mywm session, so there is no compositor to lock".into());
     };
     let mut socket = UnixStream::connect(path)?;
     socket.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -103,15 +95,5 @@ mod tests {
         assert!(!idle_args(&disabled, "mywm").contains(&"timeout".into()));
         assert!(idle_command(&disabled, "mywm").is_none());
         assert!(idle_command(&IdleConfig::default(), "mywm").is_some());
-    }
-
-    #[test]
-    fn locker_runs_the_shell_lock_screen_with_the_palette() {
-        let locker = locker(&Config::default());
-        let args: Vec<_> = locker.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
-        assert_eq!(locker.get_program(), "qs");
-        assert!(args[1].ends_with("lock.qml"), "{args:?}");
-        let accent = locker.get_envs().find(|(name, _)| *name == "MYWM_COLOR_ACCENT").and_then(|(_, value)| value);
-        assert_eq!(accent.map(|v| v.to_string_lossy().into_owned()), Some("#89b4fa".into()));
     }
 }

@@ -72,7 +72,11 @@ impl State {
         match action {
             Action::Terminal => self.spawn_command(&self.config.terminal.clone(), false),
             Action::Launcher if self.builtin_launcher() => self.launcher_open(),
-            Action::Launcher => self.spawn_command(&self.config.launcher.clone(), true),
+            Action::Launcher => {
+                if let Some(command) = self.config.launcher.clone() {
+                    self.spawn_command(&command, true);
+                }
+            }
             Action::Program(index) => {
                 let Some(binding) = self.config.program_bindings.values().nth(index) else { return };
                 // Run or raise: an open window of the app is shown instead of starting another.
@@ -106,7 +110,7 @@ impl State {
             Action::Reload => self.reload_config(),
             Action::Lock => self.start_locker(),
             Action::Wallpaper if self.shell.enabled => self.wallpaper_picker_open(),
-            Action::Wallpaper => self.open_wallpaper_picker(),
+            Action::Wallpaper => {}
             Action::Overview => self.toggle_overview(),
             Action::ColorPicker => {
                 if self.picking.is_some() {

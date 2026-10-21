@@ -1,6 +1,6 @@
 //! The wallpaper, drawn by the compositor behind every layer and window.
 //!
-//! The picker (`wallpaper.qml` of mywm-shell) saves the choice and asks for a theme reload, which
+//! The built-in picker (`shell_wallpaper.rs`) saves the choice and asks for a theme reload, which
 //! re-reads it here. The image is decoded and scaled on a worker thread, once for the whole desktop
 //! (the bounding box of all outputs, filled and cropped in the middle like Qt's `PreserveAspectCrop`),
 //! and uploaded as one texture; every output shows its part of it. Nothing of this runs per frame

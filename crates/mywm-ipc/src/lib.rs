@@ -1,4 +1,4 @@
-//! The `v1` bar protocol between the compositor and `mywm-shell`. Lines of text over a
+//! The `v1` control protocol of the compositor's bar socket. Lines of text over a
 //! Unix socket (`$MYWM_SOCKET`):
 //!
 //! * client → compositor: `v1 <command>\n`, answered by `v1 ok` or `v1 error invalid-command`
