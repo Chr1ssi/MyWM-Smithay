@@ -227,14 +227,15 @@ fn follow(updates: &Sender<Update>) -> Result<(), pw::Error> {
                             if let Some(state) = weak.upgrade() {
                                 let mut state = state.borrow_mut();
                                 match key {
-                                    // Every key went (the metadata was cleared).
-                                    None => {
+                                    // Every key of the default's subject (0) went. The same for another subject is its
+                                    // object going away, as a stream's `target.node` does when the stream ends.
+                                    None if subject == 0 => {
                                         state.default_sink = None;
                                         state.default_source = None;
                                     }
                                     Some("default.audio.sink") if subject == 0 => state.default_sink = value.and_then(default_name),
                                     Some("default.audio.source") if subject == 0 => state.default_source = value.and_then(default_name),
-                                    Some(_) => return 0,
+                                    _ => return 0,
                                 }
                                 state.report(&sender);
                             }

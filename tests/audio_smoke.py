@@ -9,7 +9,7 @@ $DISPLAY set:
 import os, re, shutil, subprocess, sys, tempfile, time
 from smoke_support import Compositor, hermetic_wireplumber, private_bus, wait
 
-for tool in ("dbus-daemon", "pipewire", "wireplumber", "pw-cli", "wpctl", "grim"):
+for tool in ("dbus-daemon", "pipewire", "wireplumber", "pw-cli", "pw-cat", "wpctl", "grim"):
     if not shutil.which(tool):
         print(f"SKIP: {tool} is not installed")
         sys.exit(0)
@@ -92,6 +92,15 @@ try:
     status = log().rsplit("shell services: ", 1)[-1]
     assert 'name: "test-mic"' in status and 'test-mic-filter' not in status, status[:2000]
     print("nodes reported, smart filter left out OK")
+
+    # A stream that ends takes its metadata (`target.node`, with a target) with it: that is not the defaults going away.
+    player = spawn(["pw-cat", "-p", "--raw", "--rate", "48000", "--channels", "2", "--format", "s16", "--target", first, "/dev/zero"], "pw-cat")
+    time.sleep(2)
+    player.kill()
+    time.sleep(2)
+    status = log().rsplit("shell services: ", 1)[-1]
+    assert "default_sink: Some(" in status and "default_source: Some(" in status, status[:2000]
+    print("defaults kept when a stream ends OK")
 
     # The fonts load in the background; the bar takes clicks once it is drawn (the selected workspace's pill).
     assert wait(lambda: pixel(comp, 15, 22) == bytes.fromhex("313244"), 20), "the bar was not drawn"
