@@ -28,13 +28,14 @@ pub struct Fonts {
 struct StyleKey {
     size_bits: u32,
     bold: bool,
+    light: bool,
     icons: bool,
     controls: bool,
 }
 
 impl From<TextStyle> for StyleKey {
     fn from(style: TextStyle) -> Self {
-        Self { size_bits: style.size.to_bits(), bold: style.bold, icons: style.icons, controls: style.controls }
+        Self { size_bits: style.size.to_bits(), bold: style.bold, light: style.light, icons: style.icons, controls: style.controls }
     }
 }
 
@@ -58,7 +59,12 @@ fn attrs(style: TextStyle, sans: Option<&str>) -> Attrs<'_> {
         (false, _) if style.icons => Family::Name(theme::ICON_FONT_FAMILY),
         (false, _) => Family::Name(theme::FONT_FAMILY),
     };
-    Attrs::new().family(family).weight(if style.bold { Weight::BOLD } else { Weight::NORMAL })
+    let weight = match (style.bold, style.light) {
+        (true, _) => Weight::BOLD,
+        (false, true) => Weight::LIGHT,
+        (false, false) => Weight::NORMAL,
+    };
+    Attrs::new().family(family).weight(weight)
 }
 
 fn span_attrs<'a>(style: TextStyle, span: &Span, sans: Option<&'a str>) -> Attrs<'a> {

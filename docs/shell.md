@@ -84,14 +84,17 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   Versuch; hängt es, wartet der Sperrbildschirm wie `lock.qml`, bis es endet, und nimmt so lange keine Taste an.
   Entsperrt wird nur bei sauberem Ende mit `success` für den laufenden Versuch. Wie bei `lock.qml`
   heißt jedes andere Ergebnis außer „Zu viele Versuche“ „Falsches Passwort“ (Quickshell überschreibt seine
-  Fehlermeldung sofort damit). Bisher deckt er den Bildschirm nur mit der Hintergrundfarbe des Themes ab; Uhr,
-  Karte und Passwortfeld nach `LoginScreen.qml` folgen, bis dahin tippt man blind (Rücktaste, Enter).
+  Fehlermeldung sofort damit). Das Bild folgt `LoginScreen.qml`: auf jedem Monitor das Bild des Themes (`source`
+  in `theme.json`, beim Sperren gelesen wie die Farben), in einem Worker-Thread auf den Monitor zugeschnitten und
+  abgedunkelt, bis dahin die Hintergrundfarbe; auf dem Monitor mit Workspace 1 Uhr, Datum (ausgeschriebene Namen)
+  und die Karte mit Initiale, `$USER`, Passwortfeld (Punkte, rot nach einem abgelehnten Passwort) und Knopf, der
+  beim Überfahren aufleuchtet und wie Enter prüft. Das Feld kennt Tippen, Rücktaste und Enter.
 - **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
   Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
 
 ## Was noch fehlt
 
-Das Bild des Sperrbildschirms (siehe oben) und der Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
+Der Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
 (bei Quickshell erreichte Tab jeden Knopf); im Kalenderformular wechselt Tab nur zwischen den vier Feldern. Die
 Textfelder (Kalenderformular, Suche des Launchers, Filter des Pickers) kennen Tippen, Löschen, Pfeile, Pos1/Ende, Klicks und gehaltene
 Tasten (mit `repeat_delay`/`repeat_rate` aus `[input]`), aber keine Auswahl und keine Zwischenablage, und der
@@ -154,11 +157,11 @@ wie bei Qt blau.
   Abdunklung und Rahmen. Auf der CPU kostete eine Kachel bei 2560×1440 um 14 ms, das Gleiten bräuchte das jeden
   Frame; so malt die CPU nur die Texte neu.
 
-- `src/shell_lock.rs` (Passwort, Prüfung, Bild), `own_lock`/`own_unlock` in `src/session.rs` (eigene
+- `crates/mywm-ui/src/lock_screen.rs` (Uhr und Karte), `src/shell_lock.rs` (Passwort, Prüfung, Hintergrund), `own_lock`/`own_unlock` in `src/session.rs` (eigene
   Sperrzustände neben denen von `ext-session-lock`), `crates/mywm-shell-services/src/pam.rs` (die Prüfung wie
   Quickshells `PamContext`: nur `pam_authenticate`, jede Frage bekommt das Passwort).
 
-Nächste Schritte: Bild des Sperrbildschirms, dann greetd (Anmeldebildschirm).
+Nächster Schritt: greetd (Anmeldebildschirm).
 
 ## Test
 
@@ -191,8 +194,9 @@ Mausrad.
 `tests/lock_screen_smoke.py`: PAM mit eigenem Dienstverzeichnis (`pam_exec`, kein echtes Konto, wie mywm-shells
 Test von `lock.qml`): `--lock` bestätigt, Fenster und Ecken verdeckt (Aufnahme mit grim), Befehle abgewiesen; falsches
 Passwort, eine Prüfung, die mittendrin stirbt, und ein fremder Sperrer (`mywm-test-client lock`) entsperren nicht,
-das Fenster bekommt keine Taste; das richtige Passwort entsperrt. Ein Fenster unter dem ruhenden Zeiger verliert ihn
-beim Sperren.
+das Fenster bekommt keine Taste, der Rand des Felds wird rot; das richtige Passwort entsperrt mit einem Klick auf den
+Knopf. Ein Fenster unter dem ruhenden Zeiger verliert ihn beim Sperren; das Bild eines erst danach geschriebenen
+`theme.json` erscheint abgedunkelt.
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und
 `CloseNotification` mit den passenden D-Bus-Signalen, Zentrale über die Glocke mit „Alle löschen“, Escape und
 Klick daneben. Nested meldet winit Drücken und Loslassen einer X-Mausradtaste je als

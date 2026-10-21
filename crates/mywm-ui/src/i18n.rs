@@ -133,6 +133,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Neu starten", "Restart"),
     ("Neustart", "Restart"),
     ("Ort (optional)", "Location (optional)"),
+    ("Passwort", "Password"),
     ("Sitzung und System", "Session and system"),
     ("Sperren", "Lock"),
     ("Stumm", "Muted"),

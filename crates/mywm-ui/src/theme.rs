@@ -36,6 +36,16 @@ pub const ISLAND_HEIGHT: f32 = 32.0;
 pub const PANEL_RADIUS: f32 = 20.0;
 pub const GLASS_OPACITY: f32 = 0.7;
 
+/// The image `theme_json` (the contents of `theme.json`) was generated from: the lock screen's background. Like
+/// the colors, only of a file of version 1 with colors.
+pub fn generated_source(theme_json: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(theme_json).ok()?;
+    if parsed["version"] != 1 || !parsed["colors"].is_object() {
+        return None;
+    }
+    parsed["source"].as_str().filter(|source| !source.is_empty()).map(str::to_owned)
+}
+
 impl Theme {
     /// The generated colors of `theme_json` (the contents of `theme.json`, version 1) where it has them,
     /// `palette` for the rest. A file that does not parse counts as missing.

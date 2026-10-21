@@ -91,17 +91,23 @@ impl Rect {
 pub struct TextStyle {
     pub size: f32,
     pub bold: bool,
+    /// `Font.Light` (the lock screen's clock).
+    pub light: bool,
     pub icons: bool,
     pub controls: bool,
 }
 
 impl TextStyle {
     pub const fn new(size: f32) -> Self {
-        Self { size, bold: false, icons: false, controls: false }
+        Self { size, bold: false, light: false, icons: false, controls: false }
     }
 
     pub const fn bold(self, bold: bool) -> Self {
         Self { bold, ..self }
+    }
+
+    pub const fn light(self, light: bool) -> Self {
+        Self { light, ..self }
     }
 
     pub const fn icons(self, icons: bool) -> Self {

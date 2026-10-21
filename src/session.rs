@@ -257,6 +257,7 @@ impl State {
         lock.state = LockState::Unlocked;
         lock.quick_exits = 0;
         lock.unconfirmed.clear();
+        self.shell_lock_ended();
         self.ipc_dirty = true;
         self.refresh();
     }

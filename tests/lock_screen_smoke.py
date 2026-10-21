@@ -1,18 +1,26 @@
 """The built-in shell's lock screen (as mywm-shell's test of lock.qml): `--lock` gets its confirmation once the lock
 screen shows, nothing behind it shows (in a capture of the monitor neither) or gets a key, a wrong password keeps the
 session locked, so does a check that dies on the way and a screen locker that asks to take over and to unlock; the
-right password unlocks. The window under a pointer that does not move loses it when the session locks. PAM runs with its own service directory (pam_exec), never a real account.
+right password unlocks (Return, or a click on the button). The card shows on the monitor; a refused password turns
+the field's border red. The window under a pointer that does not move loses it when the session locks; the theme's
+image, read when locking, shows dimmed behind the card. PAM runs with its own service directory (pam_exec), never a real account.
 
 Needs grim, `cargo build --workspace` and $MYWM_TEST_PAM_MODULES (the smoke shell sets it). Run from the repository
 root with $DISPLAY set:
     PYTHONPATH=tests python3 tests/lock_screen_smoke.py
 """
-import os, subprocess, sys, tempfile, time
+import json, os, struct, subprocess, sys, tempfile, time, zlib
 from smoke_support import Bar, Compositor, wait
 
 CLIENT = "./target/debug/mywm-test-client"
 PASSWORD = "geheim"
 KEY_A = 30
+# On the 1280x800 output the card begins at y = 416 (52 %): avatar at its top, then name and the field (y 575-623).
+AVATAR = (640, 480)
+FIELD_BORDER = (469, 599)
+SUBMIT = (787, 599)
+# The theme's alert color without a theme.json.
+ALERT = bytes.fromhex("f38ba8")
 
 if not os.environ.get("MYWM_TEST_PAM_MODULES"):
     print("SKIP: $MYWM_TEST_PAM_MODULES is not set (run in the smoke shell)")
@@ -34,6 +42,14 @@ def pam_directory(base):
         f.write(f"auth required {modules}/pam_exec.so expose_authtok quiet {check}\n"
                 f"account required {modules}/pam_permit.so\n")
     return f"{base}/pam.d"
+
+
+def png(path, w, h, color):
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\0" + bytes(v for x in range(w) for v in color) for y in range(h))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
 def pixel(comp, x, y):
@@ -77,6 +93,9 @@ try:
     print("locked:", shown.hex())
     assert shown != window, "the window shows behind the lock"
     assert shown == pixel(comp, 5, 795) == pixel(comp, 1275, 5), "the lock screen does not cover everything"
+    assert wait(lambda: pixel(comp, *AVATAR) != shown, 10), "the card does not show"
+    field_border = pixel(comp, *FIELD_BORDER)
+    assert field_border != ALERT, field_border.hex()
     assert bar.send("workspace 1 1") == "v1 error invalid-command", "commands must be refused while locked"
     print("lock OK")
 
@@ -89,6 +108,7 @@ try:
     bar.poll()
     assert bar.locked, "a wrong password unlocked"
     assert client() == seen, "keys reached the window behind the lock:\n" + client()[len(seen):]
+    assert wait(lambda: pixel(comp, *FIELD_BORDER) == ALERT, 5), pixel(comp, *FIELD_BORDER).hex()
     print("wrong password OK")
 
     # A check that dies on the way unlocks nothing.
@@ -109,9 +129,9 @@ try:
     assert pixel(comp, 100, 120) == shown, "a screen locker changed the lock screen"
     print("foreign locker OK")
 
-    # The right password unlocks: the window shows and gets keys again.
+    # The right password and a click on the button unlock: the window shows and gets keys again.
     type_text(PASSWORD)
-    comp.key("Return")
+    subprocess.run(["xdotool", "mousemove", *map(str, SUBMIT), "click", "1"], check=True)
     bar.until(lambda s: not bar.locked, 10)
     assert wait(lambda: pixel(comp, 100, 120) == window and pixel(comp, 5, 795) == corner, 5), "the desktop did not come back"
     assert client() == seen, "keys reached the window behind the lock:\n" + client()[len(seen):]
@@ -123,6 +143,11 @@ try:
     # Locking without moving the pointer takes it from the window under it (else the wheel would reach it).
     comp = Compositor(top="builtin_shell = true\n", extra_env=extra)
     Bar(comp.sock).until(lambda s: len(s) == 1)
+    # Written after the start: the lock reads the theme anew.
+    png(f"{base}/background.png", 64, 40, (200, 100, 50))
+    os.makedirs(f"{comp.dir}/state/mywm", exist_ok=True)
+    with open(f"{comp.dir}/state/mywm/theme.json", "w") as f:
+        json.dump({"version": 1, "source": f"{base}/background.png", "colors": {"primary": {"default": {"hex": "#00ff00"}}}}, f)
     events = open(comp.dir + "/client", "w")
     subprocess.Popen([CLIENT, "pointer", "60"], env=comp.env(), stdout=events)
     client = lambda: open(comp.dir + "/client").read()
@@ -134,6 +159,9 @@ try:
     assert result.returncode == 0, "--lock got no confirmation"
     assert wait(lambda: "pointer leave" in client(), 5), "the window kept the pointer behind the lock: " + client()
     print("pointer OK")
+    dimmed = lambda: all(abs(got - round(want * 0.65)) <= 2 for got, want in zip(pixel(comp, 5, 795), (200, 100, 50)))
+    assert wait(dimmed, 10), "the theme's image does not show: " + pixel(comp, 5, 795).hex()
+    print("background OK")
     assert comp.stop()
     print("OK")
 except BaseException:

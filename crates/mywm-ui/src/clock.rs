@@ -60,6 +60,29 @@ const MONTHS_DE: [&str; 12] = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "
 const DAYS_EN: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS_EN: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+const LONG_DAYS_DE: [&str; 7] = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+const LONG_MONTHS_DE: [&str; 12] =
+    ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+const LONG_DAYS_EN: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const LONG_MONTHS_EN: [&str; 12] =
+    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/// The lock screen's clock: `HH:mm`.
+pub fn lock_time(time: &LocalTime) -> String {
+    format!("{:02}:{:02}", time.hour, time.minute)
+}
+
+/// The lock screen's date: `dddd, d. MMMM` with full names, like Qt ("Dienstag, 20. Oktober").
+pub fn lock_date(time: &LocalTime, language: Language) -> String {
+    let (days, months) = match language {
+        Language::German => (LONG_DAYS_DE, LONG_MONTHS_DE),
+        Language::English => (LONG_DAYS_EN, LONG_MONTHS_EN),
+    };
+    let day = days[(time.weekday % 7) as usize];
+    let month = months[(time.month.clamp(1, 12) - 1) as usize];
+    format!("{day}, {}. {month}", time.day)
+}
+
 /// The bar's clock text for `time`.
 pub fn bar_text(time: &LocalTime, language: Language) -> String {
     let (days, months) = match language {
@@ -83,6 +106,16 @@ mod tests {
         let time = LocalTime { year: 2026, weekday: 0, day: 1, month: 3, hour: 0, minute: 0, second: 0 };
         assert_eq!(bar_text(&time, Language::German), "So. 01. März  00:00");
         assert_eq!(time.seconds_to_next_minute(), 60);
+    }
+
+    #[test]
+    fn the_lock_screen_clock_reads_like_qts() {
+        let time = LocalTime { year: 2026, weekday: 2, day: 20, month: 10, hour: 9, minute: 5, second: 30 };
+        assert_eq!(lock_time(&time), "09:05");
+        assert_eq!(lock_date(&time, Language::German), "Dienstag, 20. Oktober");
+        assert_eq!(lock_date(&time, Language::English), "Tuesday, 20. October");
+        let time = LocalTime { year: 2026, weekday: 0, day: 1, month: 3, hour: 0, minute: 0, second: 0 };
+        assert_eq!(lock_date(&time, Language::German), "Sonntag, 1. März");
     }
 
     #[test]

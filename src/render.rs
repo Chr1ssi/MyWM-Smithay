@@ -150,7 +150,8 @@ impl State {
         self.wallpaper_prepare(renderer);
         self.wallpaper_picker_prepare(renderer);
         if self.session_lock.is_own() {
-            elements.extend(self.shell_lock_elements(output));
+            self.lock_prepare(renderer);
+            elements.extend(self.shell_lock_elements(renderer, output));
             return elements;
         }
         if self.session_lock.is_active() {

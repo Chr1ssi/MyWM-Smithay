@@ -338,9 +338,10 @@ impl State {
     }
 
     fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
-        // No client gets a click behind the built-in lock screen.
+        // No client gets a click behind the built-in lock screen; its card does.
         if self.session_lock.is_own() {
-            return;
+            let hit = self.shell_at_pointer();
+            return self.shell_button(button, state == ButtonState::Pressed, hit);
         }
         if self.overview_open() {
             return self.overview_button(button, state);
@@ -480,7 +481,7 @@ impl State {
 
     fn pointer_target_over(&self, window_hit: Option<&(smithay::desktop::Window, Point<i32, Logical>)>) -> Option<PointerTarget> {
         if self.session_lock.is_own() {
-            return None;
+            return self.lock_at_pointer().map(PointerTarget::Shell);
         }
         if self.session_lock.is_active() {
             return self.lock_surface_at_pointer().map(|(surface, origin)| PointerTarget::Surface(surface, origin));

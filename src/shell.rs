@@ -121,6 +121,8 @@ pub enum ShellHit {
     Launcher(LauncherTarget),
     /// The wallpaper picker's tiles or field (`Some`), or the dimmed monitor around them.
     Picker(Option<mywm_ui::wallpaper_picker::PickerTarget>),
+    /// The built-in lock screen's card.
+    Lock(mywm_ui::lock_screen::LockTarget),
 }
 
 pub struct Shell {
@@ -334,6 +336,7 @@ impl State {
             self.tray_menu_repaint();
             self.launcher_repaint();
             self.wallpaper_picker_repaint();
+            self.lock_repaint();
             self.shell.dirty = true;
         }
     }
@@ -396,6 +399,7 @@ impl State {
         self.tray_menu_refresh(&mut fonts, &mut redraw);
         self.launcher_refresh(&mut fonts, &mut redraw);
         self.wallpaper_picker_refresh(&mut fonts, &mut redraw);
+        self.lock_refresh(&mut fonts, &mut redraw);
 
         if let Some(menu) = &mut self.shell.power {
             let model = PowerModel {
@@ -655,6 +659,7 @@ impl State {
             Some(ShellHit::TrayMenu(target)) => self.tray_menu_clicked(target),
             Some(ShellHit::Launcher(target)) => self.launcher_clicked(target),
             Some(ShellHit::Picker(target)) => self.wallpaper_picker_clicked(target),
+            Some(ShellHit::Lock(target)) => self.lock_clicked(target),
             Some(ShellHit::Notices(NoticeTarget::Background | NoticeTarget::Toast(CardTarget::Card(_)))) | None => {}
         }
     }
