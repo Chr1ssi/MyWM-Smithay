@@ -5,6 +5,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use eframe::egui::{self, Color32, RichText};
+use style::Colors;
 use mywm_config::{Bindings, Config, parse_key};
 use mywm_settings::{
     files,
@@ -12,6 +13,8 @@ use mywm_settings::{
     model::{self, Document, Kind, Page, Setting},
 };
 use toml_edit::{Table, Value};
+
+mod style;
 
 /// Who uses which key: (keysym, (super, ctrl, alt, shift)) -> actions.
 type Owners = HashMap<(u32, (bool, bool, bool, bool)), Vec<String>>;
@@ -56,6 +59,7 @@ struct App {
     new_program: String,
     frames: u32,
     screenshot: Option<PathBuf>,
+    colors: Colors,
 }
 
 fn action_label(name: &str) -> &'static str {
@@ -107,7 +111,7 @@ fn action_label(name: &str) -> &'static str {
 }
 
 impl App {
-    fn new(path: PathBuf, page: Option<usize>, screenshot: Option<PathBuf>) -> Self {
+    fn new(path: PathBuf, page: Option<usize>, screenshot: Option<PathBuf>, colors: Colors) -> Self {
         let (text, status) = match files::read(&path) {
             Ok(text) => (text, String::new()),
             Err(error) => (String::new(), error),
@@ -129,6 +133,7 @@ impl App {
             new_program: String::new(),
             frames: 0,
             screenshot,
+            colors,
         };
         app.revalidate();
         app
@@ -190,83 +195,95 @@ impl App {
         self.doc.get(setting.path).cloned().or_else(|| model::default_value(setting))
     }
 
+    /// One setting: its name and help on the left, its control on the right (long texts get the control below).
     fn setting_row(&mut self, ui: &mut egui::Ui, setting: &'static Setting) {
+        let colors = self.colors;
         let is_set = self.doc.is_set(setting.path);
-        ui.horizontal(|ui| {
-            let mut label = RichText::new(setting.label);
-            if is_set {
-                label = label.strong();
-            }
-            ui.label(label);
-            if setting.restart {
-                ui.label(RichText::new("(Neustart)").small().weak());
-            }
-            if is_set && ui.small_button("Standard").on_hover_text("Wert aus der Datei entfernen").clicked() {
-                self.doc.unset(setting.path);
-                self.lists.remove(setting.path);
-                self.revalidate();
-            }
-        });
-        let mut changed: Option<Option<Value>> = None;
         let current = self.current(setting);
-        match setting.kind {
-            Kind::Bool => {
-                let mut on = current.as_ref().and_then(Value::as_bool).unwrap_or(false);
-                if ui.checkbox(&mut on, "an").changed() {
-                    changed = Some(Some(on.into()));
+        let mut changed: Option<Option<Value>> = None;
+        let mut reset = false;
+        let wide = matches!(setting.kind, Kind::Text | Kind::List);
+        ui.horizontal(|ui| {
+            let label_width = if wide { ui.available_width() * 0.7 } else { (ui.available_width() * 0.56).max(220.0) };
+            ui.allocate_ui_with_layout(egui::vec2(label_width, 0.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.set_width(label_width);
+                ui.set_min_height(ui.spacing().interact_size.y);
+                ui.vertical(|ui| label_block(ui, &colors, setting, is_set));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if wide {
+                    reset = is_set && reset_button(ui);
+                    return;
                 }
-            }
-            Kind::Int { min, max } => {
-                let mut value = current.as_ref().and_then(Value::as_integer).unwrap_or(min);
-                if ui.add(egui::DragValue::new(&mut value).range(min..=max)).changed() {
-                    changed = Some(Some(value.into()));
-                }
-            }
-            Kind::Float { min, max } => {
-                let mut value = current.as_ref().and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))).unwrap_or(min.max(0.0));
-                if ui.add(egui::Slider::new(&mut value, min..=max)).changed() {
-                    changed = Some(Some(((value * 100.0).round() / 100.0).into()));
-                }
-            }
-            Kind::Choice { options, optional } => {
-                let shown = current.as_ref().and_then(Value::as_str).unwrap_or("(Standard)").to_owned();
-                egui::ComboBox::from_id_salt(setting.path).selected_text(shown).show_ui(ui, |ui| {
-                    if optional && ui.selectable_label(!is_set, "(Standard)").clicked() {
-                        changed = Some(None);
-                    }
-                    for option in options {
-                        if ui.selectable_label(current.as_ref().and_then(Value::as_str) == Some(option), *option).clicked() {
-                            changed = Some(Some((*option).into()));
+                match setting.kind {
+                    Kind::Bool => {
+                        let mut on = current.as_ref().and_then(Value::as_bool).unwrap_or(false);
+                        if style::toggle(ui, &colors, &mut on).changed() {
+                            changed = Some(Some(on.into()));
                         }
                     }
-                });
-            }
+                    Kind::Int { min, max } => {
+                        let mut value = current.as_ref().and_then(Value::as_integer).unwrap_or(min);
+                        if ui.add(egui::DragValue::new(&mut value).range(min..=max)).changed() {
+                            changed = Some(Some(value.into()));
+                        }
+                    }
+                    Kind::Float { min, max } => {
+                        let mut value = current.as_ref().and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))).unwrap_or(min.max(0.0));
+                        ui.spacing_mut().slider_width = 200.0;
+                        if ui.add(egui::Slider::new(&mut value, min..=max)).changed() {
+                            changed = Some(Some(((value * 100.0).round() / 100.0).into()));
+                        }
+                    }
+                    Kind::Choice { options, optional } => {
+                        let shown = current.as_ref().and_then(Value::as_str).unwrap_or("(Standard)").to_owned();
+                        egui::ComboBox::from_id_salt(setting.path).selected_text(shown).show_ui(ui, |ui| {
+                            if optional && ui.selectable_label(!is_set, "(Standard)").clicked() {
+                                changed = Some(None);
+                            }
+                            for option in options {
+                                if ui.selectable_label(current.as_ref().and_then(Value::as_str) == Some(option), *option).clicked() {
+                                    changed = Some(Some((*option).into()));
+                                }
+                            }
+                        });
+                    }
+                    Kind::Color => {
+                        let hex = current.as_ref().and_then(Value::as_str).unwrap_or("#000000").to_owned();
+                        let mut rgb = parse_hex(&hex).unwrap_or([0, 0, 0]);
+                        if ui.color_edit_button_srgb(&mut rgb).changed() {
+                            changed = Some(Some(format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]).into()));
+                        }
+                        ui.label(RichText::new(hex).monospace().color(colors.muted));
+                    }
+                    Kind::Text | Kind::List => {}
+                }
+                reset = is_set && reset_button(ui);
+            });
+        });
+        match setting.kind {
             Kind::Text => {
                 let mut text = current.as_ref().and_then(Value::as_str).unwrap_or("").to_owned();
-                if ui.add(egui::TextEdit::singleline(&mut text).desired_width(360.0)).changed() {
+                if ui.add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY).margin(INPUT_MARGIN)).changed() {
                     changed = Some(if text.is_empty() && setting.default.is_empty() { None } else { Some(text.into()) });
                 }
-            }
-            Kind::Color => {
-                let hex = current.as_ref().and_then(Value::as_str).unwrap_or("#000000").to_owned();
-                let mut rgb = parse_hex(&hex).unwrap_or([0, 0, 0]);
-                ui.horizontal(|ui| {
-                    if ui.color_edit_button_srgb(&mut rgb).changed() {
-                        changed = Some(Some(format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]).into()));
-                    }
-                    ui.label(RichText::new(hex).monospace());
-                });
             }
             Kind::List => {
                 let initial = self.doc.get_list(setting.path).or_else(|| model::default_value(setting).map(|v| list_of(&v))).unwrap_or_default();
                 let buffer = self.lists.entry(setting.path.to_owned()).or_insert_with(|| initial.join("\n"));
                 let lines = buffer.lines().count().clamp(2, 6);
-                if ui.add(egui::TextEdit::multiline(buffer).desired_rows(lines).desired_width(360.0)).changed() {
+                if ui.add(egui::TextEdit::multiline(buffer).desired_rows(lines).desired_width(f32::INFINITY).margin(INPUT_MARGIN)).changed() {
                     let values: Vec<String> = buffer.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect();
                     self.doc.set_list(setting.path, &values);
                     self.revalidate();
                 }
             }
+            _ => {}
+        }
+        if reset {
+            self.doc.unset(setting.path);
+            self.lists.remove(setting.path);
+            self.revalidate();
         }
         if let Some(change) = changed {
             match change {
@@ -275,11 +292,21 @@ impl App {
             }
             self.revalidate();
         }
-        if !setting.help.is_empty() {
-            ui.label(RichText::new(setting.help).small().weak());
-        }
-        ui.add_space(8.0);
     }
+
+    /// The settings of one page on a card, a line between them.
+    fn settings_card(&mut self, ui: &mut egui::Ui, settings: impl Iterator<Item = &'static Setting>) {
+        let colors = self.colors;
+        style::card(ui, &colors, |ui| {
+            for (index, setting) in settings.enumerate() {
+                if index > 0 {
+                    style::divider(ui);
+                }
+                self.setting_row(ui, setting);
+            }
+        });
+    }
+
 
     // --- Keybindings --------------------------------------------------------------------------
 
@@ -307,6 +334,7 @@ impl App {
     }
 
     fn key_chips(&mut self, ui: &mut egui::Ui, path: &str, title: &str, default_keys: Option<&Vec<String>>, owners: &Owners) {
+        let colors = self.colors;
         let is_set = self.doc.is_set(path);
         let keys = self.doc.get_list(path).or_else(|| default_keys.cloned()).unwrap_or_default();
         let mut new_keys = keys.clone();
@@ -315,20 +343,21 @@ impl App {
             for (index, key) in keys.iter().enumerate() {
                 let clash = parse_key(key).ok().and_then(|(s, m)| owners.get(&(s, (m.logo, m.ctrl, m.alt, m.shift)))).filter(|who| who.len() > 1);
                 let text = RichText::new(key).monospace();
-                ui.group(|ui| {
-                    ui.label(if clash.is_some() { text.color(Color32::from_rgb(243, 139, 168)) } else { text });
-                    if ui.small_button("x").on_hover_text("Taste entfernen").clicked() {
+                style::chip(ui, &colors, |ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    ui.label(if clash.is_some() { text.color(colors.alert) } else { text });
+                    if ui.add(egui::Button::new(RichText::new("×").size(17.0).color(colors.muted)).frame(false)).on_hover_text("Taste entfernen").clicked() {
                         remove = Some(index);
                     }
                 });
                 if let Some(who) = clash {
-                    ui.label(RichText::new(format!("doppelt: {}", who.join(", "))).small().color(Color32::from_rgb(243, 139, 168)));
+                    ui.label(RichText::new(format!("doppelt: {}", who.join(", "))).small().color(colors.alert));
                 }
             }
             if ui.button("+ Taste").clicked() {
                 self.capture = Some(Capture { path: path.to_owned(), title: title.to_owned(), mods: Mods { logo: true, ..Default::default() } });
             }
-            if is_set && ui.small_button("Standard").on_hover_text("Belegung aus der Datei entfernen").clicked() {
+            if is_set && reset_button(ui) {
                 self.doc.unset(path);
                 self.revalidate();
             }
@@ -349,37 +378,48 @@ impl App {
     }
 
     fn keys_page(&mut self, ui: &mut egui::Ui) {
+        let colors = self.colors;
         let owners = self.binding_owners();
         let defaults = Bindings::default();
-        ui.label(RichText::new("Belegungen mit doppelten Tasten sind rot markiert; die Datei wird dann nicht gespeichert.").small().weak());
-        ui.add_space(6.0);
-        for (name, default_keys) in defaults.entries() {
-            ui.label(RichText::new(action_label(name)).strong());
-            let path = format!("bindings.{name}");
-            self.key_chips(ui, &path, action_label(name), Some(default_keys), &owners);
-            ui.add_space(6.0);
-        }
-        ui.separator();
-        ui.label(RichText::new("Modifikatoren der Zifferntasten und der Maus").strong());
-        for (name, default) in defaults.modifier_entries() {
-            let path = format!("bindings.{name}");
-            let mut text = self.doc.get_str(&path).unwrap_or(default).to_owned();
-            ui.horizontal(|ui| {
-                ui.label(match name {
-                    "pointer_modifiers" => "Fenster mit der Maus verschieben/skalieren",
-                    "workspace_modifiers" => "Workspace 1-9 wählen",
-                    _ => "Fenster zu Workspace 1-9",
-                });
-                if ui.add(egui::TextEdit::singleline(&mut text).desired_width(140.0)).changed() {
-                    if text == *default {
-                        self.doc.unset(&path);
-                    } else {
-                        self.doc.set(&path, text.into());
-                    }
-                    self.revalidate();
+        ui.label(RichText::new("Belegungen mit doppelten Tasten sind rot markiert; die Datei wird dann nicht gespeichert.").small().color(colors.muted));
+        style::card(ui, &colors, |ui| {
+            for (index, (name, default_keys)) in defaults.entries().into_iter().enumerate() {
+                if index > 0 {
+                    style::divider(ui);
                 }
-            });
-        }
+                let path = format!("bindings.{name}");
+                let mut label = RichText::new(action_label(name));
+                if self.doc.is_set(&path) {
+                    label = label.color(colors.accent);
+                }
+                ui.horizontal_top(|ui| {
+                    field_label(ui, KEY_LABEL_WIDTH, label);
+                    ui.vertical(|ui| self.key_chips(ui, &path, action_label(name), Some(default_keys), &owners));
+                });
+            }
+        });
+        style::card(ui, &colors, |ui| {
+            ui.label(RichText::new("Modifikatoren der Zifferntasten und der Maus").strong());
+            for (name, default) in defaults.modifier_entries() {
+                let path = format!("bindings.{name}");
+                let mut text = self.doc.get_str(&path).unwrap_or(default).to_owned();
+                ui.horizontal(|ui| {
+                    field_label(ui, KEY_LABEL_WIDTH + 40.0, RichText::new(match name {
+                        "pointer_modifiers" => "Fenster mit der Maus verschieben/skalieren",
+                        "workspace_modifiers" => "Workspace 1-9 wählen",
+                        _ => "Fenster zu Workspace 1-9",
+                    }));
+                    if ui.add(egui::TextEdit::singleline(&mut text).desired_width(140.0).margin(INPUT_MARGIN)).changed() {
+                        if text == *default {
+                            self.doc.unset(&path);
+                        } else {
+                            self.doc.set(&path, text.into());
+                        }
+                        self.revalidate();
+                    }
+                });
+            }
+        });
     }
 
     fn capture_window(&mut self, ctx: &egui::Context) {
@@ -441,18 +481,19 @@ impl App {
     // --- Rules and programs -------------------------------------------------------------------
 
     fn rules_page(&mut self, ui: &mut egui::Ui) {
+        let colors = self.colors;
         ui.label(RichText::new("Regeln gelten für Fenster, auf die alle angegebenen Merkmale passen; * steht für beliebig viele Zeichen. Die app_id steht beim Öffnen eines Fensters im Log (new window: app_id=…).").small().weak());
         ui.add_space(6.0);
         let count = self.doc.table_array("rules").len();
         let mut remove = None;
         let mut dirty = false;
         for index in 0..count {
-            ui.group(|ui| {
+            style::card(ui, &colors, |ui| {
                 let table = &mut self.doc.table_array_mut("rules").get_mut(index).expect("a rule");
                 ui.horizontal(|ui| {
-                    ui.label("app_id");
+                    field_label(ui, FIELD_LABEL_WIDTH, RichText::new("app_id"));
                     let mut text = table.get("app_id").and_then(|v| v.as_str()).unwrap_or("").to_owned();
-                    if ui.add(egui::TextEdit::singleline(&mut text).desired_width(260.0)).changed() {
+                    if ui.add(egui::TextEdit::singleline(&mut text).desired_width(260.0).margin(INPUT_MARGIN)).changed() {
                         if text.is_empty() {
                             table.remove("app_id");
                         } else {
@@ -492,12 +533,13 @@ impl App {
     }
 
     fn programs_page(&mut self, ui: &mut egui::Ui) {
+        let colors = self.colors;
         ui.label(RichText::new("Tasten, die ein Programm starten. Das Kommando: ein Argument pro Zeile.").small().weak());
         ui.add_space(6.0);
         let owners = self.binding_owners();
         let mut remove = None;
         for name in self.doc.program_binding_names() {
-            ui.group(|ui| {
+            style::card(ui, &colors, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&name).strong());
                     if ui.button("Löschen").clicked() {
@@ -511,7 +553,7 @@ impl App {
                 let initial = self.doc.get_list(&path).unwrap_or_default();
                 let buffer = self.lists.entry(path.clone()).or_insert_with(|| initial.join("\n"));
                 let lines = buffer.lines().count().clamp(1, 5);
-                if ui.add(egui::TextEdit::multiline(buffer).desired_rows(lines).desired_width(360.0)).changed() {
+                if ui.add(egui::TextEdit::multiline(buffer).desired_rows(lines).desired_width(360.0).margin(INPUT_MARGIN)).changed() {
                     let values: Vec<String> = buffer.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_owned).collect();
                     self.doc.set_list(&path, &values);
                     self.revalidate();
@@ -520,7 +562,7 @@ impl App {
                 let mut app_id = self.doc.get_str(&app).unwrap_or("").to_owned();
                 ui.horizontal(|ui| {
                     ui.label("Offenes Fenster zeigen (app_id)");
-                    if ui.add(egui::TextEdit::singleline(&mut app_id).desired_width(200.0)).changed() {
+                    if ui.add(egui::TextEdit::singleline(&mut app_id).desired_width(200.0).margin(INPUT_MARGIN)).changed() {
                         if app_id.is_empty() {
                             self.doc.unset(&app);
                         } else {
@@ -547,51 +589,94 @@ impl App {
             self.lists.retain(|k, _| !k.starts_with(&format!("program_bindings.{name}.")));
             self.revalidate();
         }
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.new_program).hint_text("Name, z. B. browser").desired_width(200.0));
-            let valid = !self.new_program.is_empty() && self.new_program.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-            if ui.add_enabled(valid, egui::Button::new("+ Programm hinzufügen")).clicked() {
-                let name = std::mem::take(&mut self.new_program);
-                self.doc.set_list(&format!("program_bindings.{name}.keys"), &["Super+b".to_owned()]);
-                self.doc.set_list(&format!("program_bindings.{name}.command"), &["firefox".to_owned()]);
-                self.revalidate();
-            }
+        style::card(ui, &colors, |ui| {
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.new_program).hint_text("Name, z. B. browser").desired_width(200.0).margin(INPUT_MARGIN));
+                let valid = !self.new_program.is_empty() && self.new_program.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+                if ui.add_enabled(valid, egui::Button::new("+ Programm hinzufügen")).clicked() {
+                    let name = std::mem::take(&mut self.new_program);
+                    self.doc.set_list(&format!("program_bindings.{name}.keys"), &["Super+b".to_owned()]);
+                    self.doc.set_list(&format!("program_bindings.{name}.command"), &["firefox".to_owned()]);
+                    self.revalidate();
+                }
+            });
         });
     }
 
     fn file_page(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("Konfigurationsdatei").strong());
-        ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.path_edit).desired_width(460.0));
-            if ui.button("Übernehmen").clicked() {
-                let path = PathBuf::from(self.path_edit.trim());
-                files::remember_path(&path);
-                self.path = path;
-                self.reload_from_disk();
+        let colors = self.colors;
+        style::card(ui, &colors, |ui| {
+            ui.label(RichText::new("Konfigurationsdatei").strong());
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.path_edit).desired_width(ui.available_width() - 110.0).margin(INPUT_MARGIN).margin(INPUT_MARGIN));
+                if ui.button("Übernehmen").clicked() {
+                    let path = PathBuf::from(self.path_edit.trim());
+                    files::remember_path(&path);
+                    self.path = path;
+                    self.reload_from_disk();
+                }
+            });
+            let real = files::real_path(&self.path);
+            if real != self.path {
+                ui.label(RichText::new(format!("Verweist auf: {}", real.display())).color(colors.muted));
             }
+            if self.read_only() {
+                ui.colored_label(Color32::from_rgb(249, 226, 175), "Die Datei liegt im Nix-Store und ist schreibgeschützt. Den Pfad in deinen Dotfiles-Ordner legen (z. B. …/dotfiles/mywm/config.toml) und hier übernehmen.");
+            } else if !self.path.exists() {
+                ui.label(RichText::new("Die Datei gibt es noch nicht; sie wird beim Speichern angelegt.").color(colors.muted));
+            }
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.button("Von Festplatte neu laden").clicked() {
+                    self.reload_from_disk();
+                }
+                if ui.button("Compositor neu laden lassen").clicked() {
+                    self.status = if files::reload_compositor() { "Neu laden angefordert.".into() } else { "Der Compositor ist nicht erreichbar.".into() };
+                }
+            });
         });
-        let real = files::real_path(&self.path);
-        if real != self.path {
-            ui.label(format!("Verweist auf: {}", real.display()));
-        }
-        if self.read_only() {
-            ui.colored_label(Color32::from_rgb(249, 226, 175), "Die Datei liegt im Nix-Store und ist schreibgeschützt. Den Pfad in deinen Dotfiles-Ordner legen (z. B. …/dotfiles/mywm/config.toml) und hier übernehmen.");
-        } else if !self.path.exists() {
-            ui.label("Die Datei gibt es noch nicht; sie wird beim Speichern angelegt.");
-        }
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button("Von Festplatte neu laden").clicked() {
-                self.reload_from_disk();
-            }
-            if ui.button("Compositor neu laden lassen").clicked() {
-                self.status = if files::reload_compositor() { "Neu laden angefordert.".into() } else { "Der Compositor ist nicht erreichbar.".into() };
-            }
+        style::card(ui, &colors, |ui| {
+            ui.label(RichText::new("Hinweis").strong());
+            ui.label(RichText::new("Monitore (Modus, Position, Skalierung) stellt man mit kanshi oder wlr-randr ein; [[outputs]] in der Datei bleibt unberührt.").color(colors.muted));
         });
-        ui.add_space(12.0);
-        ui.label(RichText::new("Hinweis").strong());
-        ui.label("Monitore (Modus, Position, Skalierung) stellt man mit kanshi oder wlr-randr ein; [[outputs]] in der Datei bleibt unberührt.");
     }
+}
+
+/// Space inside the text inputs.
+const INPUT_MARGIN: egui::Margin = egui::Margin::symmetric(10, 7);
+/// The widest the cards get.
+const MAX_CONTENT_WIDTH: f32 = 760.0;
+/// Width of the action names beside their keys.
+const KEY_LABEL_WIDTH: f32 = 250.0;
+/// Width of the names beside the fields of a rule.
+const FIELD_LABEL_WIDTH: f32 = 190.0;
+
+/// `label` in a column `width` wide, centered on the height of a control.
+fn field_label(ui: &mut egui::Ui, width: f32, label: RichText) {
+    let height = ui.spacing().interact_size.y;
+    ui.allocate_ui_with_layout(egui::vec2(width, height), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.set_width(width);
+        ui.label(label);
+    });
+}
+
+/// A setting's name (in the accent color once it is set in the file) with a note if it needs a restart, and its help.
+fn label_block(ui: &mut egui::Ui, colors: &Colors, setting: &Setting, is_set: bool) {
+    let color = if is_set { colors.accent } else { ui.visuals().text_color() };
+    let mut name = egui::text::LayoutJob::default();
+    name.append(setting.label, 0.0, egui::TextFormat::simple(egui::TextStyle::Body.resolve(ui.style()), color));
+    if setting.restart {
+        name.append("  (Neustart)", 0.0, egui::TextFormat::simple(egui::TextStyle::Small.resolve(ui.style()), colors.muted));
+    }
+    ui.label(name);
+    if !setting.help.is_empty() {
+        ui.label(RichText::new(setting.help).small().color(colors.muted));
+    }
+}
+
+/// The button that removes a value from the file again; whether it was clicked.
+fn reset_button(ui: &mut egui::Ui) -> bool {
+    ui.small_button("Standard").on_hover_text("Wert aus der Datei entfernen").clicked()
 }
 
 fn parse_hex(text: &str) -> Option<[u8; 3]> {
@@ -609,7 +694,7 @@ fn tri_state(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str) -> bo
     let current = table.get(key).and_then(|v| v.as_bool());
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(label);
+        field_label(ui, FIELD_LABEL_WIDTH, RichText::new(label));
         egui::ComboBox::from_id_salt((key, table.get("app_id").map(|v| v.to_string()))).selected_text(match current {
             None => "egal",
             Some(true) => "ja",
@@ -637,9 +722,9 @@ fn tri_state(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str) -> bo
 fn optional_text(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(label);
+        field_label(ui, FIELD_LABEL_WIDTH, RichText::new(label));
         let mut text = table.get(key).and_then(|v| v.as_str()).unwrap_or("").to_owned();
-        if ui.add(egui::TextEdit::singleline(&mut text).desired_width(260.0)).changed() {
+        if ui.add(egui::TextEdit::singleline(&mut text).desired_width(260.0).margin(INPUT_MARGIN)).changed() {
             if text.is_empty() {
                 table.remove(key);
             } else {
@@ -654,7 +739,7 @@ fn optional_text(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str) -
 fn optional_int(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str, min: i64, max: i64) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(label);
+        field_label(ui, FIELD_LABEL_WIDTH, RichText::new(label));
         let mut on = table.contains_key(key);
         let mut value = table.get(key).and_then(|v| v.as_integer()).unwrap_or(min);
         if ui.checkbox(&mut on, "").changed() {
@@ -676,7 +761,7 @@ fn optional_int(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str, mi
 fn optional_float(ui: &mut egui::Ui, table: &mut Table, key: &str, label: &str, min: f64, max: f64) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(label);
+        field_label(ui, FIELD_LABEL_WIDTH, RichText::new(label));
         let mut on = table.contains_key(key);
         let mut value = table.get(key).and_then(|v| v.as_float()).unwrap_or(max);
         if ui.checkbox(&mut on, "").changed() {
@@ -722,51 +807,74 @@ impl eframe::App for App {
             self.save();
         }
 
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("mywm Einstellungen");
-                ui.separator();
-                let can_save = dirty && self.problem.is_none() && !read_only;
-                if ui.add_enabled(can_save, egui::Button::new("Speichern")).on_hover_text("Strg+S").clicked() {
-                    self.save();
-                }
-                if ui.add_enabled(dirty, egui::Button::new("Verwerfen")).clicked() {
-                    self.reload_from_disk();
-                }
-                if dirty {
-                    ui.label(RichText::new("ungespeicherte Änderungen").color(Color32::from_rgb(249, 226, 175)));
-                }
-            });
-            if let Some(problem) = &self.problem {
-                ui.colored_label(Color32::from_rgb(243, 139, 168), format!("Die Datei wäre ungültig: {problem}"));
-            } else if !self.status.is_empty() {
-                ui.label(RichText::new(&self.status).weak());
-            }
-            ui.add_space(2.0);
-        });
-
-        egui::SidePanel::left("nav").resizable(false).default_width(170.0).show(ctx, |ui| {
-            ui.add_space(6.0);
-            for (nav, title) in Nav::all() {
-                if ui.selectable_label(self.nav == nav, title).clicked() {
-                    self.nav = nav;
-                }
-            }
-            ui.add_space(12.0);
-            ui.label(RichText::new(self.path.display().to_string()).small().weak());
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.nav {
-                Nav::Page(Page::Keys) => self.keys_page(ui),
-                Nav::Page(page) => {
-                    for setting in model::settings_of(page) {
-                        self.setting_row(ui, setting);
+        let colors = self.colors;
+        egui::SidePanel::left("nav")
+            .resizable(false)
+            .exact_width(236.0)
+            .frame(egui::Frame::new().fill(colors.background).inner_margin(egui::Margin::symmetric(16, 22)))
+            .show(ctx, |ui| {
+                ui.label(RichText::new("mywm").size(26.0).strong());
+                ui.label(RichText::new("Einstellungen").color(colors.muted));
+                ui.add_space(18.0);
+                ui.spacing_mut().item_spacing.y = 4.0;
+                for (nav, title) in Nav::all() {
+                    if style::nav_item(ui, &colors, title, self.nav == nav).clicked() {
+                        self.nav = nav;
                     }
                 }
-                Nav::Rules => self.rules_page(ui),
-                Nav::Programs => self.programs_page(ui),
-                Nav::File => self.file_page(ui),
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    ui.label(RichText::new(self.path.display().to_string()).small().color(colors.muted));
+                });
+            });
+
+        // The note on the file or the last save sits at the bottom: showing it must not move what is above.
+        if self.problem.is_some() || !self.status.is_empty() {
+            egui::TopBottomPanel::bottom("status")
+                .frame(egui::Frame::new().fill(style::sunken(&colors)).inner_margin(egui::Margin { left: 36, right: 36, top: 4, bottom: 16 }))
+                .show(ctx, |ui| match &self.problem {
+                    Some(problem) => style::banner(ui, colors.alert, &format!("Die Datei wäre ungültig: {problem}")),
+                    None => {
+                        ui.label(RichText::new(&self.status).color(colors.muted));
+                    }
+                });
+        }
+
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(style::sunken(&colors)).inner_margin(egui::Margin::symmetric(36, 26))).show(ctx, |ui| {
+            let title = Nav::all().into_iter().find(|(nav, _)| *nav == self.nav).map_or("", |(_, title)| title);
+            ui.horizontal(|ui| {
+                ui.heading(RichText::new(title).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let can_save = dirty && self.problem.is_none() && !read_only;
+                    let save = egui::Button::new(RichText::new("Speichern").strong().color(if can_save { colors.background } else { colors.muted })).fill(if can_save { colors.accent } else { style::control(&colors) });
+                    if ui.add_enabled(can_save, save).on_hover_text("Strg+S").clicked() {
+                        self.save();
+                    }
+                    if ui.add_enabled(dirty, egui::Button::new("Verwerfen")).clicked() {
+                        self.reload_from_disk();
+                    }
+                    if dirty {
+                        ui.label(RichText::new("ungespeicherte Änderungen").color(Color32::from_rgb(249, 226, 175)));
+                    }
+                });
+            });
+            ui.add_space(8.0);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                // The cards are a column of their own in the middle, not as wide as a large window.
+                let area = ui.available_rect_before_wrap();
+                let width = area.width().min(MAX_CONTENT_WIDTH);
+                let column = egui::Rect::from_min_size(egui::pos2(area.center().x - width / 2.0, area.top()), egui::vec2(width, area.height()));
+                ui.scope_builder(egui::UiBuilder::new().max_rect(column).layout(egui::Layout::top_down(egui::Align::Min)), |ui| {
+                    ui.set_width(width);
+                    ui.spacing_mut().item_spacing.y = 14.0;
+                    match self.nav {
+                        Nav::Page(Page::Keys) => self.keys_page(ui),
+                        Nav::Page(page) => self.settings_card(ui, model::settings_of(page)),
+                        Nav::Rules => self.rules_page(ui),
+                        Nav::Programs => self.programs_page(ui),
+                        Nav::File => self.file_page(ui),
+                    }
+                    ui.add_space(8.0);
+                });
             });
         });
 
@@ -788,7 +896,7 @@ fn save_png(path: &PathBuf, image: &egui::ColorImage) {
 
 fn main() -> eframe::Result {
     let mut args = std::env::args().skip(1);
-    let (mut config, mut page, mut screenshot, mut size) = (None, None, None, (980.0, 720.0));
+    let (mut config, mut page, mut screenshot, mut size) = (None, None, None, (1080.0, 760.0));
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" => config = args.next().map(PathBuf::from),
@@ -817,5 +925,13 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default().with_inner_size([size.0, size.1]).with_title("mywm Einstellungen").with_app_id("mywm-settings"),
         ..Default::default()
     };
-    eframe::run_native("mywm-settings", options, Box::new(move |_cc| Ok(Box::new(App::new(path, page, screenshot)))))
+    let colors = Colors::current(&files::read(&path).unwrap_or_default());
+    eframe::run_native(
+        "mywm-settings",
+        options,
+        Box::new(move |cc| {
+            style::install(&cc.egui_ctx, &colors);
+            Ok(Box::new(App::new(path, page, screenshot, colors)))
+        }),
+    )
 }

@@ -24,6 +24,12 @@ cargo run -p mywm-settings -- [--config /pfad/zur/config.toml]
 ## Seiten
 Tastenbelegung (mit „+ Taste“: Modifikatoren ankreuzen und die Taste drücken; Super kann ein Fenster nicht
 erkennen, darum die Kästchen), Programme (Tasten, die Programme starten), Fenster, Fensterregeln, Effekte, Eingabe,
-Aussehen, Allgemein, Datei. Geänderte Werte sind fett, „Standard“ entfernt sie wieder aus der Datei.
+Aussehen, Allgemein, Datei. Geänderte Werte sind in der Akzentfarbe geschrieben, „Standard“ entfernt sie wieder aus
+der Datei. Die Einstellungen stehen auf abgerundeten Karten in einer Spalte in der Mitte; Farben (aus `[appearance]`,
+vom Wallpaper-Theme in `theme.json` überschrieben, wie in der Shell) und Systemschrift (`fc-match "Sans Serif"`)
+sind die der Shell. Fehler und der Stand des Speicherns stehen unten im Fenster, damit sich der Inhalt nicht
+verschiebt.
+
+Aus dem Commandcenter (Zeile „Einstellungen“) startet die Shell `mywm-settings` aus dem `PATH`.
 
 Monitore stellt man weiter mit kanshi oder `wlr-randr` ein.

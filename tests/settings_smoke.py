@@ -6,8 +6,8 @@ Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/s
 import os, random, subprocess, time
 from smoke_support import wait
 
-# A short path: the settings window sizes its sidebar by the config path, and the clicks below are positions.
-# Digits only, as mkdtemp's letters differ in width: a wide random name moved the buttons away from the clicks.
+# A short path of digits only, as the clicks below are positions: the sidebar shows the path at a fixed width,
+# but letters differ in width and a random name must not move anything.
 while True:
     work = f"/tmp/mywm-{random.randrange(10 ** 8):08d}"
     try:
@@ -19,7 +19,8 @@ config = f"{work}/config.toml"
 with open(config, "w") as f:
     f.write("# my settings\n[effects]\ncorner_radius = 12 # round\n")
 
-env = dict(os.environ, XDG_CONFIG_HOME=work, MYWM_SOCKET=f"{work}/none.sock")
+# XDG_STATE_HOME: the window takes its colors from the saved theme, which must not be the user's.
+env = dict(os.environ, XDG_CONFIG_HOME=work, XDG_STATE_HOME=work, MYWM_SOCKET=f"{work}/none.sock")
 # On X only: with a Wayland session in the environment the window would open there, in the user's session.
 for name in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET"):
     env.pop(name, None)
@@ -47,7 +48,7 @@ try:
     # "+ Taste" of the first action (Konfiguration neu laden), then F5 with Super ticked by default.
     # The first inputs can get lost while the window is still starting: try a few times.
     for attempt in range(4):
-        xdo("mousemove", "--window", window, "336", "89", "click", "1")
+        xdo("mousemove", "--window", window, "745", "136", "click", "1")
         time.sleep(1)
         xdo("key", "F5")
         time.sleep(1)
@@ -63,10 +64,17 @@ try:
     # A second, conflicting key is refused: Super+q belongs to "close"; adding it to reload marks a duplicate
     # and the save button stays disabled, so the file is unchanged.
     before = open(config).read()
-    xdo("mousemove", "--window", window, "443", "89", "click", "1")
+    xdo("mousemove", "--window", window, "852", "136", "click", "1")
     time.sleep(0.7)
     xdo("key", "q")
     time.sleep(0.5)
+    # The duplicate shows in the alert color (the click did reach "+ Taste"), not only in a file that stays as it was.
+    def marked():
+        picture = subprocess.run(["import", "-window", window, "png:-"], capture_output=True).stdout
+        mean = subprocess.run(["convert", "png:-", "-fuzz", "12%", "-fill", "black", "+opaque", "#f38ba8", "-format", "%[fx:mean]", "info:"],
+                              input=picture, capture_output=True).stdout
+        return float(mean or 0) > 0
+    assert wait(marked, 5), "the duplicate key was not marked"
     xdo("key", "ctrl+s")
     time.sleep(1)
     assert open(config).read() == before, "a duplicate binding was saved"
@@ -90,7 +98,7 @@ try:
     assert wait(drawn, 30), "the window was never drawn"
     xdo("windowfocus", window)
     for attempt in range(4):
-        xdo("mousemove", "--window", window, "336", "89", "click", "1")
+        xdo("mousemove", "--window", window, "745", "136", "click", "1")
         time.sleep(1)
         # The X server's layout is us: this is the key right of p.
         xdo("key", "bracketleft")
