@@ -1,13 +1,14 @@
 //! The calendar panel's content (`CalendarPanelInteractive.qml`): a month to page through, the selected day's events
 //! and the next ones from `mywm-calendar` (khal), a form that creates an event on the selected day, and a button
 //! that opens the calendar app. The form's fields and calendar choice are Qt Quick's Fusion controls, which keep
-//! their own look and font (the system's sans-serif font at Qt's default 9 pt) instead of the shell's theme.
+//! their own look and size (Qt's default 9 pt) instead of the shell's theme.
 use crate::{
     Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme,
     bar::{BUTTON_HEIGHT, button_shape},
     edit::Input,
     i18n::Language,
     panel::{Content, PanelTarget},
+    theme::ROW_RADIUS,
 };
 
 /// A day of the Gregorian calendar.
@@ -247,8 +248,8 @@ pub enum CalendarTarget {
 
 const SPACING: f32 = 14.0;
 const TEXT: TextStyle = TextStyle::new(14.0);
-/// Qt's default font (9 pt at 96 dpi) in the system's sans-serif family.
-const CONTROL_TEXT: TextStyle = TextStyle::new(12.0).controls(true);
+/// Qt's default font size (9 pt at 96 dpi).
+const CONTROL_TEXT: TextStyle = TextStyle::new(12.0);
 const CONTROL_HEIGHT: f32 = 24.0;
 const ITEM_HEIGHT: f32 = 26.0;
 const CONTROL_PADDING: f32 = 4.0;
@@ -386,7 +387,7 @@ fn card(content: &mut Content, theme: &Theme, measure: &mut impl Measure, y: f32
     let (title_h, detail_h) = (measure.line_height(title_style), measure.line_height(detail_style));
     let column_h = title_h + 2.0 + detail_h;
     let height = column_h + 14.0;
-    rect(content, Rect::new(0.0, y, width, height), 12.0, theme.glass_surface(), None);
+    rect(content, Rect::new(0.0, y, width, height), ROW_RADIUS, theme.glass_surface(), None);
     let top = y + (height - column_h) / 2.0;
     rect(content, Rect::new(10.0, top, 4.0, column_h), 2.0, event.color.unwrap_or(theme.accent), None);
     let column_w = (width - 20.0 - 13.0).max(0.0);
@@ -443,9 +444,9 @@ pub fn content(model: &CalendarModel, hover: Option<&PanelTarget>, theme: &Theme
         let date = Date::new(model.month.year, model.month.month, day as u32);
         let selected = date == model.selected;
         if selected {
-            rect(&mut content, cell, 8.0, theme.accent, None);
+            rect(&mut content, cell, ROW_RADIUS, theme.accent, None);
         } else if date == model.today {
-            rect(&mut content, cell, 8.0, theme.surface, None);
+            rect(&mut content, cell, ROW_RADIUS, theme.surface, None);
         }
         let color = if selected { theme.background } else { theme.text };
         label(&mut content, Rect::new(cell.x, cell.y + 3.0, cell.w, number_h), day.to_string(), number_style, color, Align::Center);

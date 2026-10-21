@@ -3,9 +3,12 @@
 Der Compositor zeichnet die Shell selbst: Bar, Powermenü, Hinweise oben rechts, Launcher, Wallpaper-Picker,
 Sperrbildschirm, Anmeldebildschirm, Benachrichtigungen und Tray. Sie ist an, solange `builtin_shell = true` in der
 obersten Ebene der Config steht (Standard; gilt nach Neustart). Mit `builtin_shell = false` zeichnet der Compositor
-keine Shell, also auch keine Bar und keinen Sperrbildschirm; das ist nur für die nested Tests gedacht. Aussehen,
-Maße, Farben und Texte entsprechen der früheren Quickshell-Shell (`bar.qml`, `BarButton.qml`, `BarIsland.qml`,
-`Theme.qml`, `I18n.qml`), die es nicht mehr gibt.
+keine Shell, also auch keine Bar und keinen Sperrbildschirm; das ist nur für die nested Tests gedacht. Maße,
+Farben und Texte stammen von der früheren Quickshell-Shell (`bar.qml`, `BarButton.qml`, `BarIsland.qml`,
+`Theme.qml`, `I18n.qml`), die es nicht mehr gibt. Die Schrift ist die Systemschrift (die Familie, die fontconfig für
+„Sans Serif“ wählt, `fc-match`); Nerd-Font-Symbole in Texten setzt die Shell immer aus „JetBrainsMono Nerd Font
+Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in abgerundete Karten (Radien in
+`crates/mywm-ui/src/theme.rs`).
 
 ## Was sie schon kann
 
@@ -38,14 +41,15 @@ Maße, Farben und Texte entsprechen der früheren Quickshell-Shell (`bar.qml`, `
   Radioknöpfen, Symbolen (symbolische als Glyphen), unterstrichenem Kürzelbuchstaben und Untermenüs mit „←“ zurück;
   Escape nach einem Klick hinein oder ein Klick daneben schließt es. Overlay-Symbole zeichnet die Shell nicht ein,
   und ein Menü, das sich ändert, während es offen ist, zeigt die Änderung erst beim nächsten Öffnen.
-- **Panels** unter der Bar wie bei Quickshell (rechts für Audio, Commandcenter und Benachrichtigungen, mittig für
+- **Panels** unter der Bar (rechts für Audio, Commandcenter und Benachrichtigungen, mittig für
   Medien und Kalender), eins zur Zeit; ein Klick hinein gibt ihm die Tastatur (Escape schließt), ein Klick daneben
   schließt es, das Mausrad scrollt es, wenn der Monitor zu niedrig ist.
 - **Commandcenter**: Kacheln für Bluetooth und Nachtlicht, die lokalen IPv4-Adressen (alle fünf Sekunden über `ip`,
   solange das Panel offen ist; ein Klick kopiert eine mit `wl-copy`) und die Bluetooth-Geräte mit Akkustand zum
   Verbinden und Trennen; „Suchen“ findet neue, „Koppeln“ vertraut ihnen zuerst, damit sie sich später selbst verbinden.
   Das Nachtlicht hält `gammastep -O 4000` am Laufen, solange es an ist, und merkt sich die Wahl in
-  `$XDG_STATE_HOME/mywm/night-light`.
+  `$XDG_STATE_HOME/mywm/night-light`. Die letzte Zeile „Einstellungen“ startet `mywm-settings` (aus dem `PATH`) und
+  schließt das Panel.
 - **Audio-Panel**: Standardausgang und -mikrofon mit Regler (ziehen) und Prozentknopf (stumm), die übrigen hinter
   „Anderen Ausgang wählen“/„Anderes Mikrofon wählen“ (ein Klick macht sie zum Standard), dazu die Anwendungen, die
   spielen. WirePlumbers Smart-Filter (der NixOS-Mikrofonfilter) fehlen in der Liste, wie bei Quickshell.
@@ -56,8 +60,7 @@ Maße, Farben und Texte entsprechen der früheren Quickshell-Shell (`bar.qml`, `
   Die Termine liefert `mywm-calendar events <Monatserster> <8. des Folgemonats>` (khal), die Kalender
   `mywm-calendar calendars`, jeweils in einem eigenen Thread; jedes Öffnen beginnt wie bei Quickshell neu beim
   heutigen Tag. „+“ öffnet das Formular (Titel, Start, Ende, Ort, Kalender) für `mywm-calendar create`; Felder und
-  Kalenderauswahl sehen aus wie Qt Quicks Fusion-Steuerelemente, mit der Schrift, die fontconfig für „Sans Serif“
-  wählt (`fc-match`, wie Qt).
+  Kalenderauswahl sehen aus wie Qt Quicks Fusion-Steuerelemente (in Qts Standardgröße von 9 pt).
 - **Launcher** (Launcher-Binding, solange `launcher` in der Konfiguration nicht auf ein anderes Programm zeigt):
   Karte in der Mitte des Monitors unter dem Zeiger mit Suchfeld; jedes getippte Wort muss in Name, generischem
   Namen, Kommentar, Id oder Schlüsselwörtern vorkommen, Namen mit der Suche am Anfang stehen vorn. Pfeile und Tab
@@ -184,9 +187,9 @@ abgebrochener und abgelaufener Logout-Countdown, Konfigurationshinweis.
 `tests/shell_services_smoke.py`: mit eigenem PipeWire (Null-Sink), nachgebautem Player (`tests/fake_mpris.py`) und
 nachgebautem BlueZ (`tests/fake_bluez.py`): Mausrad und Rechtsklick auf der Lautstärke, Medientitel, Bluetooth,
 Neustart des Dienstprozesses nach `kill -9`.
-`tests/control_smoke.py`: nachgebautes BlueZ und Platzhalter für `gammastep`, `ip`, `wl-copy`, geklickt an denselben
-Stellen wie mywm-shells Test des Quickshell-Panels (das Layout ist also gleich): Bluetooth an, verbinden, suchen,
-koppeln, Adresse kopieren, Nachtlicht an und aus, gemerktes Nachtlicht beim nächsten Start.
+`tests/control_smoke.py`: nachgebautes BlueZ und Platzhalter für `gammastep`, `ip`, `wl-copy`, `mywm-settings`:
+Bluetooth an, verbinden, suchen, koppeln, Adresse kopieren, Nachtlicht an und aus, Einstellungen starten, gemerktes
+Nachtlicht beim nächsten Start.
 `tests/audio_smoke.py`: eigenes PipeWire mit zwei Ausgängen, Mikrofon, Smart-Filter und Anwendungsstrom: Regler
 ziehen, Stummschalten, anderen Ausgang wählen. Die PipeWire-Tests starten WirePlumber ohne Hardware-Monitore
 (`hermetic_wireplumber` in `tests/smoke_support.py`): sonst fände es die echten Geräte des Rechners, und ein Test,

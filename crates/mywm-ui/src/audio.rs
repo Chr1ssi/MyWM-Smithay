@@ -1,11 +1,13 @@
 //! The audio panel's content (`AudioPanel.qml`): the default output and microphone with their volume, the others
 //! behind a button to choose another, and the applications that play. A device's row (`AudioDeviceControl.qml`)
-//! has its name (choosing it, where it can be chosen), its level (which mutes it) and a slider (`VolumeSlider.qml`).
+//! has its name (choosing it, where it can be chosen), its level (which mutes it) and a slider (`VolumeSlider.qml`);
+//! each device sits in a card of its own.
 use crate::{
     Align, Measure, Node, Rect, Scene, TextStyle, Theme,
     bar::{BUTTON_HEIGHT, button_shape},
     i18n::Language,
     panel::{Content, PanelTarget},
+    theme::ROW_RADIUS,
 };
 
 /// An output, microphone or application stream.
@@ -39,11 +41,16 @@ pub enum AudioTarget {
     ToggleInputs,
 }
 
-const SECTION_SPACING: f32 = 14.0;
-const SPACING: f32 = 8.0;
+const SECTION_SPACING: f32 = 16.0;
+const SPACING: f32 = 6.0;
 const TEXT: TextStyle = TextStyle::new(14.0);
 const LEVEL_WIDTH: f32 = 78.0;
 const SLIDER_HEIGHT: f32 = 26.0;
+/// A device's card: its padding, and the height of the row with the name.
+const CARD_PADDING: f32 = 8.0;
+const NAME_HEIGHT: f32 = 32.0;
+/// Space left of a name.
+const NAME_INSET: f32 = 12.0;
 
 /// The volume a press at `x` on a slider at `rect` means (where the handle's middle would be).
 pub fn slider_value(rect: Rect, x: f32) -> f32 {
@@ -72,7 +79,7 @@ fn button(
     }
 }
 
-/// A device's row and slider at `y`; returns the height used.
+/// A device's card at `y`; returns its height.
 #[allow(clippy::too_many_arguments)]
 fn control(
     content: &mut Content,
@@ -85,26 +92,36 @@ fn control(
     hover: Option<&PanelTarget>,
     language: Language,
 ) -> f32 {
+    let height = 2.0 * CARD_PADDING + NAME_HEIGHT + if node.audio.is_some() { 4.0 + SLIDER_HEIGHT } else { 0.0 };
+    content.card(Rect::new(0.0, y, width, height), theme.glass_surface());
     let name = if selected { format!("✓ {}", node.label) } else { node.label.clone() };
-    let select = Rect::new(0.0, y, width - 84.0, BUTTON_HEIGHT);
-    button(content, theme, select, &name, selected, selectable, PanelTarget::Audio(AudioTarget::Select(node.id)), hover);
+    let level_rect = Rect::new(width - CARD_PADDING - LEVEL_WIDTH, y + CARD_PADDING + (NAME_HEIGHT - BUTTON_HEIGHT) / 2.0, LEVEL_WIDTH, BUTTON_HEIGHT);
+    let row = Rect::new(CARD_PADDING, y + CARD_PADDING, level_rect.x - 4.0 - CARD_PADDING, NAME_HEIGHT);
+    let select = PanelTarget::Audio(AudioTarget::Select(node.id));
+    if selectable {
+        if hover == Some(&select) {
+            content.push(Node::Rect { rect: row, radius: ROW_RADIUS, fill: theme.surface, border: None });
+        }
+        content.target(row, select);
+    }
+    let label = Rect::new(row.x + NAME_INSET, row.y, (row.w - NAME_INSET).max(0.0), row.h);
+    content.push(Node::Label { rect: label, text: name, style: TEXT.bold(selected), color: theme.text, align: Align::Left });
     let level = match node.audio {
         Some((_, true)) => language.tr("Stumm").to_owned(),
         Some((volume, false)) => format!("{} %", (volume * 100.0).round()),
         None => "…".to_owned(),
     };
-    let level_rect = Rect::new(width - LEVEL_WIDTH, y, LEVEL_WIDTH, BUTTON_HEIGHT);
     button(content, theme, level_rect, &level, false, node.audio.is_some(), PanelTarget::Audio(AudioTarget::Mute(node.id)), hover);
-    let Some((volume, _)) = node.audio else { return BUTTON_HEIGHT };
-    let slider = Rect::new(0.0, y + BUTTON_HEIGHT + 4.0, width, SLIDER_HEIGHT);
+    let Some((volume, _)) = node.audio else { return height };
+    let slider = Rect::new(NAME_INSET, row.bottom() + 4.0, width - 2.0 * NAME_INSET, SLIDER_HEIGHT);
     let position = volume.clamp(0.0, 1.0);
-    let track = Rect::new(0.0, slider.y + (SLIDER_HEIGHT - 6.0) / 2.0, width, 6.0);
+    let track = Rect::new(slider.x, slider.y + (SLIDER_HEIGHT - 6.0) / 2.0, slider.w, 6.0);
     content.push(Node::Rect { rect: track, radius: 3.0, fill: theme.surface, border: None });
-    content.push(Node::Rect { rect: Rect::new(0.0, track.y, position * width, 6.0), radius: 3.0, fill: theme.accent, border: None });
-    let handle = Rect::new(position * (width - 14.0), slider.y + (SLIDER_HEIGHT - 14.0) / 2.0, 14.0, 14.0);
+    content.push(Node::Rect { rect: Rect::new(slider.x, track.y, position * slider.w, 6.0), radius: 3.0, fill: theme.accent, border: None });
+    let handle = Rect::new(slider.x + position * (slider.w - 14.0), slider.y + (SLIDER_HEIGHT - 14.0) / 2.0, 14.0, 14.0);
     content.push(Node::Rect { rect: handle, radius: 7.0, fill: theme.accent, border: None });
     content.target(slider, PanelTarget::Audio(AudioTarget::Slider(node.id)));
-    BUTTON_HEIGHT + 4.0 + SLIDER_HEIGHT
+    height
 }
 
 fn text(content: &mut Content, measure: &mut impl Measure, y: f32, width: f32, text: &str, style: TextStyle, color: crate::Color) -> f32 {
@@ -122,7 +139,7 @@ pub fn content(model: &AudioModel, hover: Option<&PanelTarget>, theme: &Theme, m
         (tr("Mikrofon"), tr("Kein Eingabegerät"), &model.inputs, model.default_input, model.inputs_expanded, AudioTarget::ToggleInputs, (tr("Anderes Mikrofon wählen"), tr("Andere Eingänge ausblenden"))),
     ];
     for (title, none, nodes, current, expanded, toggle, (choose, hide)) in devices {
-        y += text(&mut content, measure, y, width, title, TextStyle::new(15.0), theme.accent) + SPACING;
+        y += content.heading(theme, measure, y, width, title) + SPACING;
         let current = current.and_then(|id| nodes.iter().find(|n| n.id == id));
         match current {
             None => y += text(&mut content, measure, y, width, none, TEXT, theme.muted) + SPACING,
@@ -142,7 +159,7 @@ pub fn content(model: &AudioModel, hover: Option<&PanelTarget>, theme: &Theme, m
         // The column's last spacing gives way to the space between sections.
         y += SECTION_SPACING - SPACING;
     }
-    y += text(&mut content, measure, y, width, tr("Anwendungen"), TextStyle::new(15.0), theme.accent) + SPACING;
+    y += content.heading(theme, measure, y, width, tr("Anwendungen")) + SPACING;
     if model.applications.is_empty() {
         y += text(&mut content, measure, y, width, tr("Keine aktiven Anwendungen"), TEXT, theme.muted) + SPACING;
     }
@@ -209,12 +226,13 @@ mod tests {
         let model = AudioModel { outputs: vec![node(1, "A")], default_output: Some(1), ..AudioModel::default() };
         let content = content_of(model);
         let select = content.targets.iter().find(|(_, t)| *t == PanelTarget::Audio(AudioTarget::Mute(1))).unwrap().0;
-        assert_eq!(select, Rect::new(360.0 - 78.0, 20.0 + 8.0, 78.0, 26.0));
+        // Below the heading (18 high, 6 apart), inside the device's card.
+        assert_eq!(select, Rect::new(360.0 - 8.0 - 78.0, 24.0 + 8.0 + 3.0, 78.0, 26.0));
         let slider = content.targets.iter().find(|(_, t)| *t == PanelTarget::Audio(AudioTarget::Slider(1))).unwrap().0;
-        assert_eq!(slider, Rect::new(0.0, 28.0 + 26.0 + 4.0, 360.0, 26.0));
+        assert_eq!(slider, Rect::new(12.0, 24.0 + 8.0 + 32.0 + 4.0, 336.0, 26.0));
         assert_eq!(slider_value(slider, 7.0), 0.0);
-        assert_eq!(slider_value(slider, 360.0 - 7.0), 1.0);
-        assert_eq!(slider_value(slider, 180.0), 0.5);
+        assert_eq!(slider_value(slider, slider.right() - 7.0), 1.0);
+        assert_eq!(slider_value(slider, slider.x + slider.w / 2.0), 0.5);
     }
 
     #[test]

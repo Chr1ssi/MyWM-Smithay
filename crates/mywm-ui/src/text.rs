@@ -1,8 +1,9 @@
 //! Text with the system's fonts: measuring (for laying out scenes) and drawing glyphs into a pixmap.
 //!
-//! Lines are as high as the font's ascent plus descent, rounded up, which is a QML `Text`'s implicit
-//! height (19 pixels for 14 pixel JetBrains Mono); one-line texts sit in the middle of their box like
-//! `verticalAlignment: Text.AlignVCenter`.
+//! Text is set in the system's sans-serif font (what fontconfig answers for "Sans Serif"); the Nerd Font symbols
+//! inside it, which are private-use characters, always come from the icon font, so a label like "󰕾 80 %" mixes
+//! both. Lines are as high as the font's ascent plus descent, rounded up, which is a QML `Text`'s implicit height;
+//! one-line texts sit in the middle of their box like `verticalAlignment: Text.AlignVCenter`.
 use std::collections::HashMap;
 
 use cosmic_text::{
@@ -18,7 +19,7 @@ const ELLIPSIS: &str = "…";
 pub struct Fonts {
     system: FontSystem,
     cache: SwashCache,
-    /// The family fontconfig gives Qt's default font, for Qt's controls; `None`: the generic sans-serif family.
+    /// The family fontconfig gives "Sans Serif", the system's font; `None`: the generic sans-serif family.
     sans: Option<String>,
     /// Ascent and descent per font, in pixels at its size.
     metrics: HashMap<StyleKey, (f32, f32)>,
@@ -30,12 +31,11 @@ struct StyleKey {
     bold: bool,
     light: bool,
     icons: bool,
-    controls: bool,
 }
 
 impl From<TextStyle> for StyleKey {
     fn from(style: TextStyle) -> Self {
-        Self { size_bits: style.size.to_bits(), bold: style.bold, light: style.light, icons: style.icons, controls: style.controls }
+        Self { size_bits: style.size.to_bits(), bold: style.bold, light: style.light, icons: style.icons }
     }
 }
 
@@ -54,12 +54,28 @@ enum Lines {
 /// Physical pixels outside of which nothing is drawn: left, top, right, bottom.
 pub type Clip = (i32, i32, i32, i32);
 
+/// Nerd Font symbols live in the private-use areas; no text font has them.
+fn is_symbol(c: char) -> bool {
+    matches!(c, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{FFFFD}' | '\u{100000}'..='\u{10FFFD}')
+}
+
+/// `text` cut into runs of symbols and runs of everything else, each with whether it is symbols.
+fn runs(text: &str) -> impl Iterator<Item = (&str, bool)> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        let symbol = is_symbol(rest.chars().next()?);
+        let end = rest.find(|c| is_symbol(c) != symbol).unwrap_or(rest.len());
+        let (run, tail) = rest.split_at(end);
+        rest = tail;
+        Some((run, symbol))
+    })
+}
+
 fn attrs(style: TextStyle, sans: Option<&str>) -> Attrs<'_> {
-    let family = match (style.controls, sans) {
-        (true, Some(sans)) => Family::Name(sans),
-        (true, None) => Family::SansSerif,
-        (false, _) if style.icons => Family::Name(theme::ICON_FONT_FAMILY),
-        (false, _) => Family::Name(theme::FONT_FAMILY),
+    let family = match sans {
+        _ if style.icons => Family::Name(theme::ICON_FONT_FAMILY),
+        Some(sans) => Family::Name(sans),
+        None => Family::SansSerif,
     };
     let weight = match (style.bold, style.light) {
         (true, _) => Weight::BOLD,
@@ -69,13 +85,13 @@ fn attrs(style: TextStyle, sans: Option<&str>) -> Attrs<'_> {
     Attrs::new().family(family).weight(weight)
 }
 
-fn span_attrs<'a>(style: TextStyle, span: &Span, sans: Option<&'a str>) -> Attrs<'a> {
-    let attrs = attrs(TextStyle { bold: style.bold || span.bold, ..style }, sans);
+fn span_attrs<'a>(style: TextStyle, span: &Span, symbols: bool, sans: Option<&'a str>) -> Attrs<'a> {
+    let attrs = attrs(TextStyle { bold: style.bold || span.bold, icons: style.icons || symbols, ..style }, sans);
     let attrs = if span.italic { attrs.style(Style::Italic) } else { attrs };
     if span.underline { attrs.underline(UnderlineStyle::Single) } else { attrs }
 }
 
-/// The family fontconfig matches for "Sans Serif", which Qt asks for its default font. fontdb's own reading of
+/// The family fontconfig matches for "Sans Serif", the system's font. fontdb's own reading of
 /// fontconfig's configuration keeps the family the last alias prefers, not the one fontconfig chooses (FreeSans
 /// instead of DejaVu Sans on NixOS).
 fn sans_family() -> Option<String> {
@@ -83,11 +99,11 @@ fn sans_family() -> Option<String> {
     match output {
         Ok(output) if output.status.success() => Some(String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|f| !f.is_empty()),
         Ok(output) => {
-            tracing::warn!("Qt's controls get the generic sans-serif font: fc-match failed ({})", output.status);
+            tracing::warn!("text gets the generic sans-serif font: fc-match failed ({})", output.status);
             None
         }
         Err(error) => {
-            tracing::warn!("Qt's controls get the generic sans-serif font: cannot run fc-match: {error}");
+            tracing::warn!("text gets the generic sans-serif font: cannot run fc-match: {error}");
             None
         }
     }
@@ -163,7 +179,8 @@ impl Fonts {
         let sans = self.sans.as_deref();
         let base = attrs(style, sans);
         let align = matches!(lines, Lines::Centered(_)).then_some(cosmic_text::Align::Center);
-        buffer.set_rich_text(spans.iter().map(|span| (span.text.as_str(), span_attrs(style, span, sans))), &base, Shaping::Advanced, align);
+        let runs = spans.iter().flat_map(|span| runs(&span.text).map(move |(text, symbols)| (text, span_attrs(style, span, symbols, sans))));
+        buffer.set_rich_text(runs, &base, Shaping::Advanced, align);
         buffer.shape_until_scroll(&mut self.system, false);
         buffer
     }

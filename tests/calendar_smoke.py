@@ -22,8 +22,9 @@ TITLE_FIELD = (CONTENT_X + 100, 472)
 CHOICE = (CONTENT_X + 100, 568)
 SECOND_CALENDAR = (CONTENT_X + 100, 596)
 CREATE = (CONTENT_X + 180, 601)
-# On a day without events, its card's place is a line of text: 35 higher.
-OPEN_APP = (CONTENT_X + 180, 728 - 35)
+# On a day without events (the first of the month, after paging back), the card of an event is only a line of text,
+# so the button is 33 higher than on a day with one (DejaVu Sans, as in the nested session).
+OPEN_APP = (CONTENT_X + 180, 676)
 
 today = datetime.date.today()
 later = today + datetime.timedelta(days=3)

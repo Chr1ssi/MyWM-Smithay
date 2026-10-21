@@ -1,7 +1,7 @@
 """The built-in shell's command center against a stand-in for BlueZ (tests/fake_bluez.py on a private system bus) and
-stand-ins for gammastep, ip and wl-copy, clicked at the same places as mywm-shell's own test of the Quickshell panel
-(so the layout is the same): Bluetooth on, connect, search, pair (trusted first), copy the address, the night light on
-and off and remembered, and a saved night light starts with the session.
+stand-ins for gammastep, ip, wl-copy and mywm-settings: Bluetooth on, connect, search, pair (trusted first), copy the address, the
+night light on and off and remembered, the settings app started from the panel, and a saved night light starts with
+the session.
 
 Needs dbus-daemon, python3 with dbus and gi, and `cargo build --workspace`. Run from the repository root with $DISPLAY set:
     PYTHONPATH=tests python3 tests/control_smoke.py
@@ -19,13 +19,15 @@ except ImportError:
     print("SKIP: python3 without dbus and gi")
     sys.exit(0)
 
-# Where mywm-shell's test clicks the Quickshell panel on 1280x800.
+# Where the panel's targets are on 1280x800 (each lies well inside its row or tile, so a line a pixel higher or
+# lower in another font does not matter).
 BLUETOOTH_TILE = (986, 143)
 NIGHT_TILE = (1171, 143)
 ADDRESS_ROW = (1072, 241)
 SEARCH_BUTTON = (1210, 290)
 FIRST_DEVICE_BUTTON = (1200, 340)
 SECOND_DEVICE_BUTTON = (1200, 400)
+SETTINGS_ROW = (1072, 471)  # below the two devices
 CONTROL_BUTTON = (1138, 22)  # the gear, left of the bell (the volume shows "—" here)
 
 work = tempfile.mkdtemp()
@@ -45,6 +47,7 @@ def stub(name, script):
 stub("gammastep", f'echo "gammastep $*" >> {record}\ntrap \'echo "gammastep stopped" >> {record}; exit 0\' TERM\nwhile true; do sleep 0.1; done\n')
 stub("ip", 'echo "2: eno1    inet 192.168.1.23/24 brd 192.168.1.255 scope global eno1"\n')
 stub("wl-copy", f'echo "copy $*" >> {record}\n')
+stub("mywm-settings", f'echo settings >> {record}\n')
 
 os.makedirs(f"{work}/system")
 system_command, system_address = private_bus(f"{work}/system")
@@ -113,6 +116,10 @@ try:
     click(*NIGHT_TILE)
     assert wait(lambda: "gammastep stopped" in recorded()), recorded()
     assert open(f"{state}/mywm/night-light").read().strip() == "0"
+    # The settings row starts the settings app.
+    click(*SETTINGS_ROW)
+    assert wait(lambda: "settings" in recorded()), recorded()
+    print("settings OK")
     # Saved as on, a new session starts it at once.
     with open(f"{state}/mywm/night-light", "w") as f:
         f.write("1\n")

@@ -1,8 +1,8 @@
 //! The media panel's content (`MediaPanel.qml`): every MPRIS player with its cover, title, artist and the buttons
-//! for the previous track, play/pause and the next track; a button the player does not allow is disabled.
+//! for the previous track, play/pause and the next track; a button the player does not allow is disabled. Each
+//! player sits in a card.
 use crate::{
-    Align, Measure, Node, Rect, Scene, TextStyle, Theme,
-    bar::{BUTTON_HEIGHT, button_shape},
+    Align, Measure, Node, Rect, TextStyle, Theme,
     i18n::Language,
     panel::{Content, PanelTarget},
     scene::Picture,
@@ -29,10 +29,14 @@ pub enum MediaTarget {
     Next(usize),
 }
 
-const PLAYER_SPACING: f32 = 14.0;
+const PLAYER_SPACING: f32 = 10.0;
+const PADDING: f32 = 14.0;
 const SPACING: f32 = 8.0;
-const BUTTON_SPACING: f32 = 16.0;
-const BUTTON_TEXT: TextStyle = TextStyle::new(14.0);
+const COVER_HEIGHT: f32 = 150.0;
+const SIDE_BUTTON: f32 = 38.0;
+const PLAY_BUTTON: f32 = 46.0;
+const BUTTON_SPACING: f32 = 14.0;
+const ICON: TextStyle = TextStyle::new(18.0).icons(true);
 
 pub fn content(players: &[PlayerView], hover: Option<&PanelTarget>, theme: &Theme, measure: &mut impl Measure, width: f32, language: Language) -> Content {
     let mut content = Content::default();
@@ -43,45 +47,59 @@ pub fn content(players: &[PlayerView], hover: Option<&PanelTarget>, theme: &Them
         content.height = rect.h;
         return content;
     }
+    let inner = width - 2.0 * PADDING;
+    let (title_style, artist_style) = (TextStyle::new(16.0).bold(true), TextStyle::new(13.0));
+    let (title_h, artist_h) = (measure.line_height(title_style), measure.line_height(artist_style));
+    let cover = |player: &PlayerView| if player.art.is_some() { COVER_HEIGHT + SPACING } else { 0.0 };
     let mut y = 0.0;
     for (index, player) in players.iter().enumerate() {
         if index > 0 {
             y += PLAYER_SPACING;
         }
+        let height = PADDING + cover(player) + title_h + 2.0 + artist_h + SPACING + PLAY_BUTTON + PADDING;
+        content.card(Rect::new(0.0, y, width, height), theme.glass_surface());
+        let mut top = y + PADDING;
         if let Some(art) = &player.art {
-            content.push(Node::Image { rect: Rect::new(0.0, y, width, 150.0), picture: art.clone() });
-            y += 150.0 + SPACING;
+            content.push(Node::Image { rect: Rect::new(PADDING, top, inner, COVER_HEIGHT), picture: art.clone() });
+            top += COVER_HEIGHT + SPACING;
         }
         let fallback = |text: &str| if text.is_empty() { player.identity.clone() } else { text.to_owned() };
-        for (text, size, color) in [(fallback(&player.title), 17.0, theme.text), (fallback(&player.artist), 14.0, theme.muted)] {
-            let style = TextStyle::new(size);
-            let rect = Rect::new(0.0, y, width, measure.line_height(style));
-            content.push(Node::Label { rect, text, style, color, align: Align::Left });
-            y += rect.h + SPACING;
-        }
+        content.push(Node::Label { rect: Rect::new(PADDING, top, inner, title_h), text: fallback(&player.title), style: title_style, color: theme.text, align: Align::Left });
+        top += title_h + 2.0;
+        content.push(Node::Label { rect: Rect::new(PADDING, top, inner, artist_h), text: fallback(&player.artist), style: artist_style, color: theme.muted, align: Align::Left });
+        top += artist_h + SPACING;
         let toggle = if player.playing { "󰏤" } else { "󰐊" };
         let buttons = [
-            ("󰒮", player.can_previous, MediaTarget::Previous(index)),
-            (toggle, player.can_toggle, MediaTarget::Toggle(index)),
-            ("󰒭", player.can_next, MediaTarget::Next(index)),
+            ("󰒮", player.can_previous, MediaTarget::Previous(index), SIDE_BUTTON),
+            (toggle, player.can_toggle, MediaTarget::Toggle(index), PLAY_BUTTON),
+            ("󰒭", player.can_next, MediaTarget::Next(index), SIDE_BUTTON),
         ];
-        let widths: Vec<f32> = buttons.iter().map(|(text, _, _)| measure.width(text, BUTTON_TEXT).ceil() + 16.0).collect();
-        let row = widths.iter().sum::<f32>() + BUTTON_SPACING * (buttons.len() - 1) as f32;
+        let row = buttons.iter().map(|b| b.3).sum::<f32>() + BUTTON_SPACING * (buttons.len() - 1) as f32;
         let mut x = (width - row) / 2.0;
-        for ((text, enabled, target), button_width) in buttons.into_iter().zip(widths) {
-            let rect = Rect::new(x, y, button_width, BUTTON_HEIGHT);
+        for (glyph, enabled, target, size) in buttons {
+            let rect = Rect::new(x, top + (PLAY_BUTTON - size) / 2.0, size, size);
             let panel_target = PanelTarget::Media(target);
             let hovered = enabled && hover == Some(&panel_target);
-            let mut button: Scene<()> = Scene::new(width, 0.0);
-            button_shape(&mut button, theme, rect, text, false, false, false, hovered);
+            let main = matches!(target, MediaTarget::Toggle(_));
+            let (fill, color) = match (main, hovered) {
+                (true, false) => (Some(theme.accent), theme.background),
+                (true, true) => (Some(theme.text), theme.background),
+                (false, true) => (Some(theme.surface), theme.text),
+                (false, false) => (None, theme.text),
+            };
+            let mut nodes = Vec::new();
+            if let Some(fill) = fill {
+                nodes.push(Node::Rect { rect, radius: size / 2.0, fill, border: None });
+            }
+            nodes.push(Node::Label { rect, text: glyph.into(), style: ICON, color, align: Align::Center });
             let fade = if enabled { 1.0 } else { 0.45 };
-            content.nodes.extend(button.nodes.into_iter().map(|node| node.faded(fade)));
+            content.nodes.extend(nodes.into_iter().map(|node| node.faded(fade)));
             if enabled {
                 content.target(rect, panel_target);
             }
-            x += button_width + BUTTON_SPACING;
+            x += size + BUTTON_SPACING;
         }
-        y += BUTTON_HEIGHT;
+        y += height;
     }
     content.height = y;
     content
@@ -122,8 +140,8 @@ mod tests {
         assert_eq!(texts, ["Lied", "Firefox", "󰒮", "󰏤", "󰒭"]);
         let targets: Vec<_> = content.targets.iter().map(|(_, t)| *t).collect();
         assert_eq!(targets, [PanelTarget::Media(MediaTarget::Toggle(0)), PanelTarget::Media(MediaTarget::Next(0))]);
-        // Cover, title, artist and buttons, 8 apart.
-        assert_eq!(content.height, 150.0 + 8.0 + 23.0 + 8.0 + 19.0 + 8.0 + 26.0);
+        // Padding, cover, title and artist (2 apart), the buttons (8 below) and padding again.
+        assert_eq!(content.height, 14.0 + 150.0 + 8.0 + 22.0 + 2.0 + 18.0 + 8.0 + 46.0 + 14.0);
         // The buttons are centered: the first starts as far from the left as the last ends from the right.
         let toggle = content.targets[0].0;
         assert!((toggle.x + toggle.w / 2.0 - 180.0).abs() < 0.01);

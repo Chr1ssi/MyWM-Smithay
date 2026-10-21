@@ -2,7 +2,7 @@
 //! edge for audio, command center and notifications, in the middle for media and calendar, with a title and
 //! the panel's content in an area that scrolls when the monitor is too low for it.
 use crate::{
-    Align, Measure, Node, Rect, Scene, TextStyle, Theme,
+    Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme,
     audio::{self, AudioModel, AudioTarget},
     bar::Panel,
     calendar::{self, CalendarModel, CalendarTarget},
@@ -10,7 +10,7 @@ use crate::{
     i18n::Language,
     media::{self, MediaTarget, PlayerView},
     notifications::{self, CardTarget, NotificationView},
-    theme::{BAR_HEIGHT, PANEL_RADIUS},
+    theme::{BAR_HEIGHT, CARD_RADIUS, PANEL_RADIUS},
 };
 
 /// Distance from the top of the monitor (below the bar), and of right-hand panels from its right edge.
@@ -19,6 +19,8 @@ pub const RIGHT: f32 = 8.0;
 pub const MARGIN: f32 = 20.0;
 /// How far the wheel moves a list per notch.
 pub const SCROLL_STEP: f32 = 60.0;
+/// Section titles inside a panel: small, bold and quiet, so the content stands out.
+pub const HEADING: TextStyle = TextStyle::new(13.0).bold(true);
 
 /// What a click in a panel means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,6 +57,18 @@ impl Content {
     /// The nodes of a scene built for this content (helpers that draw into a `Scene`).
     pub fn extend<T>(&mut self, scene: Scene<T>) {
         self.nodes.extend(scene.nodes);
+    }
+
+    /// A rounded card behind a group of rows.
+    pub fn card(&mut self, rect: Rect, fill: Color) {
+        self.push(Node::Rect { rect, radius: CARD_RADIUS, fill, border: None });
+    }
+
+    /// A section title on one line at `y`, `width` wide; returns its height.
+    pub fn heading(&mut self, theme: &Theme, measure: &mut impl Measure, y: f32, width: f32, text: &str) -> f32 {
+        let height = measure.line_height(HEADING);
+        self.push(Node::Label { rect: Rect::new(0.0, y, width, height), text: text.to_owned(), style: HEADING, color: theme.muted, align: Align::Left });
+        height
     }
 }
 
@@ -123,7 +137,7 @@ pub fn scene(model: &PanelModel, theme: &Theme, measure: &mut impl Measure) -> P
         ContentModel::Control(control) => (control::content(control, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
         ContentModel::Calendar(calendar) => (calendar::content(calendar, model.hover.as_ref(), theme, measure, inner, model.language), 0.0),
     };
-    let title_style = TextStyle::new(20.0);
+    let title_style = TextStyle::new(19.0).bold(true);
     let title_height = measure.line_height(title_style);
     let height = (content.height + 82.0).max(150.0).min(model.output.1 - BAR_HEIGHT - 18.0);
     let mut scene = Scene::new(width, height);

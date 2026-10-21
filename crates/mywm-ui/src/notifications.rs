@@ -7,6 +7,7 @@ use crate::{
     markup::Span,
     panel::{Content, PanelTarget},
     scene::Picture,
+    theme::CARD_RADIUS,
 };
 
 /// A notification as the cards show it.
@@ -118,8 +119,9 @@ pub fn card(view: &NotificationView, theme: &Theme, measure: &mut impl Measure, 
         nodes.insert(0, Node::Image { rect: Rect::new(PADDING, PADDING, IMAGE, IMAGE), picture: picture.clone() });
     }
     let fill = if compact { theme.glass() } else { theme.glass_surface() };
-    let border = if view.critical { (2.0, theme.accent) } else { (1.0, theme.glass_border()) };
-    nodes.insert(0, Node::Rect { rect: Rect::new(0.0, 0.0, width, height), radius: 18.0, fill, border: Some(border) });
+    // A card in the center sits on the panel's glass; a toast floats, so it needs an edge.
+    let border = if view.critical { Some((2.0, theme.accent)) } else { compact.then(|| (1.0, theme.glass_border())) };
+    nodes.insert(0, Node::Rect { rect: Rect::new(0.0, 0.0, width, height), radius: CARD_RADIUS, fill, border });
     targets.insert(0, (Rect::new(0.0, 0.0, width, height), CardTarget::Card(id)));
     Card { height, nodes, targets }
 }
@@ -141,13 +143,13 @@ pub fn center(
     let count = items.len();
     let mut content = Content::default();
 
-    let heading_style = TextStyle::new(15.0);
+    let heading_style = crate::panel::HEADING;
     let heading = if count == 1 { tr("1 Benachrichtigung").to_owned() } else { language.trf("%1 Benachrichtigungen", &[&count.to_string()]) };
     let clear_text = tr("Alle löschen");
     let clear_width = measure.width(clear_text, TEXT).ceil() + 16.0;
     let heading_height = measure.line_height(heading_style).max(BUTTON_HEIGHT);
-    let heading_rect = Rect::new(0.0, 0.0, width - clear_width - 8.0, measure.line_height(heading_style));
-    content.push(Node::Label { rect: heading_rect, text: heading, style: heading_style, color: theme.text, align: Align::Left });
+    let heading_rect = Rect::new(0.0, (heading_height - measure.line_height(heading_style)) / 2.0, width - clear_width - 8.0, measure.line_height(heading_style));
+    content.push(Node::Label { rect: heading_rect, text: heading, style: heading_style, color: theme.muted, align: Align::Left });
     let clear = Rect::new(width - clear_width, 0.0, clear_width, BUTTON_HEIGHT);
     let mut button: Scene<()> = Scene::new(width, 0.0);
     button_shape(&mut button, theme, clear, clear_text, false, false, false, count > 0 && hover == Some(&PanelTarget::ClearAll));

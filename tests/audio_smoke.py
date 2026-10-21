@@ -16,10 +16,13 @@ for tool in ("dbus-daemon", "pipewire", "wireplumber", "pw-cli", "wpctl", "grim"
 
 AUDIO_BUTTON = (1200, 22)
 PANEL_X = 1280 - 8 - 400 + 20  # the panel's content
-CONTENT = 46 + 20 + 27 + 14
-ROW = CONTENT + 20 + 8  # the default output's row, below "Ausgabe"
-SLIDER = ROW + 26 + 4 + 13
-EXPAND = ROW + 26 + 4 + 26 + 8 + 13
+SLIDER_X = PANEL_X + 12  # the slider, inside the device's card; its track is 336 wide
+# Middles of the targets on 1280x800 with DejaVu Sans (the panel's title and headings set the heights): the default
+# output's level button, its slider, the button to show the other outputs and, once shown, the first of them.
+ROW = 149
+SLIDER = 182
+EXPAND = 222
+OTHER = 265
 
 work = tempfile.mkdtemp()
 os.makedirs(f"{work}/session")
@@ -95,20 +98,20 @@ try:
     mouse("mousemove", *map(str, AUDIO_BUTTON), "click", "1")
     time.sleep(1)
     # Drag the default output's slider from a quarter to three quarters.
-    quarter, three_quarters = PANEL_X + 7 + 0.25 * 346, PANEL_X + 7 + 0.75 * 346
+    quarter, three_quarters = SLIDER_X + 7 + 0.25 * 322, SLIDER_X + 7 + 0.75 * 322
     mouse("mousemove", str(int(quarter)), str(SLIDER), "mousedown", "1")
     assert wait(lambda: volume() and abs(volume()[0] - 0.25) < 0.02, 5), volume()
     mouse("mousemove", str(int(three_quarters)), str(SLIDER), "mouseup", "1")
     assert wait(lambda: volume() and abs(volume()[0] - 0.75) < 0.02, 5), volume()
     print("slider OK")
     # The level button mutes.
-    mouse("mousemove", str(PANEL_X + 360 - 39), str(ROW + 13), "click", "1")
+    mouse("mousemove", str(PANEL_X + 360 - 8 - 39), str(ROW), "click", "1")
     assert wait(lambda: volume() and volume()[1], 5), volume()
     print("mute OK")
     # Another output, chosen as the default; the list folds up again.
     mouse("mousemove", str(PANEL_X + 180), str(EXPAND), "click", "1")
     time.sleep(0.5)
-    mouse("mousemove", str(PANEL_X + 100), str(EXPAND + 13 + 8 + 13), "click", "1")
+    mouse("mousemove", str(PANEL_X + 100), str(OTHER), "click", "1")
     assert wait(lambda: default_sink() not in (None, first), 5), default_sink()
     print("default output chosen OK")
     assert comp.stop()

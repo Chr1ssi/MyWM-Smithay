@@ -84,9 +84,9 @@ impl Rect {
     }
 }
 
-/// Font of a text: pixel size, weight and family (`theme::FONT_FAMILY`; for icons that must not overhang their
-/// cell `theme::ICON_FONT_FAMILY`; for Qt Quick's own controls, which do not take the shell's font, the system's
-/// sans-serif font as fontconfig names it).
+/// Font of a text: pixel size, weight and family (the system's sans-serif font as fontconfig names it; Nerd Font
+/// symbols in it and whole texts of `icons` come from `theme::ICON_FONT_FAMILY`, whose symbols do not overhang
+/// their cell).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextStyle {
     pub size: f32,
@@ -94,12 +94,11 @@ pub struct TextStyle {
     /// `Font.Light` (the lock screen's clock).
     pub light: bool,
     pub icons: bool,
-    pub controls: bool,
 }
 
 impl TextStyle {
     pub const fn new(size: f32) -> Self {
-        Self { size, bold: false, light: false, icons: false, controls: false }
+        Self { size, bold: false, light: false, icons: false }
     }
 
     pub const fn bold(self, bold: bool) -> Self {
@@ -112,10 +111,6 @@ impl TextStyle {
 
     pub const fn icons(self, icons: bool) -> Self {
         Self { icons, ..self }
-    }
-
-    pub const fn controls(self, controls: bool) -> Self {
-        Self { controls, ..self }
     }
 }
 

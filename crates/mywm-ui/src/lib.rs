@@ -3,8 +3,9 @@
 //! pixels (`paint`, with the fonts of `text`), the theme, the texts in the system language (`i18n`) and the
 //! clock. The compositor fills the models, uploads the pixels and routes input to the scenes' targets.
 //!
-//! Sizes, colors and fonts are those of mywm-shell's Quickshell bar (`bar.qml`, `BarButton.qml`,
-//! `BarIsland.qml`, `Theme.qml`), so the built-in shell looks the same.
+//! Sizes and colors started as those of mywm-shell's Quickshell bar (`bar.qml`, `BarButton.qml`, `BarIsland.qml`,
+//! `Theme.qml`); the panels group their content in rounded cards (`theme` has the radii), and text is set in the
+//! system's sans-serif font.
 pub mod audio;
 pub mod bar;
 pub mod calendar;

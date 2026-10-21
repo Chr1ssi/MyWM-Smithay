@@ -25,15 +25,18 @@ pub struct Theme {
     pub border: Color,
 }
 
-pub const FONT_FAMILY: &str = "JetBrainsMono Nerd Font";
-/// Icons here get their real width; in `FONT_FAMILY` they overhang to the right of their cell.
+/// The Nerd Font symbols are set in this one: the monospaced variants let them overhang to the right of their cell.
 pub const ICON_FONT_FAMILY: &str = "JetBrainsMono Nerd Font Propo";
 pub const PANEL_PADDING: f32 = 16.0;
 /// The bar is transparent; its groups float in it as rounded islands.
 pub const BAR_HEIGHT: f32 = 40.0;
 pub const BAR_MARGIN: f32 = 6.0;
 pub const ISLAND_HEIGHT: f32 = 32.0;
-pub const PANEL_RADIUS: f32 = 20.0;
+pub const PANEL_RADIUS: f32 = 24.0;
+/// Cards inside panels: tiles, grouped lists, notifications.
+pub const CARD_RADIUS: f32 = 18.0;
+/// Rows and buttons inside cards (and their hover).
+pub const ROW_RADIUS: f32 = 14.0;
 pub const GLASS_OPACITY: f32 = 0.7;
 
 /// The image `theme_json` (the contents of `theme.json`) was generated from: the lock screen's background. Like

@@ -1,11 +1,12 @@
 //! The command center's content (`CommandCenter.qml`): tiles that switch Bluetooth and the night light, the local
-//! IPv4 addresses (a click copies one), and the Bluetooth devices to connect, disconnect or pair, with a search for
-//! new ones.
+//! IPv4 addresses (a click copies one), the Bluetooth devices to connect, disconnect or pair, with a search for
+//! new ones, and the way to the settings app.
 use crate::{
     Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme,
     bar::{BUTTON_HEIGHT, button_shape},
     i18n::Language,
     panel::{Content, PanelTarget},
+    theme::{CARD_RADIUS, ROW_RADIUS},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,11 +54,21 @@ pub enum ControlTarget {
     DeviceRow(usize),
     /// Its button: disconnect, connect or pair.
     Device(usize),
+    /// Open the settings app.
+    Settings,
 }
 
-const SECTION_SPACING: f32 = 14.0;
-const SPACING: f32 = 8.0;
+const SECTION_SPACING: f32 = 16.0;
+const SPACING: f32 = 6.0;
 const TEXT: TextStyle = TextStyle::new(14.0);
+const TILE_HEIGHT: f32 = 68.0;
+/// Rows sit inside their card, this far from its edges.
+const CARD_PADDING: f32 = 6.0;
+const ADDRESS_ROW: f32 = 38.0;
+const DEVICE_ROW: f32 = 54.0;
+const SETTINGS_ROW: f32 = 44.0;
+/// Space left of a row's text.
+const ROW_INSET: f32 = 12.0;
 
 /// What a device's second line says.
 fn device_status(device: &DeviceView, language: Language) -> String {
@@ -115,10 +126,10 @@ pub fn content(model: &ControlModel, hover: Option<&PanelTarget>, theme: &Theme,
     ];
     let tile_width = (width - 10.0) / 2.0;
     for (index, (icon, title, detail, active, available, target)) in tiles.into_iter().enumerate() {
-        let rect = Rect::new(index as f32 * (tile_width + 10.0), 0.0, tile_width, 72.0);
+        let rect = Rect::new(index as f32 * (tile_width + 10.0), 0.0, tile_width, TILE_HEIGHT);
         let fill = if active { theme.accent } else if hovered(target) && available { theme.surface } else { theme.glass_surface() };
-        let mut nodes = vec![Node::Rect { rect, radius: 22.0, fill, border: None }];
-        let (icon_style, title_style, detail_style) = (TextStyle::new(24.0).icons(true), TextStyle::new(15.0).bold(true), TextStyle::new(13.0));
+        let mut nodes = vec![Node::Rect { rect, radius: CARD_RADIUS, fill, border: None }];
+        let (icon_style, title_style, detail_style) = (TextStyle::new(24.0).icons(true), TextStyle::new(14.0).bold(true), TextStyle::new(12.0));
         let (icon_h, title_h, detail_h) = (measure.line_height(icon_style), measure.line_height(title_style), measure.line_height(detail_style));
         let column_h = title_h + 2.0 + detail_h;
         let row_h = icon_h.max(column_h);
@@ -129,52 +140,54 @@ pub fn content(model: &ControlModel, hover: Option<&PanelTarget>, theme: &Theme,
         nodes.push(Node::Label { rect: icon_rect, text: icon.into(), style: icon_style, color: on(theme.accent), align: Align::Left });
         let left = icon_rect.right() + 12.0;
         let column_top = top + (row_h - column_h) / 2.0;
-        let text_w = (rect.right() - left).max(0.0);
+        let text_w = (rect.right() - left - 8.0).max(0.0);
         nodes.push(Node::Label { rect: Rect::new(left, column_top, text_w, title_h), text: title.into(), style: title_style, color: on(theme.text), align: Align::Left });
         let detail_rect = Rect::new(left, column_top + title_h + 2.0, text_w, detail_h);
-        nodes.push(Node::Label { rect: detail_rect, text: detail, style: detail_style, color: on(theme.muted), align: Align::Left });
+        nodes.push(Node::Label { rect: detail_rect, text: detail, style: detail_style, color: if active { theme.background.faded(0.75) } else { theme.muted }, align: Align::Left });
         let fade = if available { 1.0 } else { 0.45 };
         content.nodes.extend(nodes.into_iter().map(|node| node.faded(fade)));
         if available {
             content.target(rect, PanelTarget::Control(target));
         }
     }
-    let mut y = 72.0 + SECTION_SPACING;
+    let mut y = TILE_HEIGHT + SECTION_SPACING;
 
-    // The network.
-    let header = TextStyle::new(15.0);
-    let header_h = measure.line_height(header);
-    label(&mut content, Rect::new(0.0, y, width, header_h), tr("Netzwerk").into(), header, theme.accent, Align::Left);
-    y += header_h + SPACING;
+    // The network: one card, a row per address.
+    y += content.heading(theme, measure, y, width, tr("Netzwerk")) + SPACING;
     if model.addresses.is_empty() {
         let height = measure.line_height(TEXT);
         label(&mut content, Rect::new(0.0, y, width, height), tr("Keine Verbindung").into(), TEXT, theme.muted, Align::Left);
-        y += height + SPACING;
-    }
-    for (index, (device, address)) in model.addresses.iter().enumerate() {
-        let rect = Rect::new(0.0, y, width, 40.0);
-        let target = ControlTarget::Address(index);
-        if hovered(target) {
-            content.push(Node::Rect { rect, radius: 14.0, fill: theme.surface, border: None });
+        y += height;
+    } else {
+        let card = Rect::new(0.0, y, width, 2.0 * CARD_PADDING + model.addresses.len() as f32 * ADDRESS_ROW);
+        content.card(card, theme.glass_surface());
+        for (index, (device, address)) in model.addresses.iter().enumerate() {
+            let rect = Rect::new(CARD_PADDING, y + CARD_PADDING + index as f32 * ADDRESS_ROW, width - 2.0 * CARD_PADDING, ADDRESS_ROW);
+            let target = ControlTarget::Address(index);
+            if hovered(target) {
+                content.push(Node::Rect { rect, radius: ROW_RADIUS, fill: theme.surface, border: None });
+            }
+            label(&mut content, Rect::new(rect.x + ROW_INSET, rect.y, rect.w / 2.0, rect.h), device.clone(), TEXT, theme.muted, Align::Left);
+            let shown = if model.copied.as_ref() == Some(address) { tr("Kopiert").to_owned() } else { address.clone() };
+            let shown_w = measure.width(&shown, TEXT).ceil();
+            let color = if model.copied.as_ref() == Some(address) { theme.accent } else { theme.text };
+            label(&mut content, Rect::new(rect.right() - ROW_INSET - shown_w, rect.y, shown_w, rect.h), shown, TEXT, color, Align::Left);
+            content.target(rect, PanelTarget::Control(target));
         }
-        label(&mut content, Rect::new(12.0, y, width / 2.0, 40.0), device.clone(), TEXT, theme.muted, Align::Left);
-        let shown = if model.copied.as_ref() == Some(address) { tr("Kopiert").to_owned() } else { address.clone() };
-        let shown_w = measure.width(&shown, TEXT).ceil();
-        label(&mut content, Rect::new(width - 12.0 - shown_w, y, shown_w, 40.0), shown, TEXT, theme.text, Align::Left);
-        content.target(rect, PanelTarget::Control(target));
-        y += 40.0 + SPACING;
+        y = card.bottom();
     }
-    y += SECTION_SPACING - SPACING;
+    y += SECTION_SPACING;
 
-    // The devices.
+    // The devices: the same, with the search beside the title.
     if let Some(adapter) = &model.adapter {
-        label(&mut content, Rect::new(0.0, y, width, BUTTON_HEIGHT), tr("Geräte").into(), header, theme.accent, Align::Left);
+        let heading_top = y + (BUTTON_HEIGHT - measure.line_height(crate::panel::HEADING)) / 2.0;
+        let heading_h = content.heading(theme, measure, heading_top, width, tr("Geräte"));
         if adapter.powered {
             let text = if adapter.discovering { format!("󰓛 {}", tr("Suche beenden")) } else { format!("󰍉 {}", tr("Suchen")) };
             let search_w = measure.width(&text, TEXT).ceil() + 16.0;
             button(&mut content, theme, Rect::new(width - search_w, y, search_w, BUTTON_HEIGHT), &text, true, PanelTarget::Control(ControlTarget::Search), hover);
         }
-        y += BUTTON_HEIGHT + SPACING;
+        y += BUTTON_HEIGHT.max(heading_h) + SPACING;
         let note = if !adapter.powered {
             Some(tr("Bluetooth ist aus"))
         } else if adapter.devices.is_empty() {
@@ -185,39 +198,59 @@ pub fn content(model: &ControlModel, hover: Option<&PanelTarget>, theme: &Theme,
         if let Some(note) = note {
             let height = measure.line_height(TEXT);
             label(&mut content, Rect::new(0.0, y, width, height), note.into(), TEXT, theme.muted, Align::Left);
-            y += height + SPACING;
+            y += height + SECTION_SPACING;
         }
-        for (index, device) in adapter.devices.iter().enumerate().filter(|_| adapter.powered) {
-            let rect = Rect::new(0.0, y, width, 52.0);
-            let row = ControlTarget::DeviceRow(index);
-            let action = ControlTarget::Device(index);
-            let fill = if device.connected {
-                Some(theme.surface)
-            } else if hovered(row) || hovered(action) {
-                Some(theme.glass_surface())
-            } else {
-                None
-            };
-            if let Some(fill) = fill {
-                content.push(Node::Rect { rect, radius: 16.0, fill, border: None });
+        let listed = if adapter.powered { adapter.devices.as_slice() } else { &[] };
+        if !listed.is_empty() {
+            let card = Rect::new(0.0, y, width, 2.0 * CARD_PADDING + listed.len() as f32 * DEVICE_ROW);
+            content.card(card, theme.glass_surface());
+            for (index, device) in listed.iter().enumerate() {
+                let rect = Rect::new(CARD_PADDING, y + CARD_PADDING + index as f32 * DEVICE_ROW, width - 2.0 * CARD_PADDING, DEVICE_ROW);
+                let row = ControlTarget::DeviceRow(index);
+                let action = ControlTarget::Device(index);
+                let fill = if hovered(row) || hovered(action) {
+                    Some(theme.surface)
+                } else if device.connected {
+                    Some(theme.accent.with_alpha(0.16))
+                } else {
+                    None
+                };
+                if let Some(fill) = fill {
+                    content.push(Node::Rect { rect, radius: ROW_RADIUS, fill, border: None });
+                }
+                content.target(rect, PanelTarget::Control(row));
+                let text = if device.connected { tr("Trennen") } else if device.paired { tr("Verbinden") } else { tr("Koppeln") };
+                let action_w = measure.width(text, TEXT).ceil() + 16.0;
+                let column_w = (rect.w - action_w - 2.0 * ROW_INSET).max(0.0);
+                let (name_style, status_style) = (TEXT.bold(device.connected), TextStyle::new(12.0));
+                let (name_h, status_h) = (measure.line_height(name_style), measure.line_height(status_style));
+                let top = rect.y + (rect.h - name_h - 2.0 - status_h) / 2.0;
+                label(&mut content, Rect::new(rect.x + ROW_INSET, top, column_w, name_h), device.name.clone(), name_style, theme.text, Align::Left);
+                let status = device_status(device, language);
+                label(&mut content, Rect::new(rect.x + ROW_INSET, top + name_h + 2.0, column_w, status_h), status, status_style, theme.muted, Align::Left);
+                let action_rect = Rect::new(rect.right() - ROW_INSET + 4.0 - action_w, rect.y + (rect.h - BUTTON_HEIGHT) / 2.0, action_w, BUTTON_HEIGHT);
+                button(&mut content, theme, action_rect, text, device.busy != Some(DeviceBusy::Pairing), PanelTarget::Control(action), hover);
             }
-            content.target(rect, PanelTarget::Control(row));
-            let text = if device.connected { tr("Trennen") } else if device.paired { tr("Verbinden") } else { tr("Koppeln") };
-            let action_w = measure.width(text, TEXT).ceil() + 16.0;
-            let column_w = (width - action_w - 36.0).max(0.0);
-            let (name_style, status_style) = (TEXT.bold(device.connected), TextStyle::new(12.0));
-            let (name_h, status_h) = (measure.line_height(name_style), measure.line_height(status_style));
-            let top = y + (52.0 - name_h - 2.0 - status_h) / 2.0;
-            label(&mut content, Rect::new(12.0, top, column_w, name_h), device.name.clone(), name_style, theme.text, Align::Left);
-            let status = device_status(device, language);
-            label(&mut content, Rect::new(12.0, top + name_h + 2.0, column_w, status_h), status, status_style, theme.muted, Align::Left);
-            let action_rect = Rect::new(width - 12.0 - action_w, y + (52.0 - BUTTON_HEIGHT) / 2.0, action_w, BUTTON_HEIGHT);
-            button(&mut content, theme, action_rect, text, device.busy != Some(DeviceBusy::Pairing), PanelTarget::Control(action), hover);
-            y += 52.0 + SPACING;
+            y = card.bottom() + SECTION_SPACING;
         }
-        y += SECTION_SPACING - SPACING;
     }
-    content.height = (y - SECTION_SPACING).max(0.0);
+
+    // The way to the settings app.
+    let card = Rect::new(0.0, y, width, 2.0 * CARD_PADDING + SETTINGS_ROW);
+    content.card(card, theme.glass_surface());
+    let rect = card.inset(CARD_PADDING);
+    if hovered(ControlTarget::Settings) {
+        content.push(Node::Rect { rect, radius: ROW_RADIUS, fill: theme.surface, border: None });
+    }
+    let icon_style = TextStyle::new(18.0).icons(true);
+    let icon = "󰒓";
+    let icon_w = measure.width(icon, icon_style).ceil();
+    label(&mut content, Rect::new(rect.x + ROW_INSET, rect.y, icon_w, rect.h), icon.into(), icon_style, theme.accent, Align::Left);
+    let text_x = rect.x + ROW_INSET + icon_w + 12.0;
+    label(&mut content, Rect::new(text_x, rect.y, (rect.right() - text_x - 36.0).max(0.0), rect.h), tr("Einstellungen").into(), TEXT, theme.text, Align::Left);
+    label(&mut content, Rect::new(rect.right() - ROW_INSET - 18.0, rect.y, 18.0, rect.h), "󰅂".into(), icon_style, theme.muted, Align::Center);
+    content.target(rect, PanelTarget::Control(ControlTarget::Settings));
+    content.height = card.bottom();
     content
 }
 
@@ -246,7 +279,7 @@ mod tests {
         assert!(texts.contains(&"Kein Adapter".into()) && texts.contains(&"Keine Verbindung".into()), "{texts:?}");
         assert!(!has(&content, ControlTarget::Bluetooth) && has(&content, ControlTarget::NightLight));
         assert!(!texts.contains(&"Geräte".into()));
-        assert_eq!(content.targets[0].0, Rect::new(175.0 + 10.0, 0.0, 175.0, 72.0));
+        assert_eq!(content.targets[0].0, Rect::new(175.0 + 10.0, 0.0, 175.0, TILE_HEIGHT));
     }
 
     #[test]
@@ -269,6 +302,18 @@ mod tests {
         }
         assert!(has(&content, ControlTarget::Device(0)) && !has(&content, ControlTarget::Device(1)), "pairing disables the button");
         assert!(has(&content, ControlTarget::Address(0)) && has(&content, ControlTarget::Search));
+    }
+
+    #[test]
+    fn the_way_to_the_settings_is_the_last_row_with_or_without_bluetooth() {
+        let with = ControlModel { adapter: Some(AdapterView { powered: true, discovering: false, devices: Vec::new() }), ..ControlModel::default() };
+        for model in [ControlModel::default(), with] {
+            let content = content(&model, None, &theme(), &mut Mono, 360.0, Language::English);
+            assert!(texts(&content).contains(&"Settings".into()));
+            let (rect, target) = content.targets.last().unwrap();
+            assert_eq!(*target, PanelTarget::Control(ControlTarget::Settings));
+            assert!(rect.bottom() < content.height && rect.w > 300.0, "{rect:?} in {}", content.height);
+        }
     }
 
     #[test]

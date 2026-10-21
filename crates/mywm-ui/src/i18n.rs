@@ -94,6 +94,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Commandcenter", "Command center"),
     ("Der Termin konnte nicht erstellt werden.", "The event could not be created."),
     ("Dieses Bild kann nicht geladen werden.", "This image cannot be loaded."),
+    ("Einstellungen", "Settings"),
     ("Ende (HH:MM)", "End (HH:MM)"),
     ("Esc zum Schließen", "Esc to close"),
     ("Falsches Passwort", "Wrong password"),

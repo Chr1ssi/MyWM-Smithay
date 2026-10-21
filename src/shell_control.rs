@@ -1,7 +1,7 @@
 //! The command center's own parts in the built-in shell: the night light (gammastep keeps the warm screen as long
 //! as it runs, the choice is kept across logins in `$XDG_STATE_HOME/mywm/night-light`), the local IPv4 addresses
 //! (asked of `ip` every five seconds while the command center is open, as the Quickshell panel did) and copying one
-//! of them, and what its clicks do.
+//! of them, what its clicks do, and the way to the settings app.
 use std::time::Duration;
 
 use mywm_shell_protocol::{Bluetooth, Command};
@@ -16,6 +16,8 @@ use smithay::reexports::calloop::{
 
 use crate::State;
 
+/// The settings editor (`mywm-settings`), found on `PATH` like the other helpers.
+const SETTINGS: &str = "mywm-settings";
 /// How long "Kopiert" stands instead of the address.
 const COPIED: Duration = Duration::from_millis(1500);
 const ADDRESSES_EVERY: Duration = Duration::from_secs(5);
@@ -228,6 +230,11 @@ impl State {
                 self.services_send(command);
             }
             ControlTarget::DeviceRow(_) => {}
+            ControlTarget::Settings => {
+                self.spawn_command(&[SETTINGS.to_owned()], false);
+                // The app's window takes the keyboard, which closes the panel anyway.
+                self.panel_close();
+            }
         }
     }
 

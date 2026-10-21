@@ -21,9 +21,13 @@ except ImportError:
 BACKGROUND = bytes.fromhex("1E1E2E")
 RED = bytes.fromhex("FF0000")
 PANEL = ((1280 - 400) // 2, 46)
-CONTENT = 46 + 20 + 27 + 14  # below the panel's title
-# The buttons' row: cover (150), title (23) and artist (19), 8 apart.
-BUTTONS = CONTENT + 150 + 8 + 23 + 8 + 19 + 8 + 13
+# On 1280x800 with DejaVu Sans, the panel's title being 23 px high: the player's card starts below it, and the cover
+# lies 14 inside the card (150 high, 332 wide: the card's width less twice its padding).
+CARD = 46 + 20 + 23 + 14
+COVER_MIDDLE = CARD + 14 + 75
+COVER_LEFT, COVER_RIGHT = PANEL[0] + 20 + 14 + 2, PANEL[0] + 400 - 20 - 14 - 3
+# The buttons' row, in the middle of the play button: the cover and the title (19) and artist (16) lines.
+BUTTONS = CARD + 14 + 150 + 8 + 19 + 2 + 16 + 8 + 23
 MEDIA_BUTTON = (520, 22)  # the bar's media button, left of the clock
 
 
@@ -76,8 +80,8 @@ try:
     assert wait(lambda: not empty(comp, 500, 12, 40, 20), 20), "no media button"
     click(*MEDIA_BUTTON)
     # The panel in the middle, with the cover across its width.
-    assert wait(lambda: region(comp, 640, CONTENT + 75, 1, 1) == RED, 10), region(comp, 640, CONTENT + 75, 1, 1).hex()
-    assert region(comp, PANEL[0] + 21, CONTENT + 75, 1, 1) == RED and region(comp, PANEL[0] + 378, CONTENT + 75, 1, 1) == RED
+    assert wait(lambda: region(comp, 640, COVER_MIDDLE, 1, 1) == RED, 10), region(comp, 640, COVER_MIDDLE, 1, 1).hex()
+    assert region(comp, COVER_LEFT, COVER_MIDDLE, 1, 1) == RED and region(comp, COVER_RIGHT, COVER_MIDDLE, 1, 1) == RED
     print("media panel with cover OK")
 
     # Play/pause in the middle of the row; paused, the bar's button goes.
@@ -96,7 +100,7 @@ try:
 
     # The media button closes the panel again.
     click(*MEDIA_BUTTON)
-    assert wait(lambda: region(comp, 640, CONTENT + 75, 1, 1) != RED, 5), "the panel did not close"
+    assert wait(lambda: region(comp, 640, COVER_MIDDLE, 1, 1) != RED, 5), "the panel did not close"
     assert comp.stop()
     print("OK")
 except BaseException:
