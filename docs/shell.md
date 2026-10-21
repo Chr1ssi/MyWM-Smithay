@@ -74,12 +74,24 @@ Quickshell-Bar, bis die eingebaute Shell alles kann.
   `$XDG_STATE_HOME/mywm/wallpaper.json`, das Wallpaper wechselt sofort, und das Farbschema erzeugt
   `--theme-from-wallpaper` im Hintergrund. Jedes Öffnen liest Ordner und Auswahl neu und vergisst beim Schließen
   alles, wie der Quickshell-Picker, der nur bei Bedarf lief.
+- **Sperrbildschirm** (Sperren-Binding, `--lock`, swayidle): Der Compositor sperrt selbst, statt `lock.qml`
+  zu starten. Kein Client zeigt sich dahinter, bekommt eine Taste (außer den Programm-Bindings mit
+  `allow_when_locked`), einen Klick oder das Mausrad, und Aufnahmen ganzer Monitore zeigen nur den
+  Sperrbildschirm. Ein anderer
+  Bildschirmsperrer wird abgewiesen (`finished`) und kann die Sperre weder übernehmen noch aufheben. Das Passwort
+  prüft PAM (Dienst `mywm-lock`, mit `$MYWM_PAM_DIR` aus einem anderen Verzeichnis) mit
+  `mywm-shell-services --authenticate`, einem eigenen Prozess je Versuch: Stirbt ein PAM-Modul, endet nur dieser
+  Versuch; hängt es, wartet der Sperrbildschirm wie `lock.qml`, bis es endet, und nimmt so lange keine Taste an.
+  Entsperrt wird nur bei sauberem Ende mit `success` für den laufenden Versuch. Wie bei `lock.qml`
+  heißt jedes andere Ergebnis außer „Zu viele Versuche“ „Falsches Passwort“ (Quickshell überschreibt seine
+  Fehlermeldung sofort damit). Bisher deckt er den Bildschirm nur mit der Hintergrundfarbe des Themes ab; Uhr,
+  Karte und Passwortfeld nach `LoginScreen.qml` folgen, bis dahin tippt man blind (Rücktaste, Enter).
 - **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
   Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
 
 ## Was noch fehlt
 
-Sperr- und Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
+Das Bild des Sperrbildschirms (siehe oben) und der Anmeldebildschirm. In den Panels führt Tab noch nicht von Knopf zu Knopf
 (bei Quickshell erreichte Tab jeden Knopf); im Kalenderformular wechselt Tab nur zwischen den vier Feldern. Die
 Textfelder (Kalenderformular, Suche des Launchers, Filter des Pickers) kennen Tippen, Löschen, Pfeile, Pos1/Ende, Klicks und gehaltene
 Tasten (mit `repeat_delay`/`repeat_rate` aus `[input]`), aber keine Auswahl und keine Zwischenablage, und der
@@ -142,7 +154,11 @@ wie bei Qt blau.
   Abdunklung und Rahmen. Auf der CPU kostete eine Kachel bei 2560×1440 um 14 ms, das Gleiten bräuchte das jeden
   Frame; so malt die CPU nur die Texte neu.
 
-Nächste Schritte: im Dienstprozess PAM und greetd (Sperr- und Anmeldebildschirm).
+- `src/shell_lock.rs` (Passwort, Prüfung, Bild), `own_lock`/`own_unlock` in `src/session.rs` (eigene
+  Sperrzustände neben denen von `ext-session-lock`), `crates/mywm-shell-services/src/pam.rs` (die Prüfung wie
+  Quickshells `PamContext`: nur `pam_authenticate`, jede Frage bekommt das Passwort).
+
+Nächste Schritte: Bild des Sperrbildschirms, dann greetd (Anmeldebildschirm).
 
 ## Test
 
@@ -172,6 +188,11 @@ Klick auf eine Zeile.
 ein kaputtes: Filter und Enter speichern, Wallpaper und Theme folgen; Start auf dem Bild in Gebrauch, das kaputte wird
 abgelehnt, keine Treffer, Escape, Klick daneben, Klick auf Nachbar und gewähltes, gehaltener Pfeil endet am letzten,
 Mausrad.
+`tests/lock_screen_smoke.py`: PAM mit eigenem Dienstverzeichnis (`pam_exec`, kein echtes Konto, wie mywm-shells
+Test von `lock.qml`): `--lock` bestätigt, Fenster und Ecken verdeckt (Aufnahme mit grim), Befehle abgewiesen; falsches
+Passwort, eine Prüfung, die mittendrin stirbt, und ein fremder Sperrer (`mywm-test-client lock`) entsperren nicht,
+das Fenster bekommt keine Taste; das richtige Passwort entsperrt. Ein Fenster unter dem ruhenden Zeiger verliert ihn
+beim Sperren.
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und
 `CloseNotification` mit den passenden D-Bus-Signalen, Zentrale über die Glocke mit „Alle löschen“, Escape und
 Klick daneben. Nested meldet winit Drücken und Loslassen einer X-Mausradtaste je als

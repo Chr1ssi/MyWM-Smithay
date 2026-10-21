@@ -12,6 +12,7 @@ mod bluetooth;
 mod icons;
 mod media;
 mod notifications;
+mod pam;
 mod tray;
 
 use std::{
@@ -42,11 +43,15 @@ pub enum Update {
 /// How long a source waits before it tries again after its service went away or never came.
 pub const RETRY: Duration = Duration::from_secs(3);
 
-fn main() {
+fn main() -> std::process::ExitCode {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
+    // The lock screen's password check, a process per attempt (see `pam`).
+    if std::env::args().nth(1).as_deref() == Some("--authenticate") {
+        return pam::run();
+    }
     let (updates, news) = mpsc::channel();
     for (name, run) in [("audio", audio::run as fn(mpsc::Sender<Update>)), ("media", media::run)] {
         let updates = updates.clone();
@@ -165,7 +170,7 @@ fn main() {
     });
     if let Err(error) = read {
         tracing::error!("cannot read commands: {error}");
-        return;
+        return std::process::ExitCode::FAILURE;
     }
 
     let mut status = Status::default();
@@ -176,11 +181,11 @@ fn main() {
         if sent.as_ref() != Some(&status) {
             if !write(&Event::Status(status.clone())) {
                 // The compositor is gone.
-                return;
+                return std::process::ExitCode::SUCCESS;
             }
             sent = Some(status.clone());
         }
-        let Ok(update) = news.recv() else { return };
+        let Ok(update) = news.recv() else { return std::process::ExitCode::SUCCESS };
         let event = match update {
             Update::Audio(graph) => {
                 status.nodes = graph.nodes;
@@ -201,7 +206,7 @@ fn main() {
             Update::AppIcon(name, image) => Event::AppIcon { name, image },
         };
         if !write(&event) {
-            return;
+            return std::process::ExitCode::SUCCESS;
         }
     }
 }

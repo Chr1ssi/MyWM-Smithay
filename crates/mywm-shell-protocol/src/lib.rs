@@ -370,9 +370,52 @@ mod base64 {
     }
 }
 
+/// How a password check of `mywm-shell-services --authenticate` ended: one word on its stdout. Only `Success`
+/// unlocks; the rest are what `PamContext` told lock.qml.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthOutcome {
+    Success,
+    /// PAM said the password is wrong.
+    Wrong,
+    MaxTries,
+    /// PAM did not start (`PamError.StartFailed`).
+    StartFailed,
+    /// PAM could not check (`PamError.TryAuthFailed`).
+    TryFailed,
+}
+
+impl AuthOutcome {
+    const ALL: [AuthOutcome; 5] = [Self::Success, Self::Wrong, Self::MaxTries, Self::StartFailed, Self::TryFailed];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Wrong => "wrong",
+            Self::MaxTries => "max-tries",
+            Self::StartFailed => "start-failed",
+            Self::TryFailed => "try-failed",
+        }
+    }
+
+    /// The helper's whole stdout: exactly one word and a newline, else nothing.
+    pub fn parse(output: &str) -> Option<Self> {
+        let word = output.strip_suffix('\n')?;
+        Self::ALL.into_iter().find(|outcome| outcome.as_str() == word)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_exact_word_counts() {
+        assert_eq!(AuthOutcome::parse("success\n"), Some(AuthOutcome::Success));
+        assert_eq!(AuthOutcome::parse("max-tries\n"), Some(AuthOutcome::MaxTries));
+        for output in ["success", "success\n\n", " success\n", "successful\n", "wrong\nsuccess\n", ""] {
+            assert_eq!(AuthOutcome::parse(output).filter(|o| *o == AuthOutcome::Success), None, "{output:?}");
+        }
+    }
 
     #[test]
     fn messages_survive_the_pipe() {

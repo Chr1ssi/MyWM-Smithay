@@ -2345,6 +2345,7 @@ name = "mywm-shell-services"
 version = "0.1.0"
 dependencies = [
  "image",
+ "libc",
  "mywm-shell-protocol",
  "pipewire",
  "resvg",

@@ -13,6 +13,7 @@ pub mod control;
 pub mod edit;
 pub mod i18n;
 pub mod launcher;
+pub mod lock_screen;
 pub mod markup;
 pub mod media;
 pub mod notices;

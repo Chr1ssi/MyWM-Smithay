@@ -136,6 +136,7 @@ PYTHONPATH=tests python3 tests/control_smoke.py        # Commandcenter: Bluetoot
 PYTHONPATH=tests python3 tests/calendar_smoke.py       # Kalender-Panel: Termine, Formular, Monate
 PYTHONPATH=tests python3 tests/launcher_smoke.py       # Launcher: Suche, Starten, Terminal, Tastenwiederholung
 PYTHONPATH=tests python3 tests/wallpaper_picker_smoke.py # Wallpaper-Picker: Filter, Speichern, Theme, Klicks
+PYTHONPATH=tests python3 tests/lock_screen_smoke.py   # eingebauter Sperrbildschirm: PAM, fremde Sperrer, Tasten
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als

@@ -149,6 +149,10 @@ impl State {
         elements.extend(self.overlay_elements(output).into_iter().map(OutputElement::from));
         self.wallpaper_prepare(renderer);
         self.wallpaper_picker_prepare(renderer);
+        if self.session_lock.is_own() {
+            elements.extend(self.shell_lock_elements(output));
+            return elements;
+        }
         if self.session_lock.is_active() {
             // A locked session shows the locker's surface (or plain black) and nothing else.
             if let Some(surface) = self.lock_surface_for(output) {

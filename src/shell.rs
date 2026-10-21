@@ -163,6 +163,8 @@ pub struct Shell {
     /// The open wallpaper picker.
     pub picker: Option<crate::shell_wallpaper::Picker>,
     pub pickers_opened: u64,
+    /// The built-in lock screen's password and what it says.
+    pub lock: crate::shell_lock::LockScreen,
     /// The key the shell repeats while it is held, by its press (see `shell_key_pressed`).
     repeating: Option<(Keycode, u64)>,
     presses: u64,
@@ -256,6 +258,7 @@ impl Shell {
             apps: Default::default(),
             picker: None,
             pickers_opened: 0,
+            lock: Default::default(),
             repeating: None,
             presses: 0,
         }
@@ -308,6 +311,7 @@ impl State {
         }
         self.services_start();
         self.night_light_restore();
+        self.shell_lock_init();
     }
 
     /// Something the shell shows changed outside the compositor's own state.
@@ -568,6 +572,12 @@ impl State {
         self.shell.pressed.is_some()
     }
 
+    /// The session locks: a button held on the shell is let go (its release goes to the lock screen).
+    pub fn shell_release_pointer(&mut self) {
+        self.shell.pressed = None;
+        self.shell.dragging = None;
+    }
+
     /// The pointer moved; `hit` is what of the shell is under it now.
     pub fn shell_hover(&mut self, hit: Option<ShellHit>) {
         if hit == self.shell.hover {
@@ -699,7 +709,7 @@ impl State {
 
     /// Whether the shell holds the keyboard (the power menu is open, or the notification center was clicked).
     pub fn shell_takes_keyboard(&self) -> bool {
-        self.shell.power.is_some() || self.wallpaper_picker_takes_keyboard() || self.launcher_takes_keyboard() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
+        self.session_lock.is_own() || self.shell.power.is_some() || self.wallpaper_picker_takes_keyboard() || self.launcher_takes_keyboard() || self.panel_takes_keyboard() || self.tray_menu_takes_keyboard()
     }
 
     /// A key pressed for the shell (`shell_key`), repeated while it is held if the keymap repeats it, at the
@@ -740,6 +750,10 @@ impl State {
 
     /// A key pressed while the shell holds the keyboard; `modified`: with Ctrl, Alt or Super.
     pub fn shell_key(&mut self, sym: Keysym, modified: bool) {
+        // The lock screen is in front of everything, menus left open included.
+        if self.session_lock.is_own() {
+            return self.lock_key(sym, modified);
+        }
         let Some(menu) = &mut self.shell.power else {
             if self.shell.picker.is_some() {
                 return self.wallpaper_picker_key(sym, modified);

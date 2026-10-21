@@ -94,6 +94,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Dieses Bild kann nicht geladen werden.", "This image cannot be loaded."),
     ("Ende (HH:MM)", "End (HH:MM)"),
     ("Esc zum Schließen", "Esc to close"),
+    ("Falsches Passwort", "Wrong password"),
     ("Farbpipette", "Color picker"),
     ("Ganztägig", "All day"),
     ("Gekoppelt", "Paired"),
@@ -150,6 +151,7 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Verbunden · %1 %", "Connected · %1 %"),
     ("Was soll geteilt werden?", "What should be shared?"),
     ("Wird gespeichert …", "Saving …"),
+    ("Zu viele Versuche", "Too many attempts"),
 ];
 
 #[cfg(test)]
@@ -197,6 +199,7 @@ mod tests {
             include_str!("calendar.rs"),
             include_str!("launcher.rs"),
             include_str!("wallpaper_picker.rs"),
+            include_str!("lock_screen.rs"),
         ];
         let mut used = std::collections::BTreeSet::new();
         for source in sources {

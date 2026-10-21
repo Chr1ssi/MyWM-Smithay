@@ -45,6 +45,7 @@
               libgbm
               libdrm
               pipewire
+              linux-pam
               libx11
               libxcursor
               libxrandr
@@ -81,6 +82,8 @@
               wireplumber
               gst_all_1.gstreamer
             ];
+            # The built-in lock screen's test brings its own PAM service (pam_exec), never a real account.
+            MYWM_TEST_PAM_MODULES = "${pkgs.linux-pam}/lib/security";
             # pipewiresrc, videoconvert and pngenc for the portal test.
             GST_PLUGIN_SYSTEM_PATH_1_0 = pkgs.lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" (with pkgs; [
               pipewire

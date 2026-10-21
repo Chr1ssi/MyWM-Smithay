@@ -16,3 +16,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Notification pictures and icons: SVG (without text) and the usual bitmap formats.
 resvg = { version = "0.48", default-features = false }
 image = "0.25"
+# The lock screen's PAM conversation: answers allocated with calloc/strdup, the user from getpwuid_r.
+libc = "0.2"

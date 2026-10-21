@@ -51,7 +51,7 @@ pub struct Services {
 }
 
 /// The program next to the compositor's own binary (installed side by side), else from `PATH`.
-fn program() -> PathBuf {
+pub fn program() -> PathBuf {
     mywm_config::current_exe()
         .ok()
         .and_then(|exe| Some(exe.parent()?.join(PROGRAM)))

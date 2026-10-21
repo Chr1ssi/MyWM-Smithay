@@ -175,7 +175,9 @@ impl State {
                             return FilterResult::Intercept(Intercepted::Vt((raw - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
                         }
                         // While picking a screenshot region or a color the keyboard belongs to the picker.
-                        if state.selecting.is_some() || state.picking.is_some() || state.overview_open() {
+                        // (Locking ends them; the built-in lock screen must get every key even before it shows.)
+                        let modal = state.selecting.is_some() || state.picking.is_some() || state.overview_open();
+                        if modal && !state.session_lock.is_own() {
                             use crate::screenshot::ModalKey;
                             return FilterResult::Intercept(Intercepted::Modal(match raw {
                                 keysyms::KEY_Escape => ModalKey::Cancel,
@@ -197,6 +199,13 @@ impl State {
                             let allowed = |a: &Action| matches!(a, Action::Program(_)) && state.config.allowed_when_locked(*a);
                             return match action.filter(allowed) {
                                 Some(action) => FilterResult::Intercept(Intercepted::Action(action)),
+                                // The built-in lock screen is the compositor's own: no client gets a key.
+                                None if state.session_lock.is_own() => {
+                                    // SAFETY: as below.
+                                    let repeats = handle.xkb().lock().is_ok_and(|xkb| unsafe { xkb.keymap() }.key_repeats(keycode));
+                                    let modified = mods.ctrl || mods.alt || mods.logo;
+                                    FilterResult::Intercept(Intercepted::Shell(handle.modified_sym(), modified, repeats))
+                                }
                                 None => FilterResult::Forward,
                             };
                         }
@@ -286,6 +295,10 @@ impl State {
                 event.time_msec(),
             ),
             InputEvent::PointerAxis { event } => {
+                // The wheel reaches nobody behind the built-in lock screen.
+                if self.session_lock.is_own() {
+                    return;
+                }
                 let pointer = self.seat.get_pointer().unwrap();
                 if !pointer.is_grabbed()
                     && let Some(hit) = self.shell_at_pointer()
@@ -325,6 +338,10 @@ impl State {
     }
 
     fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
+        // No client gets a click behind the built-in lock screen.
+        if self.session_lock.is_own() {
+            return;
+        }
         if self.overview_open() {
             return self.overview_button(button, state);
         }
@@ -429,6 +446,9 @@ impl State {
 
     /// The surface under the pointer and the global position of its origin.
     fn pointer_focus(&self) -> Option<(WlSurface, Point<f64, Logical>)> {
+        if self.session_lock.is_own() {
+            return None;
+        }
         if self.session_lock.is_active() {
             return self.lock_surface_at_pointer();
         }
@@ -459,6 +479,9 @@ impl State {
     }
 
     fn pointer_target_over(&self, window_hit: Option<&(smithay::desktop::Window, Point<i32, Logical>)>) -> Option<PointerTarget> {
+        if self.session_lock.is_own() {
+            return None;
+        }
         if self.session_lock.is_active() {
             return self.lock_surface_at_pointer().map(|(surface, origin)| PointerTarget::Surface(surface, origin));
         }

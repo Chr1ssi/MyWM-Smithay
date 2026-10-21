@@ -17,7 +17,9 @@
 //! app id and title, asking for fullscreen before it is mapped, that prints `size <w> <h>` whenever the
 //! compositor gives it another size) or `mywm-test-client foreign <seconds> [late]` (a window that exports
 //! itself with `xdg-foreign` and a second one, its dialog, that imports it as its parent before its first
-//! commit, or with `late` after it was placed; prints the dialog's `size <w> <h>` like `named`). Every mode exits
+//! commit, or with `late` after it was placed; prints the dialog's `size <w> <h>` like `named`) or
+//! `mywm-test-client lock <seconds>` (no window: asks to lock the session, prints `locked` or `finished`,
+//! then asks to unlock it either way and prints `unlock sent`). Every mode exits
 //! when the compositor asks a window to close.
 use std::{os::fd::AsFd, time::{Duration, Instant}};
 
@@ -45,6 +47,10 @@ use wayland_protocols::{
     },
     wp::commit_timing::v1::client::{wp_commit_timer_v1::WpCommitTimerV1, wp_commit_timing_manager_v1::WpCommitTimingManagerV1},
     wp::fifo::v1::client::{wp_fifo_manager_v1::WpFifoManagerV1, wp_fifo_v1::WpFifoV1},
+    ext::session_lock::v1::client::{
+        ext_session_lock_manager_v1::ExtSessionLockManagerV1,
+        ext_session_lock_v1::{self, ExtSessionLockV1},
+    },
     wp::content_type::v1::client::{
         wp_content_type_manager_v1::WpContentTypeManagerV1,
         wp_content_type_v1::{self, WpContentTypeV1},
@@ -100,6 +106,18 @@ struct App {
     pointer_entered: bool,
     /// `wl_keyboard.key` events not printed yet (keys mode): key code and state.
     keys: Vec<(u32, u32)>,
+    /// What the compositor said to the lock request (lock mode).
+    lock_answer: Option<&'static str>,
+}
+
+impl Dispatch<ExtSessionLockV1, ()> for App {
+    fn event(state: &mut Self, _: &ExtSessionLockV1, event: ext_session_lock_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            ext_session_lock_v1::Event::Locked => state.lock_answer = Some("locked"),
+            ext_session_lock_v1::Event::Finished => state.lock_answer = Some("finished"),
+            _ => {}
+        }
+    }
 }
 
 impl Dispatch<WlCallback, ()> for App {
@@ -238,6 +256,7 @@ impl Dispatch<ZxdgExportedV2, ()> for App {
         }
     }
 }
+delegate_noop!(App: ignore ExtSessionLockManagerV1);
 delegate_noop!(App: ignore WpFifoManagerV1);
 delegate_noop!(App: ignore WpFifoV1);
 delegate_noop!(App: ignore WpCommitTimingManagerV1);
@@ -602,6 +621,25 @@ fn main() {
         let title = names.next().filter(|t| t != "-");
         let fullscreen = names.next().is_some_and(|a| a == "fullscreen");
         named_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds, (app_id, title, fullscreen));
+        return;
+    }
+
+    if mode == "lock" {
+        let manager: ExtSessionLockManagerV1 = globals.bind(&qh, 1..=1, ()).expect("session lock manager");
+        let lock = manager.lock(&qh, ());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.lock_answer.is_none() && Instant::now() < deadline {
+            if queue.roundtrip(&mut app).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        println!("{}", app.lock_answer.unwrap_or("no answer"));
+        // A locker that was refused tries to end the lock anyway.
+        lock.unlock_and_destroy();
+        let _ = queue.roundtrip(&mut app);
+        println!("unlock sent");
+        std::thread::sleep(Duration::from_secs(seconds));
         return;
     }
 

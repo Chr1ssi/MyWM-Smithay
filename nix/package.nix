@@ -15,6 +15,7 @@
   libglvnd,
   pipewire,
   pixman, # cursor plane on rotated outputs (smithay's renderer_pixman)
+  linux-pam, # the built-in lock screen's password check (mywm-shell-services --authenticate)
   quickshell,
   swayidle,
   wlopm,
@@ -43,6 +44,7 @@ let
     libglvnd
     pipewire
     pixman
+    linux-pam
   ];
 
   # Only what cargo reads, so that changes to the scripts, tests, docs or the shell input do not

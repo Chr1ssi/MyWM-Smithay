@@ -36,6 +36,10 @@ enum LockState {
     /// The locker asked; its confirmation is sent once every output showed the lock.
     Locking(SessionLocker),
     Locked,
+    /// The built-in shell's lock screen, drawn by the compositor; confirmed like `Locking` once every output
+    /// showed it. No client can take it over or end it: only a password check (`shell_lock`) unlocks.
+    OwnLocking,
+    OwnLocked,
 }
 
 /// A locker that ends this soon after it started, with the session still locked, counts as failing at once.
@@ -85,7 +89,12 @@ impl SessionLock {
 
     /// The lock was confirmed to the locker (what the bar protocol calls `locked 1`).
     pub fn is_locked(&self) -> bool {
-        matches!(self.state, LockState::Locked)
+        matches!(self.state, LockState::Locked | LockState::OwnLocked)
+    }
+
+    /// The built-in lock screen holds the session.
+    pub fn is_own(&self) -> bool {
+        matches!(self.state, LockState::OwnLocking | LockState::OwnLocked)
     }
 }
 
@@ -95,6 +104,11 @@ impl SessionLockHandler for State {
     }
 
     fn lock(&mut self, confirmation: SessionLocker) {
+        if self.session_lock.is_own() {
+            // Dropping the request tells the locker `finished`: it never holds this lock, so it cannot end it.
+            tracing::warn!("refused a screen locker: the built-in lock screen holds the session");
+            return;
+        }
         if self.session_lock.is_active() {
             // Already locked: dropping the request tells the second locker `finished`, unless the one holding the
             // lock is gone. Then nobody could unlock, and the new one takes over the locked session at once.
@@ -127,6 +141,11 @@ impl SessionLockHandler for State {
     }
 
     fn unlock(&mut self) {
+        // Only the locker holding a lock can end it, and none holds the built-in one.
+        if self.session_lock.is_own() {
+            tracing::warn!("ignored a screen locker's unlock: the built-in lock screen holds the session");
+            return;
+        }
         tracing::info!("session unlocked");
         self.session_lock.state = LockState::Unlocked;
         self.session_lock.holder = None;
@@ -137,6 +156,9 @@ impl SessionLockHandler for State {
     }
 
     fn new_surface(&mut self, surface: LockSurface, output: WlOutput) {
+        if self.session_lock.is_own() {
+            return;
+        }
         let Some(output) = Output::from_resource(&output) else { return };
         if let Some(geo) = self.space.output_geometry(&output) {
             surface.with_pending_state(|state| state.size = Some((geo.size.w as u32, geo.size.h as u32).into()));
@@ -176,23 +198,80 @@ impl State {
 
     /// An output showed a frame: once all did while locking, the lock counts.
     pub fn note_locked_frame(&mut self, output: &Output) {
-        if !matches!(self.session_lock.state, LockState::Locking(_)) {
+        if !matches!(self.session_lock.state, LockState::Locking(_) | LockState::OwnLocking) {
             return;
         }
         self.session_lock.unconfirmed.remove(&output.name());
-        if self.session_lock.unconfirmed.is_empty()
-            && let LockState::Locking(confirmation) = std::mem::replace(&mut self.session_lock.state, LockState::Locked)
-        {
-            confirmation.lock();
-            tracing::info!("session locked");
-            self.ipc_dirty = true;
+        if !self.session_lock.unconfirmed.is_empty() {
+            return;
         }
+        match std::mem::replace(&mut self.session_lock.state, LockState::Locked) {
+            LockState::Locking(confirmation) => confirmation.lock(),
+            _ => self.session_lock.state = LockState::OwnLocked,
+        }
+        tracing::info!("session locked");
+        self.ipc_dirty = true;
     }
 
-    /// Start the screen locker (`lock.qml` of mywm-shell) unless one is running and holds the lock.
+    /// Lock the session with the built-in lock screen. It also takes over a session whose locker is gone.
+    fn own_lock(&mut self) {
+        if self.session_lock.is_own() {
+            return;
+        }
+        let lock = &mut self.session_lock;
+        lock.holder = None;
+        // A gone locker's surfaces show no more; the lock screen is drawn instead.
+        lock.surfaces.clear();
+        // A confirmed lock (its locker gone) stays confirmed: the screen showed nothing behind it already.
+        let confirmed = lock.is_locked();
+        lock.unconfirmed = if confirmed { HashSet::new() } else { self.outputs.iter().map(|e| e.output.name()).collect() };
+        lock.state = if lock.unconfirmed.is_empty() { LockState::OwnLocked } else { LockState::OwnLocking };
+        self.end_drag();
+        // Pickers and the overview would take the keyboard from the lock screen.
+        self.selecting = None;
+        self.picking = None;
+        self.close_overview();
+        // A button held on a client (or the shell) when locking must not keep sending it the pointer.
+        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+        let time = self.start_time.elapsed().as_millis() as u32;
+        if let Some(pointer) = self.seat.get_pointer() {
+            pointer.unset_grab(self, serial, time);
+        }
+        // The client's cursor would stay in front of the lock screen, and it could draw into it. (`refresh` below
+        // takes the pointer focus from the client.)
+        self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
+        self.queue_redraw_cursor();
+        self.shell_lock_started();
+        tracing::info!("session locking (built-in lock screen)");
+        self.ipc_dirty = true;
+        self.refresh();
+    }
+
+    /// The built-in lock screen accepted the password.
+    pub fn own_unlock(&mut self) {
+        if !self.session_lock.is_own() {
+            return;
+        }
+        tracing::info!("session unlocked");
+        let lock = &mut self.session_lock;
+        lock.state = LockState::Unlocked;
+        lock.quick_exits = 0;
+        lock.unconfirmed.clear();
+        self.ipc_dirty = true;
+        self.refresh();
+    }
+
+    /// Start the screen locker (`lock.qml` of mywm-shell, or the built-in lock screen with the built-in shell)
+    /// unless one is running and holds the lock.
     pub fn start_locker(&mut self) {
         let held = self.session_lock.holder.as_ref().is_some_and(Resource::is_alive);
-        if self.session_lock.locker_running || (self.session_lock.is_active() && held) {
+        if self.session_lock.is_active() && held {
+            return;
+        }
+        if self.shell.enabled {
+            return self.own_lock();
+        }
+        if self.session_lock.locker_running {
             return;
         }
         self.spawn_locker();
@@ -222,7 +301,7 @@ impl State {
     /// can unlock it, so another locker starts (and takes over), unless they keep failing at once.
     fn locker_exited(&mut self, lived: Duration) {
         self.session_lock.locker_running = false;
-        if !self.session_lock.is_active() {
+        if !self.session_lock.is_active() || self.session_lock.is_own() {
             return;
         }
         let lock = &mut self.session_lock;
