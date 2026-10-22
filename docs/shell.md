@@ -6,7 +6,7 @@ obersten Ebene der Config steht (Standard; gilt nach Neustart). Mit `builtin_she
 keine Shell, also auch keine Bar und keinen Sperrbildschirm; das ist nur für die nested Tests gedacht. Maße,
 Farben und Texte stammen von der früheren Quickshell-Shell (`bar.qml`, `BarButton.qml`, `BarIsland.qml`,
 `Theme.qml`, `I18n.qml`), die es nicht mehr gibt. Die Schrift ist die Systemschrift (die Familie, die fontconfig für
-„Sans Serif“ wählt, `fc-match`); Nerd-Font-Symbole in Texten setzt die Shell immer aus „JetBrainsMono Nerd Font
+„Sans Serif“ wählt, `fc-match`); Nerd-Font-Symbole in Texten setzt die Shell immer aus „IosevkaTerm Nerd Font
 Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in abgerundete Karten (Radien in
 `crates/mywm-ui/src/theme.rs`).
 

@@ -109,10 +109,11 @@ enum Content {
 }
 
 impl Button {
-    /// A button as wide as its text plus 16 pixels (`implicitWidth`).
-    fn fit(measure: &mut impl Measure, text: String, icons: bool, target: BarTarget) -> Self {
-        let width = measure.width(&text, BUTTON_TEXT.icons(icons)).ceil() + 16.0;
-        Self { text, width, icons, selected: false, marked: false, target }
+    /// A button as wide as its text plus 16 pixels (`implicitWidth`). A selected button's text is bold, so it is
+    /// measured bold.
+    fn fit(measure: &mut impl Measure, text: String, icons: bool, target: BarTarget, selected: bool) -> Self {
+        let width = measure.width(&text, BUTTON_TEXT.icons(icons).bold(selected)).ceil() + 16.0;
+        Self { text, width, icons, selected, marked: false, target }
     }
 
     fn fixed(text: String, width: f32, target: BarTarget) -> Self {
@@ -187,8 +188,9 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
         let button = Button::fixed(format!("󰎆 {title}"), (model.width * 0.24).min(260.0), BarTarget::Panel(Panel::Media));
         middle.push(Content::Buttons(vec![button.selected(model.open_panel == Some(Panel::Media))]));
     }
-    let clock = Button::fit(measure, model.clock.clone(), false, BarTarget::Panel(Panel::Calendar));
-    middle.push(Content::Buttons(vec![clock.selected(model.open_panel == Some(Panel::Calendar))]));
+    let open = |p: Panel| model.open_panel == Some(p);
+    let clock = Button::fit(measure, model.clock.clone(), false, BarTarget::Panel(Panel::Calendar), open(Panel::Calendar));
+    middle.push(Content::Buttons(vec![clock]));
 
     let mut right = Vec::new();
     if model.capturing {
@@ -205,13 +207,12 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
         Some(Audio { muted: true, .. }) => format!("󰖁 {}", tr("Stumm")),
         Some(Audio { volume, .. }) => format!("󰕾 {} %", (volume * 100.0).round()),
     };
-    let open = |p: Panel| model.open_panel == Some(p);
     right.push(Content::Buttons(vec![
-        Button::fit(measure, model.control_icon.clone(), true, panel(Panel::Control)).selected(open(Panel::Control)),
-        Button::fit(measure, notifications, false, panel(Panel::Notifications)).selected(open(Panel::Notifications)),
-        Button::fit(measure, audio, false, panel(Panel::Audio)).selected(open(Panel::Audio)),
+        Button::fit(measure, model.control_icon.clone(), true, panel(Panel::Control), open(Panel::Control)),
+        Button::fit(measure, notifications, false, panel(Panel::Notifications), open(Panel::Notifications)),
+        Button::fit(measure, audio, false, panel(Panel::Audio), open(Panel::Audio)),
     ]));
-    right.push(Content::Buttons(vec![Button::fit(measure, "⏻".into(), true, BarTarget::Power).selected(model.power_open)]));
+    right.push(Content::Buttons(vec![Button::fit(measure, "⏻".into(), true, BarTarget::Power, model.power_open)]));
 
     let row_width = |islands: &[Content], measure: &mut _| {
         islands.iter().map(|i| i.width(measure)).sum::<f32>() + ISLAND_SPACING * islands.len().saturating_sub(1) as f32
@@ -300,7 +301,7 @@ pub fn button_shape<T: Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{scene::tests::Mono, theme::Palette};
+    use crate::{markup::Span, scene::tests::Mono, theme::Palette};
 
     fn theme() -> Theme {
         let c = |v| Color::rgba(v, v, v, 255);
@@ -361,6 +362,36 @@ mod tests {
         assert_eq!(scene.target_at(8.0 + 4.0 + 26.0 + 2.0 + 1.0, 20.0), Some(BarTarget::Workspace(2)));
         assert_eq!(scene.target_at(8.0 + 4.0 + 26.0 + 1.0, 20.0), Some(BarTarget::Background));
         assert_eq!(scene.target_at(power.x + 10.0, 20.0), Some(BarTarget::Power));
+    }
+
+    /// Like `Mono`, but bold text is a fifth wider.
+    struct BoldWider;
+
+    impl Measure for BoldWider {
+        fn width(&mut self, text: &str, style: TextStyle) -> f32 {
+            Mono.width(text, style) * if style.bold { 1.2 } else { 1.0 }
+        }
+        fn line_height(&mut self, style: TextStyle) -> f32 {
+            Mono.line_height(style)
+        }
+        fn paragraph_height(&mut self, text: &str, style: TextStyle, width: f32) -> f32 {
+            Mono.paragraph_height(text, style, width)
+        }
+        fn rich_height(&mut self, spans: &[Span], style: TextStyle, width: f32, max_lines: usize) -> f32 {
+            Mono.rich_height(spans, style, width, max_lines)
+        }
+    }
+
+    #[test]
+    fn a_selected_button_is_measured_bold() {
+        // 19 characters of 7 pixels, 16 of padding; open, the bold text is wider and so is the island.
+        let wide = |open_panel| {
+            let scene = scene(&BarModel { open_panel, ..model() }, &theme(), &mut BoldWider);
+            scene.target_rect(&BarTarget::Panel(Panel::Calendar)).expect("clock").w
+        };
+        assert_eq!(wide(None), 19.0 * 7.0 + 16.0);
+        assert_eq!(wide(Some(Panel::Calendar)), (19.0_f32 * 7.0 * 1.2).ceil() + 16.0);
+        assert_eq!(wide(Some(Panel::Audio)), 19.0 * 7.0 + 16.0);
     }
 
     #[test]

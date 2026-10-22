@@ -26,7 +26,7 @@ pub struct Theme {
 }
 
 /// The Nerd Font symbols are set in this one: the monospaced variants let them overhang to the right of their cell.
-pub const ICON_FONT_FAMILY: &str = "JetBrainsMono Nerd Font Propo";
+pub const ICON_FONT_FAMILY: &str = "IosevkaTerm Nerd Font Propo";
 pub const PANEL_PADDING: f32 = 16.0;
 /// The bar is transparent; its groups float in it as rounded islands.
 pub const BAR_HEIGHT: f32 = 40.0;
