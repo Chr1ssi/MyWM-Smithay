@@ -12,6 +12,10 @@ changes in `smithay.patch`:
 - `X11Surface::set_x11_input_focus`: the X11 half of `KeyboardTarget::enter/leave`. Our keyboard
   focus is a plain `wl_surface`, so without it Xwayland never gets an X11 input focus and Wine/Proton
   games (which wait for `WM_TAKE_FOCUS`) receive no keys.
+- `X11Surface::set_iconic`: tells an X11 client it is minimized (`WM_STATE` iconic, `_NET_WM_STATE_HIDDEN`)
+  or restored without unmapping the window, so it keeps its picture and its place. Wine minimizes an
+  exclusive-fullscreen window when it loses the focus and only follows a restore that is reported
+  through `WM_STATE`.
 - `X11Wm::new_selection` flushes the X connection. The owner change otherwise stays buffered until
   another X event arrives, so a freshly copied Wayland selection was invisible to X11 clients.
 - `#![allow(warnings)]` in `src/lib.rs` so the vendored code does not clutter our build.
