@@ -1,4 +1,4 @@
-"""The settings GUI (mywm-settings) under Xvfb: capture a key, save, see the file change; keys are named as the
+"""The settings GUI (splice-settings) under Xvfb: capture a key, save, see the file change; keys are named as the
 configured layout names them.
 
 Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/settings_smoke.py
@@ -9,7 +9,7 @@ from smoke_support import wait
 # A short path of digits only, as the clicks below are positions: the sidebar shows the path at a fixed width,
 # but letters differ in width and a random name must not move anything.
 while True:
-    work = f"/tmp/mywm-{random.randrange(10 ** 8):08d}"
+    work = f"/tmp/splice-{random.randrange(10 ** 8):08d}"
     try:
         os.mkdir(work, 0o700)
         break
@@ -20,11 +20,11 @@ with open(config, "w") as f:
     f.write("# my settings\n[effects]\ncorner_radius = 12 # round\n")
 
 # XDG_STATE_HOME: the window takes its colors from the saved theme, which must not be the user's.
-env = dict(os.environ, XDG_CONFIG_HOME=work, XDG_STATE_HOME=work, MYWM_SOCKET=f"{work}/none.sock")
+env = dict(os.environ, XDG_CONFIG_HOME=work, XDG_STATE_HOME=work, SPLICE_SOCKET=f"{work}/none.sock")
 # On X only: with a Wayland session in the environment the window would open there, in the user's session.
 for name in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET"):
     env.pop(name, None)
-app = subprocess.Popen(["./target/debug/mywm-settings", "--config", config, "--page", "0"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+app = subprocess.Popen(["./target/debug/splice-settings", "--config", config, "--page", "0"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
 
 def xdo(*args):
@@ -35,8 +35,8 @@ def xdo(*args):
 
 
 try:
-    assert wait(lambda: subprocess.run(["xdotool", "search", "--name", "mywm Einstellungen"], capture_output=True).stdout.strip(), 40), "no window"
-    window = subprocess.check_output(["xdotool", "search", "--name", "mywm Einstellungen"]).split()[0].decode()
+    assert wait(lambda: subprocess.run(["xdotool", "search", "--name", "splice Einstellungen"], capture_output=True).stdout.strip(), 40), "no window"
+    window = subprocess.check_output(["xdotool", "search", "--name", "splice Einstellungen"]).split()[0].decode()
     # The window exists before its first frame is drawn (slow under software rendering); input sent earlier is lost.
     def drawn():
         picture = subprocess.run(["import", "-window", window, "png:-"], capture_output=True).stdout
@@ -88,13 +88,13 @@ finally:
 
 # With a German layout, the key at the US place of [ is ü: the binding names it so, as the compositor sees it.
 app.wait(5)
-assert wait(lambda: not subprocess.run(["xdotool", "search", "--name", "mywm Einstellungen"], capture_output=True).stdout.strip()), "the first window stayed"
+assert wait(lambda: not subprocess.run(["xdotool", "search", "--name", "splice Einstellungen"], capture_output=True).stdout.strip()), "the first window stayed"
 with open(config, "w") as f:
     f.write('[keyboard]\nlayout = "de"\n')
-app = subprocess.Popen(["./target/debug/mywm-settings", "--config", config, "--page", "0"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+app = subprocess.Popen(["./target/debug/splice-settings", "--config", config, "--page", "0"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 try:
-    assert wait(lambda: subprocess.run(["xdotool", "search", "--name", "mywm Einstellungen"], capture_output=True).stdout.strip(), 40), "no window"
-    window = subprocess.check_output(["xdotool", "search", "--name", "mywm Einstellungen"]).split()[0].decode()
+    assert wait(lambda: subprocess.run(["xdotool", "search", "--name", "splice Einstellungen"], capture_output=True).stdout.strip(), 40), "no window"
+    window = subprocess.check_output(["xdotool", "search", "--name", "splice Einstellungen"]).split()[0].decode()
     assert wait(drawn, 30), "the window was never drawn"
     xdo("windowfocus", window)
     for attempt in range(4):

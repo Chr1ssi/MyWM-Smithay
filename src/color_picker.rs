@@ -120,7 +120,7 @@ impl State {
         let text = hex(color);
         tracing::info!("color picked: {text}");
         let wayland_display = self.socket_name.to_string_lossy().into_owned();
-        let swatch = std::env::var_os("XDG_RUNTIME_DIR").map(|dir| std::path::PathBuf::from(dir).join("mywm-color.png"));
+        let swatch = std::env::var_os("XDG_RUNTIME_DIR").map(|dir| std::path::PathBuf::from(dir).join("splice-color.png"));
         // Off the compositor's thread: wl-copy and notify-send may take a moment.
         std::thread::spawn(move || {
             let copied = Command::new("wl-copy")
@@ -133,7 +133,7 @@ impl State {
                 tracing::warn!("wl-copy is not installed: the color is not in the clipboard");
             }
             let mut notify = Command::new("notify-send");
-            notify.args(["-a", "mywm"]);
+            notify.args(["-a", "splice"]);
             if let Some(path) = swatch.filter(|path| write_swatch(path, color).is_ok()) {
                 notify.arg("-i").arg(path);
             }

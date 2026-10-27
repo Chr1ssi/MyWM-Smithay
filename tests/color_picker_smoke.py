@@ -46,7 +46,7 @@ try:
     print("magnifier OK")
 
     # The picture changes while picking: the sample follows it both ways (each sample redraws only what changed).
-    blue = subprocess.Popen(["./target/debug/mywm-test-client", "fullscreen", "0000ff", "30"], env=comp.env())
+    blue = subprocess.Popen(["./target/debug/splice-test-client", "fullscreen", "0000ff", "30"], env=comp.env())
     assert wait(lambda: (bar.poll(), bar.picking == "#0000ff")[1]), bar.picking
     blue.kill()
     blue.wait()

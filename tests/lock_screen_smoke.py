@@ -1,18 +1,18 @@
-"""The built-in shell's lock screen (as mywm-shell's test of lock.qml): `--lock` gets its confirmation once the lock
+"""The built-in shell's lock screen (as splice-shell's test of lock.qml): `--lock` gets its confirmation once the lock
 screen shows, nothing behind it shows (in a capture of the monitor neither) or gets a key, a wrong password keeps the
 session locked, so does a check that dies on the way and a screen locker that asks to take over and to unlock; the
 right password unlocks (Return, or a click on the button). The card shows on the monitor; a refused password turns
 the field's border red. The window under a pointer that does not move loses it when the session locks; the theme's
 image, read when locking, shows dimmed behind the card. PAM runs with its own service directory (pam_exec), never a real account.
 
-Needs grim, `cargo build --workspace` and $MYWM_TEST_PAM_MODULES (the smoke shell sets it). Run from the repository
+Needs grim, `cargo build --workspace` and $SPLICE_TEST_PAM_MODULES (the smoke shell sets it). Run from the repository
 root with $DISPLAY set:
     PYTHONPATH=tests python3 tests/lock_screen_smoke.py
 """
 import json, os, struct, subprocess, sys, tempfile, time, zlib
 from smoke_support import Bar, Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 PASSWORD = "geheim"
 KEY_A = 30
 # On the 1280x800 output the card begins at y = 416 (52 %): avatar at its top, then name and the field (y 575-623).
@@ -22,14 +22,14 @@ SUBMIT = (787, 599)
 # The theme's alert color without a theme.json.
 ALERT = bytes.fromhex("f38ba8")
 
-if not os.environ.get("MYWM_TEST_PAM_MODULES"):
-    print("SKIP: $MYWM_TEST_PAM_MODULES is not set (run in the smoke shell)")
+if not os.environ.get("SPLICE_TEST_PAM_MODULES"):
+    print("SKIP: $SPLICE_TEST_PAM_MODULES is not set (run in the smoke shell)")
     sys.exit(0)
 
 
 def pam_directory(base):
-    """A PAM service `mywm-lock` that accepts PASSWORD only; `abbruch` kills the check midway."""
-    modules = os.environ["MYWM_TEST_PAM_MODULES"]
+    """A PAM service `splice-lock` that accepts PASSWORD only; `abbruch` kills the check midway."""
+    modules = os.environ["SPLICE_TEST_PAM_MODULES"]
     check = f"{base}/check-password"
     with open(check, "w") as f:
         # pam_exec hands the password over on stdin, ended by a NUL; its parent is the compositor's check.
@@ -38,7 +38,7 @@ def pam_directory(base):
                 f"[ \"$password\" = {PASSWORD} ]\n")
     os.chmod(check, 0o755)
     os.makedirs(f"{base}/pam.d")
-    with open(f"{base}/pam.d/mywm-lock", "w") as f:
+    with open(f"{base}/pam.d/splice-lock", "w") as f:
         f.write(f"auth required {modules}/pam_exec.so expose_authtok quiet {check}\n"
                 f"account required {modules}/pam_permit.so\n")
     return f"{base}/pam.d"
@@ -66,7 +66,7 @@ def type_text(text):
 base = tempfile.mkdtemp()
 comp = None
 try:
-    extra = {"MYWM_PAM_DIR": pam_directory(base), "DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/nonexistent",
+    extra = {"SPLICE_PAM_DIR": pam_directory(base), "DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/nonexistent",
              "PIPEWIRE_RUNTIME_DIR": "/nonexistent", "LANG": "de_DE.UTF-8"}
     comp = Compositor(top="builtin_shell = true\n", extra_env=extra)
     bar = Bar(comp.sock)
@@ -86,7 +86,7 @@ try:
     assert window == bytes.fromhex("808080"), "the window is not where it should be"
 
     # Locking: confirmed once the lock screen shows; it covers everything, captures included.
-    result = subprocess.run(["./target/debug/mywm-compositor", "--lock"], env=comp.env(), timeout=20)
+    result = subprocess.run(["./target/debug/splice-compositor", "--lock"], env=comp.env(), timeout=20)
     assert result.returncode == 0, "--lock got no confirmation"
     bar.until(lambda s: bar.locked, 5)
     shown = pixel(comp, 100, 120)
@@ -145,8 +145,8 @@ try:
     Bar(comp.sock).until(lambda s: len(s) == 1)
     # Written after the start: the lock reads the theme anew.
     png(f"{base}/background.png", 64, 40, (200, 100, 50))
-    os.makedirs(f"{comp.dir}/state/mywm", exist_ok=True)
-    with open(f"{comp.dir}/state/mywm/theme.json", "w") as f:
+    os.makedirs(f"{comp.dir}/state/splice", exist_ok=True)
+    with open(f"{comp.dir}/state/splice/theme.json", "w") as f:
         json.dump({"version": 1, "source": f"{base}/background.png", "colors": {"primary": {"default": {"hex": "#00ff00"}}}}, f)
     events = open(comp.dir + "/client", "w")
     subprocess.Popen([CLIENT, "pointer", "60"], env=comp.env(), stdout=events)
@@ -155,7 +155,7 @@ try:
     time.sleep(1)
     subprocess.run(["xdotool", "mousemove", "100", "120"], check=True)
     assert wait(lambda: "pointer enter" in client(), 5), "the pointer did not enter the window: " + client()
-    result = subprocess.run(["./target/debug/mywm-compositor", "--lock"], env=comp.env(), timeout=20)
+    result = subprocess.run(["./target/debug/splice-compositor", "--lock"], env=comp.env(), timeout=20)
     assert result.returncode == 0, "--lock got no confirmation"
     assert wait(lambda: "pointer leave" in client(), 5), "the window kept the pointer behind the lock: " + client()
     print("pointer OK")

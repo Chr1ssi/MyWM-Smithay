@@ -1,4 +1,4 @@
-"""The built-in shell's services process (mywm-shell-services) against a private PipeWire with a null sink, a stand-in
+"""The built-in shell's services process (splice-shell-services) against a private PipeWire with a null sink, a stand-in
 media player and a stand-in for BlueZ: the wheel over the audio button changes the volume and a right click mutes,
 the playing title shows in the bar's middle, Bluetooth is followed, and a killed services process comes back.
 
@@ -83,7 +83,7 @@ try:
     spawn(["python3", "tests/fake_mpris.py", "Testlied"], "mpris")
 
     extra = {name: env[name] for name in ("PIPEWIRE_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SYSTEM_BUS_ADDRESS")}
-    extra["RUST_LOG"] = "info,mywm_compositor::shell_services=debug"
+    extra["RUST_LOG"] = "info,splice_compositor::shell_services=debug"
     comp = Compositor(top="builtin_shell = true\n", extra_env=extra)
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 1)
@@ -106,8 +106,8 @@ try:
     # The playing title in the middle, left of the clock; paused, it goes.
     title = (500, 12, 40, 20)
     assert wait(lambda: not background(pixels(comp, *title)), 10), "the playing title did not show"
-    subprocess.run(["busctl", f"--address={session_address}", "call", "org.mpris.MediaPlayer2.mywmtest", "/org/mpris/MediaPlayer2",
-                    "org.mywm.Test", "SetPlaying", "b", "false"], env=env, check=True)
+    subprocess.run(["busctl", f"--address={session_address}", "call", "org.mpris.MediaPlayer2.splicetest", "/org/mpris/MediaPlayer2",
+                    "org.splice.Test", "SetPlaying", "b", "false"], env=env, check=True)
     assert wait(lambda: background(pixels(comp, *title)), 10), "the paused player still shows"
     print("media title OK")
 
@@ -123,7 +123,7 @@ try:
     print("Bluetooth OK")
 
     # Killed, the services process comes back, and the compositor stays responsive meanwhile.
-    pids = lambda: subprocess.run(["pgrep", "-P", str(comp.process.pid), "-x", "mywm-shell-serv"], capture_output=True, text=True).stdout.split()
+    pids = lambda: subprocess.run(["pgrep", "-P", str(comp.process.pid), "-x", "splice-shell-se"], capture_output=True, text=True).stdout.split()
     first = pids()
     assert len(first) == 1, first
     subprocess.run(["kill", "-9", first[0]], check=True)

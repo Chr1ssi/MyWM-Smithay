@@ -46,7 +46,7 @@ impl XdgDecorationHandler for State {
 }
 
 impl State {
-    /// MyWM draws only focus borders, so clients should not draw their own title bars.
+    /// Splice draws only focus borders, so clients should not draw their own title bars.
     fn force_server_side(&mut self, toplevel: &ToplevelSurface) {
         toplevel.with_pending_state(|state| state.decoration_mode = Some(Mode::ServerSide));
         if toplevel.is_initial_configure_sent() {

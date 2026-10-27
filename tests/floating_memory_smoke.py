@@ -6,8 +6,8 @@ Needs `cargo build --workspace`, grim and ImageMagick. Run from the repository r
 import os, subprocess, tempfile, time
 from smoke_support import Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
-RULE = "[[rules]]\napp_id = 'mywm.test.float'\nfloating = true\n"
+CLIENT = "./target/debug/splice-test-client"
+RULE = "[[rules]]\napp_id = 'splice.test.float'\nfloating = true\n"
 
 
 def black_box(comp):
@@ -21,7 +21,7 @@ def black_box(comp):
 
 
 def open_window(comp):
-    subprocess.Popen([CLIENT, "named", "60", "mywm.test.float", "-"], env=comp.env(), stdout=subprocess.DEVNULL)
+    subprocess.Popen([CLIENT, "named", "60", "splice.test.float", "-"], env=comp.env(), stdout=subprocess.DEVNULL)
     assert wait(lambda: "new window" in open(comp.dir + "/log").read(), 10)
     time.sleep(1.5)
 
@@ -50,8 +50,8 @@ try:
     moved = black_box(first)
     print("moved to", moved)
     assert abs(moved[0] - x - 230) <= 2 and abs(moved[1] - y - 140) <= 2, moved
-    remembered = open(f"{first.dir}/state/mywm/floating").read()
-    assert "mywm.test.float" in remembered, remembered
+    remembered = open(f"{first.dir}/state/splice/floating").read()
+    assert "splice.test.float" in remembered, remembered
     assert first.stop()
 except BaseException:
     first.process.kill()

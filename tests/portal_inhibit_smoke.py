@@ -1,6 +1,6 @@
 """Apps that keep the session awake through the portal (Firefox does) reach the compositor's idle inhibition.
 
-Runs mywm-portal on a private bus and calls its Inhibit backend the way xdg-desktop-portal does.
+Runs splice-portal on a private bus and calls its Inhibit backend the way xdg-desktop-portal does.
 Needs swayidle, dbus-daemon, busctl and `cargo build --workspace`. Run from the repository root with
 $DISPLAY set: PYTHONPATH=tests python3 tests/portal_inhibit_smoke.py
 """
@@ -9,7 +9,7 @@ from smoke_support import Compositor, private_bus, wait
 
 work = tempfile.mkdtemp()
 IDLE = f"{work}/idle"
-NAME = "org.freedesktop.impl.portal.desktop.mywm"
+NAME = "org.freedesktop.impl.portal.desktop.splice"
 comp = Compositor(extra_args=f"swayidle -w timeout 2 'touch {IDLE}' & ")
 bus_command, address = private_bus(work)
 env = dict(comp.env(), DBUS_SESSION_BUS_ADDRESS=address)
@@ -37,7 +37,7 @@ def stays_awake(seconds):
 
 
 def start_portal():
-    process = subprocess.Popen(["./target/debug/mywm-portal"], env=env, stdout=open(f"{work}/portal.log", "a"), stderr=subprocess.STDOUT)
+    process = subprocess.Popen(["./target/debug/splice-portal"], env=env, stdout=open(f"{work}/portal.log", "a"), stderr=subprocess.STDOUT)
     def owned():
         names = subprocess.run(["busctl", f"--address={address}", "list", "--no-legend"], env=env, capture_output=True, text=True).stdout
         return NAME in names

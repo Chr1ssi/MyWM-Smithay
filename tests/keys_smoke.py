@@ -6,7 +6,7 @@ Needs `cargo build --workspace`. Run from the repository root with $DISPLAY set:
 import os, subprocess, tempfile, time
 from smoke_support import Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 KEY_A, KEY_SPACE = 30, 57
 
 # The launcher binding (Super+Space, Alt+Space while nested) runs a program that opens nothing, so the

@@ -1,12 +1,12 @@
 """Window and output capture (ext-image-copy-capture) against the nested compositor.
 
-Needs `cargo build --workspace` (the test client is crates/mywm-capture-test). Run from the
+Needs `cargo build --workspace` (the test client is crates/splice-capture-test). Run from the
 repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/image_capture_smoke.py
 """
 import re, subprocess, time
 from smoke_support import Compositor
 
-CLIENT = "./target/debug/mywm-capture-test"
+CLIENT = "./target/debug/splice-capture-test"
 
 
 def capture(comp, kind):
@@ -46,7 +46,7 @@ try:
 
     def solid(color):
         # A square in the middle of the output, above everything (a layer surface without anchors is centred).
-        process = subprocess.Popen(["./target/debug/mywm-test-client", "layer", "overlay", "200", "200", color, "60"],
+        process = subprocess.Popen(["./target/debug/splice-test-client", "layer", "overlay", "200", "200", color, "60"],
                                    env=comp.env())
         time.sleep(1)
         return process

@@ -6,7 +6,7 @@
 #   nix develop .#smoke -c tests/run-smoke popup ipc  # some of them (names without _smoke.py)
 #
 # The tests run side by side, each on an X server of its own (pointer, focus and keys are per server);
-# MYWM_SMOKE_JOBS sets how many (default 4, 1 runs them one after the other).
+# SPLICE_SMOKE_JOBS sets how many (default 4, 1 runs them one after the other).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,7 +19,7 @@ if [ ${#tests[@]} -eq 0 ]; then
         tests+=("${name%_smoke.py}")
     done
 fi
-jobs=${MYWM_SMOKE_JOBS:-4}
+jobs=${SPLICE_SMOKE_JOBS:-4}
 [ "$jobs" -gt ${#tests[@]} ] && jobs=${#tests[@]}
 
 results=$(mktemp -d)

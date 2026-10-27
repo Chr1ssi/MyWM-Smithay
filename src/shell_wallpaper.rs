@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-use mywm_ui::{
+use splice_ui::{
     edit::Input,
     power::ease_out_cubic,
     text::Fonts,
@@ -166,7 +166,7 @@ fn thumbnail(path: &Path, size: (u32, u32)) -> Result<(Vec<u8>, (u32, u32)), Str
 }
 
 /// Premultiplied, for the shader.
-fn premultiplied(color: mywm_ui::Color) -> (f32, f32, f32, f32) {
+fn premultiplied(color: splice_ui::Color) -> (f32, f32, f32, f32) {
     let a = f32::from(color.a) / 255.0;
     (f32::from(color.r) / 255.0 * a, f32::from(color.g) / 255.0 * a, f32::from(color.b) / 255.0 * a, a)
 }
@@ -196,14 +196,14 @@ impl State {
         let directory = self.config.wallpaper_directory.clone();
         let scanner = sender.clone();
         let spawned = std::thread::Builder::new().name("wallpapers".into()).spawn(move || {
-            let paths = mywm_theme::wallpapers(&directory).map_err(|e| e.to_string());
+            let paths = splice_theme::wallpapers(&directory).map_err(|e| e.to_string());
             // As `--wallpaper-list`: only paths a URL can name.
             let _ = scanner.send(Message::Scanned(paths.map(|paths| paths.into_iter().filter(|p| p.to_str().is_some()).collect())));
         });
         if let Err(error) = spawned {
             return tracing::warn!("cannot read the wallpaper directory: {error}");
         }
-        let (saved, error) = match mywm_theme::wallpaper_state_path().map(|state| mywm_theme::saved_wallpaper(&state)) {
+        let (saved, error) = match splice_theme::wallpaper_state_path().map(|state| splice_theme::saved_wallpaper(&state)) {
             Some(Ok(saved)) => (saved, None),
             Some(Err(_)) => (None, Some(PickerError::State)),
             None => (None, None),
@@ -261,7 +261,7 @@ impl State {
         match message {
             Message::Scanned(Ok(paths)) => {
                 let entries = paths.into_iter().map(|path| {
-                    let url = path.to_str().map(mywm_theme::file_url).unwrap_or_default();
+                    let url = path.to_str().map(splice_theme::file_url).unwrap_or_default();
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                     Entry { path, url, name }
                 });
@@ -416,9 +416,9 @@ impl State {
 
     /// Save `path` as the wallpaper, close, and generate the theme from it.
     fn wallpaper_picker_commit(&mut self, path: &Path) {
-        let saved = mywm_theme::wallpaper_state_path()
+        let saved = splice_theme::wallpaper_state_path()
             .ok_or_else(|| "HOME or XDG_STATE_HOME is required".to_owned())
-            .and_then(|state| mywm_theme::save_wallpaper(&state, path).map_err(|e| e.to_string()));
+            .and_then(|state| splice_theme::save_wallpaper(&state, path).map_err(|e| e.to_string()));
         if let Err(error) = saved {
             tracing::warn!("the wallpaper choice cannot be saved: {error}");
             if let Some(picker) = &mut self.shell.picker {
@@ -434,7 +434,7 @@ impl State {
     /// `--theme-from-wallpaper` of the own binary in the background. It asks the compositor over the bar socket to
     /// reload the theme; without a socket nobody would, so then this does once it is done.
     fn wallpaper_picker_apply_theme(&mut self, path: &Path) {
-        let exe = match mywm_config::current_exe() {
+        let exe = match splice_config::current_exe() {
             Ok(exe) => exe,
             Err(error) => return tracing::warn!("cannot find the own binary for the theme: {error}"),
         };
@@ -624,7 +624,7 @@ impl State {
             let Some(id) = picker.tile_ids.get(tile.index).cloned() else { continue };
             let geometry = tile_texture(id.clone(), renderer, location, &texture, size).geometry(Scale::from(scale));
             let origin = (geometry.loc.x as f32, geometry.loc.y as f32);
-            let local = |r: &mywm_ui::Rect| (r.x * s - origin.0, r.y * s - origin.1, r.w * s, r.h * s);
+            let local = |r: &splice_ui::Rect| (r.x * s - origin.0, r.y * s - origin.1, r.w * s, r.h * s);
             let (tile_px, inner_px) = (local(&rect), local(&look.image));
             // The picture fills the space inside the margin, cut to its proportions around the middle.
             let image = picture.map_or((0.0, 0.0, 1.0, 1.0), |(w, h)| {
@@ -795,6 +795,6 @@ impl RenderElement<GlesRenderer> for TileElement {
 /// The picker's texts and where they and the carousel are (`wallpaper_picker::frame`, `carousel_area`).
 pub struct Framed {
     painted: Painted<PickerTarget>,
-    frame: mywm_ui::Rect,
-    area: mywm_ui::Rect,
+    frame: splice_ui::Rect,
+    area: splice_ui::Rect,
 }

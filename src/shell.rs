@@ -1,5 +1,5 @@
 //! The built-in shell (`builtin_shell = true`): the bar on every monitor, the power menu and the notices at the
-//! top right, drawn by the compositor itself (`mywm-ui`) instead of mywm-shell's Quickshell bar.
+//! top right, drawn by the compositor itself (`splice-ui`) instead of splice-shell's Quickshell bar.
 //!
 //! Pictures are painted on the CPU only when what they show changes, and uploaded as textures; a frame only
 //! places them. What they show comes from the same state the bar protocol sends (so `ipc_dirty` says when
@@ -9,8 +9,8 @@
 //! layer and the bar behind fullscreen windows and the clients' `Top` layer, as their Quickshell windows did.
 use std::time::{Duration, Instant};
 
-use mywm_config::Action;
-use mywm_ui::{
+use splice_config::Action;
+use splice_ui::{
     Scene, Theme,
     bar::{self, BarModel, BarTarget, Workspace},
     clock::{self, LocalTime},
@@ -120,9 +120,9 @@ pub enum ShellHit {
     TrayMenu(MenuTarget),
     Launcher(LauncherTarget),
     /// The wallpaper picker's tiles or field (`Some`), or the dimmed monitor around them.
-    Picker(Option<mywm_ui::wallpaper_picker::PickerTarget>),
+    Picker(Option<splice_ui::wallpaper_picker::PickerTarget>),
     /// The built-in lock screen's card.
-    Lock(mywm_ui::lock_screen::LockTarget),
+    Lock(splice_ui::lock_screen::LockTarget),
 }
 
 pub struct Shell {
@@ -147,7 +147,7 @@ pub struct Shell {
     /// The outcome of `systemctl reboot|poweroff`.
     systemctl: Option<channel::Sender<i32>>,
     menus_opened: u64,
-    /// Audio, media and Bluetooth from `mywm-shell-services`.
+    /// Audio, media and Bluetooth from `splice-shell-services`.
     pub services: crate::shell_services::Services,
     /// Night light, addresses and the command center's other own parts.
     pub control: crate::shell_control::Control,
@@ -172,9 +172,9 @@ pub struct Shell {
     presses: u64,
 }
 
-fn palette(config: &mywm_config::Config) -> Palette {
+fn palette(config: &splice_config::Config) -> Palette {
     let a = &config.appearance;
-    let color = |c: mywm_config::HexColor| mywm_ui::Color::parse(&c.css()).unwrap_or(mywm_ui::Color::TRANSPARENT);
+    let color = |c: splice_config::HexColor| splice_ui::Color::parse(&c.css()).unwrap_or(splice_ui::Color::TRANSPARENT);
     Palette {
         background: color(a.background),
         surface: color(a.surface),
@@ -185,8 +185,8 @@ fn palette(config: &mywm_config::Config) -> Palette {
     }
 }
 
-fn load_theme(config: &mywm_config::Config) -> Theme {
-    let json = mywm_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
+fn load_theme(config: &splice_config::Config) -> Theme {
+    let json = splice_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
     Theme::new(palette(config), json.as_deref())
 }
 
@@ -198,7 +198,7 @@ fn clock_text(language: Language) -> (String, Duration) {
 }
 
 pub fn paint<T: Clone>(scene: Scene<T>, fonts: &mut Fonts, scale: f64) -> Option<Painted<T>> {
-    let pixmap = mywm_ui::paint::paint(&scene, fonts, scale as f32)?;
+    let pixmap = splice_ui::paint::paint(&scene, fonts, scale as f32)?;
     let pixels = (pixmap.width() as i32, pixmap.height() as i32);
     let buffer = MemoryRenderBuffer::from_slice(pixmap.data(), Fourcc::Abgr8888, pixels, 1, Transform::Normal, None);
     Some(Painted { scene, buffer, pixels })
@@ -231,7 +231,7 @@ pub fn stretched(
 }
 
 impl Shell {
-    pub fn new(config: &mywm_config::Config) -> Self {
+    pub fn new(config: &splice_config::Config) -> Self {
         let time_language = clock::time_language();
         Self {
             enabled: config.builtin_shell,

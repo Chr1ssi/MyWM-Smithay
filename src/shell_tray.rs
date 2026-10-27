@@ -2,8 +2,8 @@
 //! opens its menu if it has only a menu), the middle button activates it otherwise, the right button opens its
 //! menu, the wheel scrolls it. The menu opens below the bar at the right edge (one at a time, closing the panels);
 //! a click into it gives it the keyboard, a click elsewhere closes it.
-use mywm_shell_protocol::{Command, MenuEntry, Toggle, TrayItem, TrayStatus};
-use mywm_ui::{
+use splice_shell_protocol::{Command, MenuEntry, Toggle, TrayItem, TrayStatus};
+use splice_ui::{
     bar::TrayIcon,
     markup,
     scene::Picture,
@@ -211,7 +211,7 @@ impl State {
 
     pub fn tray_menu_scroll(&mut self, steps: f32) {
         if let Some(menu) = &mut self.shell.tray_menu {
-            let scroll = (menu.scroll - steps * mywm_ui::panel::SCROLL_STEP).clamp(0.0, menu.max_scroll);
+            let scroll = (menu.scroll - steps * splice_ui::panel::SCROLL_STEP).clamp(0.0, menu.max_scroll);
             if scroll != menu.scroll {
                 menu.scroll = scroll;
                 self.shell_changed();

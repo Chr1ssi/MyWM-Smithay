@@ -2,7 +2,7 @@
 """A media player for the MPRIS tests on the session bus in $DBUS_SESSION_BUS_ADDRESS: it plays the title given as
 the first argument, by an artist and with a cover (`file://` URL) if given as the second and third. Play, Pause,
 Next and Previous are appended to the file named by the fourth argument, if any, one line each, and change what
-it plays; `org.mywm.Test.SetPlaying(b)` on /org/mpris/MediaPlayer2 starts or pauses it from outside."""
+it plays; `org.splice.Test.SetPlaying(b)` on /org/mpris/MediaPlayer2 starts or pauses it from outside."""
 import sys
 
 import dbus
@@ -81,11 +81,11 @@ class Player(dbus.service.Object):
     def Previous(self):
         self.called("Previous")
 
-    @dbus.service.method("org.mywm.Test", in_signature="b")
+    @dbus.service.method("org.splice.Test", in_signature="b")
     def SetPlaying(self, playing):
         self.playing(playing)
 
 
 Player()
-name = dbus.service.BusName("org.mpris.MediaPlayer2.mywmtest", bus)
+name = dbus.service.BusName("org.mpris.MediaPlayer2.splicetest", bus)
 GLib.MainLoop().run()

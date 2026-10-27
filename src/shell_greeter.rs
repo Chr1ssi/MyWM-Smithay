@@ -1,21 +1,21 @@
-//! The built-in login screen (`mywm-compositor --greeter` without a command; as mywm-shell's `greeter.qml`): the
+//! The built-in login screen (`splice-compositor --greeter` without a command; as splice-shell's `greeter.qml`): the
 //! lock screen's card with a field for the user, the sessions to choose from and restart and shut down, shown
 //! behind the compositor's own lock from the start, so nothing but it can be reached.
 //!
-//! A login runs `mywm-shell-services --login` in a process of its own (greetd's IPC, see `login.rs` there) and
+//! A login runs `splice-shell-services --login` in a process of its own (greetd's IPC, see `login.rs` there) and
 //! follows what it tells line by line. Once greetd starts the session the compositor ends, as greetd waits for
 //! the greeter to end before it starts the session.
 //!
-//! Environment (set by the NixOS module): `MYWM_GREETER_USER` (the user it starts with),
-//! `MYWM_GREETER_BACKGROUND` (its image), `MYWM_GREETER_SESSIONS` (directory of the sessions' `.desktop` files).
+//! Environment (set by the NixOS module): `SPLICE_GREETER_USER` (the user it starts with),
+//! `SPLICE_GREETER_BACKGROUND` (its image), `SPLICE_GREETER_SESSIONS` (directory of the sessions' `.desktop` files).
 use std::{
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
-use mywm_shell_protocol::{LoginEvent, LoginRequest};
-use mywm_ui::{edit::Input, lock_screen::LockMessage};
+use splice_shell_protocol::{LoginEvent, LoginRequest};
+use splice_ui::{edit::Input, lock_screen::LockMessage};
 use smithay::reexports::calloop::channel;
 
 use crate::State;
@@ -82,7 +82,7 @@ fn login(request: &LoginRequest, attempt: u64, events: &channel::Sender<(u64, Op
             return;
         }
     };
-    let mut line = mywm_shell_protocol::encode(request);
+    let mut line = splice_shell_protocol::encode(request);
     // Dropping stdin ends the request for the helper, which reads to the end.
     if let Some(mut stdin) = child.stdin.take()
         && let Err(error) = stdin.write_all(line.as_bytes())
@@ -93,7 +93,7 @@ fn login(request: &LoginRequest, attempt: u64, events: &channel::Sender<(u64, Op
     if let Some(stdout) = child.stdout.take() {
         for line in BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
-            match mywm_shell_protocol::decode::<LoginEvent>(&line) {
+            match splice_shell_protocol::decode::<LoginEvent>(&line) {
                 Some(event) => {
                     let _ = events.send((attempt, Some(event)));
                 }
@@ -110,17 +110,17 @@ impl State {
     /// `--greeter` without a command: the shell draws the login screen (and nothing of a session).
     pub fn greeter_setup(&mut self) {
         let variable = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-        let directory = variable("MYWM_GREETER_SESSIONS").unwrap_or_else(|| DEFAULT_SESSIONS.to_owned());
+        let directory = variable("SPLICE_GREETER_SESSIONS").unwrap_or_else(|| DEFAULT_SESSIONS.to_owned());
         let sessions = read_sessions(Path::new(&directory));
         if sessions.is_empty() {
             tracing::error!("no sessions to start in {directory}");
         }
         self.shell.enabled = true;
         self.shell.lock.greeter = Some(Greeter {
-            user: Input::new(&variable("MYWM_GREETER_USER").unwrap_or_default()),
+            user: Input::new(&variable("SPLICE_GREETER_USER").unwrap_or_default()),
             sessions,
             session: 0,
-            background: variable("MYWM_GREETER_BACKGROUND").map(PathBuf::from),
+            background: variable("SPLICE_GREETER_BACKGROUND").map(PathBuf::from),
             started: false,
             events: None,
         });
@@ -240,12 +240,12 @@ mod tests {
     #[test]
     fn sessions_read_like_greeter_qml() {
         let files = vec![
-            ("other.desktop".into(), "[Desktop Entry]\nName=Andere\nExec=/run/other-launch --flag %U\n".into()),
-            ("mywm.desktop".into(), "[Desktop Entry]\nName=mywm\nName[de]=MyWM\nExec=/run/mywm-launch\nType=Application\n".into()),
+            ("sway.desktop".into(), "[Desktop Entry]\nName=Andere\nExec=/run/other-launch --flag %U\n".into()),
+            ("splice.desktop".into(), "[Desktop Entry]\nName=splice\nName[de]=Splice\nExec=/run/splice-launch\nType=Application\n".into()),
             ("broken.desktop".into(), "[Desktop Entry]\nName=Ohne Befehl\n".into()),
         ];
         assert_eq!(sessions(files), vec![
-            Session { name: "mywm".into(), command: vec!["/run/mywm-launch".into()] },
+            Session { name: "splice".into(), command: vec!["/run/splice-launch".into()] },
             Session { name: "Andere".into(), command: vec!["/run/other-launch".into(), "--flag".into()] },
         ]);
     }

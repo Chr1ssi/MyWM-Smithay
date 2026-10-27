@@ -1,9 +1,9 @@
 [package]
-name = "mywm-compositor"
+name = "splice-compositor"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Smithay-based Wayland compositor for MyWM"
+description = "Smithay-based Wayland compositor for Splice"
 
 [patch.crates-io]
 # smithay 0.7.0 plus a few small patches; see vendor/README.md.
@@ -14,18 +14,18 @@ members = [".", "crates/*"]
 exclude = ["vendor/smithay"]
 
 [dependencies]
-mywm-layout = { path = "crates/mywm-layout" }
-mywm-theme = { path = "crates/mywm-theme" }
-mywm-config = { path = "crates/mywm-config" }
+splice-layout = { path = "crates/splice-layout" }
+splice-theme = { path = "crates/splice-theme" }
+splice-config = { path = "crates/splice-config" }
 png = "0.17"
-# Already built for mywm-theme; decodes the wallpaper.
+# Already built for splice-theme; decodes the wallpaper.
 image = "0.25"
 libc = "0.2"
-mywm-ipc = { path = "crates/mywm-ipc" }
+splice-ipc = { path = "crates/splice-ipc" }
 # The built-in shell's pictures (bar, power menu, notices).
-mywm-ui = { path = "crates/mywm-ui" }
+splice-ui = { path = "crates/splice-ui" }
 # What the shell services process says and is told.
-mywm-shell-protocol = { path = "crates/mywm-shell-protocol" }
+splice-shell-protocol = { path = "crates/splice-shell-protocol" }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_egl",

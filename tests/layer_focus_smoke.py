@@ -7,7 +7,7 @@ Needs `cargo build --workspace`. Run from the repository root with $DISPLAY set:
 import subprocess, time, select
 from smoke_support import Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 
 comp = Compositor(windows=1)
 try:

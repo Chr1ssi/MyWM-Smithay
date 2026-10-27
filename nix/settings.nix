@@ -25,7 +25,7 @@ let
   ];
 in
 rustPlatform.buildRustPackage {
-  pname = "mywm-settings";
+  pname = "splice-settings";
   version = "0.1.0";
 
   # Only what cargo reads and the desktop entry, so that changes to the tests, docs or flake inputs
@@ -38,31 +38,31 @@ rustPlatform.buildRustPackage {
       ../src
       ../crates
       ../vendor/smithay
-      ../scripts/mywm-settings.desktop
+      ../scripts/splice-settings.desktop
     ];
   };
 
   cargoLock.lockFile = ../Cargo.lock;
-  cargoBuildFlags = [ "-p" "mywm-settings" ];
-  # Logic tests run in development (`cargo test -p mywm-settings`); the window test needs a display.
+  cargoBuildFlags = [ "-p" "splice-settings" ];
+  # Logic tests run in development (`cargo test -p splice-settings`); the window test needs a display.
   doCheck = false;
 
   nativeBuildInputs = [ pkg-config makeWrapper ];
   buildInputs = runtimeLibraries;
 
   postInstall = ''
-    install -Dm644 scripts/mywm-settings.desktop $out/share/applications/mywm-settings.desktop
+    install -Dm644 scripts/splice-settings.desktop $out/share/applications/splice-settings.desktop
   '';
 
   # The window toolkit opens Wayland, X11 and GL at run time.
   postFixup = ''
-    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/mywm-settings
+    patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/splice-settings
   '';
 
   meta = {
-    description = "Graphical settings and keybinding editor for mywm";
+    description = "Graphical settings and keybinding editor for splice";
     homepage = "https://github.com/Chr1ssi/MyWM-Smithay";
-    mainProgram = "mywm-settings";
+    mainProgram = "splice-settings";
     platforms = lib.platforms.linux;
   };
 }

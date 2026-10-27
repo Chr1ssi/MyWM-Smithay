@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, ffi::OsString, sync::Arc, time::Instant};
 
 use crate::{screencopy::PendingCopy, cursor::CursorAssets, desktop::Desktop, monitors::OutputEntry, session::SessionLock, udev::UdevData};
-use mywm_config::{Binding, Config, Modifiers};
+use splice_config::{Binding, Config, Modifiers};
 use smithay::{
     desktop::{PopupManager, Space, Window},
     output::Output,
@@ -140,14 +140,14 @@ pub struct State {
     /// The bar client that confirms logouts (`handle-logout`), if one registered.
     pub logout_handler: Option<u64>,
     /// What dynamic screen casts show, and the bar-socket clients (the portal's streams) that follow it.
-    pub cast_target: mywm_ipc::CastTarget,
+    pub cast_target: splice_ipc::CastTarget,
     pub cast_followers: std::collections::HashSet<u64>,
     /// Followers that have not been told the current target yet (sent by `ipc_flush`).
     pub cast_unsent: Vec<u64>,
     /// When wlr-screencopy last copied a frame (see `State::capturing`).
     pub last_screencopy: Option<Instant>,
     /// Where each app's floating window was last (see `floating_memory`).
-    pub floating_memory: HashMap<String, mywm_layout::Rect>,
+    pub floating_memory: HashMap<String, splice_layout::Rect>,
     /// Why the configuration file could not be loaded (the running configuration stays), for the bar.
     pub config_error: Option<String>,
     /// Bar-socket clients keeping the session from going idle (`inhibit-idle`) until they disconnect.
@@ -206,7 +206,7 @@ impl State {
         let keyboard_error = match seat.add_keyboard(xkb, config.input.repeat_delay, config.input.repeat_rate) {
             Ok(_) => None,
             Err(error) => {
-                let default = mywm_config::KeyboardConfig::default();
+                let default = splice_config::KeyboardConfig::default();
                 let error = format!("{}; using layout {:?}", keymap_error(&config.keyboard, &error), default.layout);
                 tracing::error!("{error}");
                 let xkb = XkbConfig { layout: &default.layout, ..Default::default() };
@@ -312,12 +312,12 @@ impl State {
             udev: None,
             session: None,
             dmabuf_state: DmabufState::new(),
-            // Clipboard managers and wl-copy/wl-paste use this; MYWM_NO_DATA_CONTROL=1 hides it
+            // Clipboard managers and wl-copy/wl-paste use this; SPLICE_NO_DATA_CONTROL=1 hides it
             // so the plain focus-based clipboard path can be tested.
             data_control_state: DataControlState::new::<State, _>(
                 &dh,
                 Some(&primary_selection_state),
-                |_| std::env::var_os("MYWM_NO_DATA_CONTROL").is_none(),
+                |_| std::env::var_os("SPLICE_NO_DATA_CONTROL").is_none(),
             ),
             layer_shell_state: WlrLayerShellState::new::<State>(&dh),
             pending_copies: Vec::new(),
@@ -403,7 +403,7 @@ impl State {
             Ok(new) => new,
             Err(error) => {
                 tracing::error!("config reload failed: {error}");
-                self.config_error = Some(mywm_config::one_line(&error.to_string()));
+                self.config_error = Some(splice_config::one_line(&error.to_string()));
                 self.ipc_dirty = true;
                 return;
             }
@@ -465,8 +465,8 @@ impl State {
         if with_theme {
             cmd.envs(self.config.theme_env());
             cmd.envs(self.config.terminal_env());
-            cmd.env("MYWM_LAUNCHER_X", (self.pointer_location.x as i32).to_string())
-                .env("MYWM_LAUNCHER_Y", (self.pointer_location.y as i32).to_string());
+            cmd.env("SPLICE_LAUNCHER_X", (self.pointer_location.x as i32).to_string())
+                .env("SPLICE_LAUNCHER_Y", (self.pointer_location.y as i32).to_string());
         }
         Self::spawn_reaped(cmd, &format!("{program:?}"));
     }
@@ -476,7 +476,7 @@ impl State {
         let mut cmd = std::process::Command::new("sh");
         cmd.args(["-c", command]).env("WAYLAND_DISPLAY", &self.socket_name).envs(self.config.theme_env());
         if let Some(primary) = self.primary_output_name() {
-            cmd.env("MYWM_PRIMARY_OUTPUT", primary);
+            cmd.env("SPLICE_PRIMARY_OUTPUT", primary);
         }
         let (sender, ended) = calloop::channel::channel();
         let watched = self.loop_handle.insert_source(ended, |event, _, state: &mut State| {
@@ -517,7 +517,7 @@ impl State {
 }
 
 /// Why `keyboard`'s keymap is not in use, for the log and the bar.
-fn keymap_error(keyboard: &mywm_config::KeyboardConfig, error: &smithay::input::keyboard::Error) -> String {
+fn keymap_error(keyboard: &splice_config::KeyboardConfig, error: &smithay::input::keyboard::Error) -> String {
     format!(
         "[keyboard] layout {:?}, variant {:?}, options {:?}: {error}",
         keyboard.layout, keyboard.variant, keyboard.options

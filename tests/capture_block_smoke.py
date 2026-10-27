@@ -6,7 +6,7 @@ Needs `cargo build --workspace`, grim and ImageMagick. Run from the repository r
 import glob, re, subprocess, tempfile, time
 from smoke_support import Compositor, wait
 
-CAPTURE = "./target/debug/mywm-capture-test"
+CAPTURE = "./target/debug/splice-capture-test"
 BLACK = "000000"
 
 
@@ -45,7 +45,7 @@ def black_pixels(path):
 
 
 shots = tempfile.mkdtemp()
-rule = "[[rules]]\napp_id = 'mywm.test.*'\nblock_from_capture = true\n"
+rule = "[[rules]]\napp_id = 'splice.test.*'\nblock_from_capture = true\n"
 comp = Compositor(config=rule, windows=1, top=f'screenshot_directory = "{shots}"\n')
 try:
     time.sleep(3)

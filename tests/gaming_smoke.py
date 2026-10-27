@@ -7,7 +7,7 @@ Needs swayidle and `cargo build --workspace`. Run from the repository root with 
 import os, subprocess, time
 from smoke_support import Bar, Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 idle_dir = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"gaming-idle-{os.getpid()}")
 os.makedirs(idle_dir, exist_ok=True)
 IDLE = f"{idle_dir}/idle"

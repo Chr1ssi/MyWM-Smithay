@@ -30,7 +30,7 @@ def pixel(path, x, y):
     return out.strip().splitlines()[-1].split()[2].upper()[:7]
 
 
-comp = Compositor(windows=1, extra_env={"MYWM_VIRTUAL_OUTPUTS": "1"})
+comp = Compositor(windows=1, extra_env={"SPLICE_VIRTUAL_OUTPUTS": "1"})
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 2 and s[0]["workspaces"].get(1))

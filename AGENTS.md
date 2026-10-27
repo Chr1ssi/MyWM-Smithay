@@ -1,4 +1,4 @@
-# MyWM-Smithay
+# Splice
 
 Smithay-based Wayland compositor: lightweight, with a small set of selected visual
 effects. Priorities, in this order of weight: **stability**, **ease of use**, **low
@@ -24,7 +24,7 @@ latency** (especially for gaming). Primary target is **NixOS**.
   a misbehaving client must never be able to kill the compositor.
 - **Ease of use.** Sensible defaults, a small config surface, clear error messages.
   Keep the config schema stable (existing `config.toml` files must keep loading) and the bar
-  protocol (`mywm-ipc`) compatible with its clients unless the user decides otherwise.
+  protocol (`splice-ipc`) compatible with its clients unless the user decides otherwise.
 - **Effects stay selective.** Rounded corners, transparency, shadows, animations and
   blur exist already (`docs/effects.md`). New effects need a clear benefit, must be
   switchable, and must be cheap.
@@ -55,10 +55,10 @@ latency** (especially for gaming). Primary target is **NixOS**.
 - Smithay is vendored in `vendor/smithay` with a small patch set (`vendor/README.md`).
   Keep that patch set minimal, prefer upstream APIs, and update `vendor/README.md`
   whenever the patches change.
-- `crates/mywm-layout`, `mywm-config` and `mywm-ipc` stay free of compositor
+- `crates/splice-layout`, `splice-config` and `splice-ipc` stay free of compositor
   dependencies and keep their unit tests.
 - Update `README.md` / `docs/` when behavior, config options or protocols change, and
-  `crates/mywm-config/example.toml` when the schema changes.
+  `crates/splice-config/example.toml` when the schema changes.
 
 ## Testing
 

@@ -6,7 +6,7 @@ Needs `cargo build --workspace`. Run from the repository root with $DISPLAY set:
 import os, subprocess, tempfile, time
 from smoke_support import Bar, Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 marker = tempfile.mktemp()
 CONFIG = f"""
 [bindings]
@@ -15,7 +15,7 @@ focus_urgent = ["Super+u"]
 [program_bindings.notes]
 keys = ["Super+o"]
 command = ["touch", "{marker}"]
-app_id = "mywm.test.n*"
+app_id = "splice.test.n*"
 """
 
 
@@ -33,7 +33,7 @@ try:
     os.remove(marker)
     print("runs the command without a window OK")
 
-    subprocess.Popen([CLIENT, "named", "30", "mywm.test.notes", "-"], env=comp.env(), stdout=subprocess.DEVNULL)
+    subprocess.Popen([CLIENT, "named", "30", "splice.test.notes", "-"], env=comp.env(), stdout=subprocess.DEVNULL)
     assert wait(lambda: windows(comp) == 1, 10)
     assert bar.send("new-workspace 1") == "v1 ok"
     bar.until(lambda s: s[0]["active"] == 2)

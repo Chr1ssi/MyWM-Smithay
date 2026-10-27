@@ -71,7 +71,7 @@ impl State {
     }
 
     /// `choose-source` from the screen-sharing portal: the overview opens on every monitor to pick from.
-    pub fn start_share_chooser(&mut self, client: u64, kinds: mywm_ipc::SourceKinds) -> bool {
+    pub fn start_share_chooser(&mut self, client: u64, kinds: splice_ipc::SourceKinds) -> bool {
         if self.selecting.is_some() || self.overview_open() || self.session_lock.is_active() {
             return false;
         }
@@ -329,7 +329,7 @@ fn save(directory: PathBuf, width: u32, height: u32, mut pixels: Vec<u8>, waylan
             }
         }
         let _ = Command::new("notify-send")
-            .args(["-a", "mywm", "-i"])
+            .args(["-a", "splice", "-i"])
             .arg(&path)
             .arg("Screenshot")
             .arg(path.display().to_string())

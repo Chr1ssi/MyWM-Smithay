@@ -1,6 +1,8 @@
-# mywm-compositor
+<p align="center"><img src="assets/splice.svg" alt="Splice" width="160"></p>
 
-Smithay-basierter Wayland-Compositor für [MyWM](https://github.com/Chr1ssi/mywm):
+# splice-compositor
+
+Smithay-basierter Wayland-Compositor für [Splice](https://github.com/Chr1ssi/mywm):
 leicht, latenzarm (Gaming) und mit sauberem Screen-Capture (Streaming).
 
 ## Status
@@ -22,13 +24,13 @@ Spiele laufen nativ (SDL: `SDL_VIDEODRIVER=wayland`, Proton: `PROTON_ENABLE_WAYL
 
 Aufbau:
 
-- `crates/mywm-layout` – Scrolling, Workspaces, Geometrie (ohne Compositor-Abhängigkeit, mit Tests)
-- `crates/mywm-config` – TOML-Konfiguration (`~/.config/mywm/config.toml` oder `$MYWM_CONFIG`).
-  Beispiel: `crates/mywm-config/example.toml`
-- `crates/mywm-shell-services`, `crates/mywm-shell-protocol` – Dienstprozess der eingebauten Shell (PipeWire, MPRIS,
+- `crates/splice-layout` – Scrolling, Workspaces, Geometrie (ohne Compositor-Abhängigkeit, mit Tests)
+- `crates/splice-config` – TOML-Konfiguration (`~/.config/splice/config.toml` oder `$SPLICE_CONFIG`).
+  Beispiel: `crates/splice-config/example.toml`
+- `crates/splice-shell-services`, `crates/splice-shell-protocol` – Dienstprozess der eingebauten Shell (PipeWire, MPRIS,
   BlueZ, Benachrichtigungsdienst) und seine Nachrichten
-- `crates/mywm-ui` – Bilder der eingebauten Shell (Bar, Powermenü, Hinweise; `builtin_shell = true`, siehe `docs/shell.md`)
-- `crates/mywm-ipc` – Steuerprotokoll `v1` des Bar-Sockets (Befehle, Zustands-Snapshot)
+- `crates/splice-ui` – Bilder der eingebauten Shell (Bar, Powermenü, Hinweise; `builtin_shell = true`, siehe `docs/shell.md`)
+- `crates/splice-ipc` – Steuerprotokoll `v1` des Bar-Sockets (Befehle, Zustands-Snapshot)
 - `vendor/smithay` – smithay 0.7.0 mit kleinen Patches (Layer-Shell-Toleranz, X11-Fokus; `vendor/README.md`)
 - `src/` – Compositor; `udev.rs` ist das Hardware-Backend (DRM/GBM/libinput/libseat),
   `winit.rs` der nested Entwicklungsmodus (`desktop.rs` bildet das Modell auf Smithays `Space` ab)
@@ -41,12 +43,12 @@ verglichen wurde).
 Außerdem fertig: Fensteraufnahme (`ext-foreign-toplevel-list`, `ext-image-copy-capture`;
 sie braucht ein Portal/Programm, das diese Protokolle spricht), `wlr-output-management`
 (kanshi, wlr-randr: Modus, Position, Skalierung, Drehung; Ausgänge abschalten geht nicht),
-Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `mywm-theme`, Helfer-Modi
+Wallpaper-Picker und Theme-Generierung aus dem Wallpaper (Crate `splice-theme`, Helfer-Modi
 `--theme-from-wallpaper`, `--theme-from-state` der Binary). Picker, Bar, Launcher und Sperrbildschirm zeichnet
 der Compositor selbst (siehe `docs/shell.md`). Das Wallpaper selbst zeichnet der Compositor: Er liest die Auswahl aus
-`$XDG_STATE_HOME/mywm/wallpaper.json` (sonst das erste Bild in `wallpaper_directory`), skaliert sie
+`$XDG_STATE_HOME/splice/wallpaper.json` (sonst das erste Bild in `wallpaper_directory`), skaliert sie
 einmal in einem eigenen Thread über alle Monitore und lädt sie beim Theme-Reload des Pickers neu.
-Die Farben (`$XDG_STATE_HOME/mywm/theme.json`, Rollennamen wie bei Material You) kommen aus den
+Die Farben (`$XDG_STATE_HOME/splice/theme.json`, Rollennamen wie bei Material You) kommen aus den
 Farbfamilien des Bildes: Die drei nach Fläche × Sättigung stärksten werden primary, secondary und
 tertiary, die Flächen nehmen den Farbton der dunklen Bildbereiche an, error ist immer ein kräftiges Rot,
 und die Terminalfarben behalten ihre Rolle (rot bleibt rot), drehen sich aber zu den Farben des Bildes.
@@ -57,7 +59,7 @@ Ragen gekachelte Fenster über den linken oder rechten Rand eines Monitors hinau
 einen 5 Pixel breiten Streifen in der Farbe des aktiven Rahmens und hält ihn frei von Fenstern (früher zwei
 Panel-Fenster der Shell pro Monitor).
 
-Screen-Sharing ohne `xdg-desktop-portal-wlr`: `mywm-portal` fragt im Compositor nach Fenster oder Monitor
+Screen-Sharing ohne `xdg-desktop-portal-wlr`: `splice-portal` fragt im Compositor nach Fenster oder Monitor
 und streamt über PipeWire (`docs/streaming.md`). Es übernimmt auch das Inhibit-Portal, damit Programme wie
 Firefox, die darüber die Sperre verhindern, den Bildschirm wirklich wach halten.
 
@@ -66,7 +68,7 @@ Scrollrichtung, Tastenwiederholung), `keyboard-shortcuts-inhibit` (mit `Super+Sh
 zurück), `xdg-activation` (Fenster mit Aufmerksamkeitswunsch bekommen einen roten Rahmen) und `wlr-gamma-control`
 (Nachtlicht mit gammastep/wlsunset, nur Hardware).
 
-Einstellungen und Tastenbelegung per Fenster: `mywm-settings` (`docs/settings.md`), schreibt direkt in die Config-Datei
+Einstellungen und Tastenbelegung per Fenster: `splice-settings` (`docs/settings.md`), schreibt direkt in die Config-Datei
 (auch hinter einem Dotfiles-Symlink) und lässt den Compositor neu laden.
 
 Offen: Hardware-Verifikation von Hotplug, Late Scheduling, den neuen Protokollen, der Effekt-Shader und des Nachtlichts.
@@ -75,7 +77,7 @@ Offen: Hardware-Verifikation von Hotplug, Late Scheduling, den neuen Protokollen
 
 Unter NixOS liefert `nix develop` alle Build-Abhängigkeiten (plus clippy, rustfmt, rust-analyzer); `cargo` wird
 darin aufgerufen. Ohne Nix (Debian/Ubuntu): `libwayland-dev libxkbcommon-dev libinput-dev
-libseat-dev libgbm-dev libdrm-dev libudev-dev libegl-dev libgles-dev`; für `mywm-portal` zusätzlich
+libseat-dev libgbm-dev libdrm-dev libudev-dev libegl-dev libgles-dev`; für `splice-portal` zusätzlich
 `libpipewire-0.3-dev libspa-0.2-dev clang`.
 
 ```sh
@@ -85,7 +87,7 @@ cargo test --workspace    # Layout, Config, Protokoll
 
 Die nested Smoke-Tests (`tests/*_smoke.py`) laufen unter NixOS gegen eigene Xvfb-Server, die die echte
 Sitzung in Ruhe lassen (sie bewegen den X-Zeiger und tippen ins Fenster). Vier Tests laufen gleichzeitig, jeder
-auf seinem eigenen Xvfb; `MYWM_SMOKE_JOBS` ändert die Zahl (`1`: nacheinander). Ein Test darf deshalb nur seine
+auf seinem eigenen Xvfb; `SPLICE_SMOKE_JOBS` ändert die Zahl (`1`: nacheinander). Ein Test darf deshalb nur seine
 eigenen Prozesse beenden, nie per Name alle:
 
 ```sh
@@ -112,17 +114,17 @@ PYTHONPATH=tests python3 tests/x11_focus_smoke.py     # Tastatur in X11-Fenstern
 PYTHONPATH=tests python3 tests/scroll_clip_smoke.py   # herausgescrollte Fenster erscheinen nicht auf dem Nachbarmonitor
 PYTHONPATH=tests python3 tests/edge_markers_smoke.py  # Randstreifen, wenn Fenster über den Rand hinausragen
 PYTHONPATH=tests python3 tests/output_management_smoke.py  # wlr-randr: Position/Skalierung
-PYTHONPATH=tests python3 tests/image_capture_smoke.py # Fenster-/Monitoraufnahme (crates/mywm-capture-test)
+PYTHONPATH=tests python3 tests/image_capture_smoke.py # Fenster-/Monitoraufnahme (crates/splice-capture-test)
 PYTHONPATH=tests python3 tests/effects_smoke.py       # runde Ecken, Transparenz, Schatten, Fade, Blur (braucht swaybg)
 PYTHONPATH=tests python3 tests/screenshot_smoke.py    # eingebaute Screenshots
 PYTHONPATH=tests python3 tests/overview_smoke.py      # Workspace-Übersicht
 PYTHONPATH=tests python3 tests/layer_focus_smoke.py    # Launcher/Picker bekommen die Tastatur ohne Klick
 PYTHONPATH=tests python3 tests/stacking_smoke.py      # Vollbild über der Bar, Rahmen unter Overlays
-PYTHONPATH=tests python3 tests/attention_smoke.py     # Shortcut-Inhibit und Urgent-Rahmen (crates/mywm-test-client)
+PYTHONPATH=tests python3 tests/attention_smoke.py     # Shortcut-Inhibit und Urgent-Rahmen (crates/splice-test-client)
 PYTHONPATH=tests python3 tests/pointer_focus_smoke.py # gesperrter Zeiger (Spiel) wird beim Workspace-Wechsel frei
 PYTHONPATH=tests python3 tests/settings_smoke.py      # Einstellungs-GUI: Taste aufnehmen, speichern, Duplikate
-PYTHONPATH=tests python3 tests/portal_smoke.py        # mywm-portal: D-Bus, Auswahl im Compositor, PipeWire (braucht pipewire, wireplumber, dbus-daemon, gst)
-PYTHONPATH=tests python3 tests/portal_bus_smoke.py    # mywm-portal endet mit seinem D-Bus
+PYTHONPATH=tests python3 tests/portal_smoke.py        # splice-portal: D-Bus, Auswahl im Compositor, PipeWire (braucht pipewire, wireplumber, dbus-daemon, gst)
+PYTHONPATH=tests python3 tests/portal_bus_smoke.py    # splice-portal endet mit seinem D-Bus
 PYTHONPATH=tests python3 tests/signals_smoke.py       # gestartete Programme erben keine blockierten Signale
 PYTHONPATH=tests python3 tests/builtin_shell_smoke.py # eingebaute Shell: Bar, Powermenü, Hinweise
 PYTHONPATH=tests python3 tests/shell_services_smoke.py # Dienstprozess: Lautstärke, Medien, Bluetooth, Neustart
@@ -139,7 +141,7 @@ PYTHONPATH=tests python3 tests/greeter_smoke.py       # eingebauter Anmeldebilds
 ```
 
 Im nested Betrieb gehört Super dem Host: Alle `Super`-Bindings gelten dort als
-**Alt** (Bindings mit `Super+Alt` entfallen). `MYWM_MODKEY=super` schaltet das ab,
+**Alt** (Bindings mit `Super+Alt` entfallen). `SPLICE_MODKEY=super` schaltet das ab,
 etwa unter einem Host ohne eigene Super-Belegung. Standard-Bindings: siehe
 `example.toml`; die Standardtastatur ist `de`.
 

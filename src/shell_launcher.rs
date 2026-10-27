@@ -1,11 +1,11 @@
-//! The launcher of the built-in shell (`shell.qml`), for the launcher binding while `launcher` is mywm's own: the
-//! applications come from the desktop entries, read by `mywm-shell-services` (at its start and at every opening, so
+//! The launcher of the built-in shell (`shell.qml`), for the launcher binding while `launcher` is splice's own: the
+//! applications come from the desktop entries, read by `splice-shell-services` (at its start and at every opening, so
 //! new ones show up), their icons after them. Open, it holds the keyboard; clicks beside it go to the windows, as
 //! they went past the Quickshell window. Starting an application, Escape or the binding of a lock closes it.
 use std::collections::HashMap;
 
-use mywm_shell_protocol::{Application, Command, Image};
-use mywm_ui::{
+use splice_shell_protocol::{Application, Command, Image};
+use splice_ui::{
     edit::Input,
     launcher::{self, AppView, LauncherModel, LauncherTarget, Searchable},
     panel::SCROLL_STEP,
@@ -54,7 +54,7 @@ impl State {
         if self.shell.launcher.is_some() {
             return;
         }
-        // The monitor under the pointer (`MYWM_LAUNCHER_X`/`_Y`), else the first.
+        // The monitor under the pointer (`SPLICE_LAUNCHER_X`/`_Y`), else the first.
         let under = self.space.output_under(self.pointer_location).next().cloned();
         let Some(output) = under.or_else(|| self.outputs.first().map(|e| e.output.clone())) else { return };
         // The panel, the tray menu and the wallpaper picker lost the keyboard to it, which closed their windows.
@@ -185,7 +185,7 @@ impl State {
             LauncherTarget::Search => {
                 let Some(launcher) = self.shell.launcher.as_ref() else { return };
                 let (Some(geo), Some((x, _))) = (self.space.output_geometry(&launcher.output), self.launcher_origin()) else { return };
-                let field_x = (self.pointer_location.x - f64::from(geo.loc.x) - x) as f32 - mywm_ui::theme::PANEL_PADDING;
+                let field_x = (self.pointer_location.x - f64::from(geo.loc.x) - x) as f32 - splice_ui::theme::PANEL_PADDING;
                 let output = (geo.size.w as f32, geo.size.h as f32);
                 let query = launcher.query.clone();
                 let Some(fonts) = self.shell.fonts.as_mut() else { return };

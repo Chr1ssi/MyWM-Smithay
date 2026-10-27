@@ -1,0 +1,22 @@
+[package]
+name = "splice-settings"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Graphical settings and keybinding editor for the Splice compositor"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "splice-settings"
+path = "src/main.rs"
+
+[dependencies]
+splice-config = { path = "../splice-config" }
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+toml_edit = "0.25"
+serde_json = "1.0.145"
+png = "0.17"
+# Pressed keys named as the configured layout names them.
+xkbcommon = { version = "0.8", default-features = false }

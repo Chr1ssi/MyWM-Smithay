@@ -1,8 +1,8 @@
 //! The calendar panel's own parts in the built-in shell: the events of the month shown and the calendars come from
-//! the `mywm-calendar` helper (khal) on threads of their own, the form creates events with it, and its fields take
+//! the `splice-calendar` helper (khal) on threads of their own, the form creates events with it, and its fields take
 //! the keyboard. Every opening of the panel starts afresh on today, as the Quickshell panel's loader did; answers
 //! for an earlier opening are dropped.
-use mywm_ui::{
+use splice_ui::{
     bar::Panel,
     calendar::{self, CalendarError, CalendarModel, CalendarTarget, Date, EventView, Field, Form},
     clock::LocalTime,
@@ -15,7 +15,7 @@ use smithay::{
 
 use crate::State;
 
-const HELPER: &str = "mywm-calendar";
+const HELPER: &str = "splice-calendar";
 
 #[derive(Default)]
 pub struct Calendar {
@@ -203,7 +203,7 @@ impl State {
             CalendarTarget::Create => self.calendar_create(),
             CalendarTarget::OpenApp => {
                 let title = self.shell.language.tr("Kalender");
-                let command = ["foot", "--app-id", "mywm-calendar", "--title", title, HELPER, "app"].map(str::to_owned);
+                let command = ["foot", "--app-id", "splice-calendar", "--title", title, HELPER, "app"].map(str::to_owned);
                 self.spawn_command(&command, true);
                 // The app's window takes the keyboard, which closed the Quickshell panel.
                 self.panel_close();

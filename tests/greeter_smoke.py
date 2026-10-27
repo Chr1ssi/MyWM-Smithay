@@ -1,4 +1,4 @@
-"""The built-in login screen (`mywm-compositor --greeter` without a command; as mywm-shell's test of greeter.qml)
+"""The built-in login screen (`splice-compositor --greeter` without a command; as splice-shell's test of greeter.qml)
 against a stand-in for greetd (`tests/fake_greetd.py`): the card shows on the primary monitor only, bindings do
 nothing, a wrong password is refused (the field turns red), Tab and Return pick the second session, the right
 password starts it (field codes left out) and the compositor ends with code 0, as greetd needs. The shut down button
@@ -48,9 +48,9 @@ def click(x, y):
 base = tempfile.mkdtemp()
 sessions = f"{base}/sessions"
 os.makedirs(sessions)
-with open(f"{sessions}/mywm.desktop", "w") as f:
-    f.write("[Desktop Entry]\nName=mywm\nExec=/run/mywm-launch\nType=Application\n")
-with open(f"{sessions}/other.desktop", "w") as f:
+with open(f"{sessions}/splice.desktop", "w") as f:
+    f.write("[Desktop Entry]\nName=splice\nExec=/run/splice-launch\nType=Application\n")
+with open(f"{sessions}/sway.desktop", "w") as f:
     f.write("[Desktop Entry]\nName=Andere\nExec=/run/other-launch --flag %U\n")
 # Restart and shut down must never reach the real system.
 os.makedirs(f"{base}/bin")
@@ -65,8 +65,8 @@ marker = f"{base}/binding"
 comp = None
 try:
     assert wait(lambda: "ready" in requests()), "the stand-in for greetd did not start"
-    env = {"GREETD_SOCK": f"{base}/greetd.sock", "MYWM_GREETER_USER": USER, "MYWM_GREETER_SESSIONS": sessions,
-           "LANG": "en_US.UTF-8", "MYWM_VIRTUAL_OUTPUTS": "1", "PATH": f"{base}/bin:{os.environ['PATH']}",
+    env = {"GREETD_SOCK": f"{base}/greetd.sock", "SPLICE_GREETER_USER": USER, "SPLICE_GREETER_SESSIONS": sessions,
+           "LANG": "en_US.UTF-8", "SPLICE_VIRTUAL_OUTPUTS": "1", "PATH": f"{base}/bin:{os.environ['PATH']}",
            "DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/nonexistent", "PIPEWIRE_RUNTIME_DIR": "/nonexistent"}
     config = f'[program_bindings.marker]\nkeys = ["XF86AudioRaiseVolume"]\ncommand = ["touch", "{marker}"]\n'
     comp = Compositor(config=config, extra_env=env, argv=["--greeter"])
@@ -89,7 +89,7 @@ try:
     assert wait(lambda: pixel(comp, *PASSWORD_BORDER) == ALERT, 5), pixel(comp, *PASSWORD_BORDER).hex()
     print("wrong password OK")
 
-    # Tab moves from the password to the sessions; Return picks the second (sorted by file name: other.desktop).
+    # Tab moves from the password to the sessions; Return picks the second (sorted by file name: sway.desktop).
     comp.key("Tab")
     comp.key("Tab")
     comp.key("Return")
@@ -103,7 +103,7 @@ try:
     print("login OK")
 
     # The shut down button, on a fresh login screen without a preset user.
-    fresh = {k: v for k, v in env.items() if k != "MYWM_GREETER_USER"}
+    fresh = {k: v for k, v in env.items() if k != "SPLICE_GREETER_USER"}
     comp = Compositor(extra_env=fresh, argv=["--greeter"])
     assert wait(lambda: pixel(comp, *AVATAR) != pixel(comp, 5, 795), 15), "the login card does not show"
     time.sleep(0.5)
@@ -117,7 +117,7 @@ try:
     comp.key("Return")
     type_text(PASSWORD)
     comp.key("Return")
-    assert wait(lambda: "start_session /run/mywm-launch" in requests(), 10), requests()
+    assert wait(lambda: "start_session /run/splice-launch" in requests(), 10), requests()
     assert f"create_session {USER}" in requests()[-3:], requests()
     assert wait(lambda: comp.process.poll() is not None, 10) and comp.process.returncode == 0, "the compositor did not end"
     print("user field OK")

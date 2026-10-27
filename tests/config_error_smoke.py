@@ -31,7 +31,7 @@ try:
 
     # The lock screen reads the file too (its colors); swayidle and Super+Escape depend on it. Last: the
     # session stays locked (ext-session-lock), and a locked compositor refuses most commands.
-    locker = subprocess.run(["./target/debug/mywm-compositor", "--lock"], env=comp.env(), timeout=15)
+    locker = subprocess.run(["./target/debug/splice-compositor", "--lock"], env=comp.env(), timeout=15)
     assert locker.returncode == 0, "--lock failed with a broken configuration"
     bar.until(lambda s: bar.locked, 5)
     print("locking works with a broken configuration OK")

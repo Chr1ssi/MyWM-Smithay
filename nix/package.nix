@@ -15,7 +15,7 @@
   libglvnd,
   pipewire,
   pixman, # cursor plane on rotated outputs (smithay's renderer_pixman)
-  linux-pam, # the built-in lock screen's password check (mywm-shell-services --authenticate)
+  linux-pam, # the built-in lock screen's password check (splice-shell-services --authenticate)
   swayidle,
   wlopm,
   wl-clipboard,
@@ -48,7 +48,7 @@ let
   # Only what cargo reads, so that changes to the scripts, tests, docs or the shell input do not
   # rebuild the compositor.
   unwrapped = rustPlatform.buildRustPackage {
-    pname = "mywm-unwrapped";
+    pname = "splice-unwrapped";
     version = "0.1.0";
 
     src = lib.fileset.toSource {
@@ -65,7 +65,7 @@ let
     cargoLock.lockFile = ../Cargo.lock;
 
     # The compositor, the screen-cast portal and the built-in shell's services; the test clients are not installed.
-    cargoBuildFlags = [ "-p" "mywm-compositor" "-p" "mywm-portal" "-p" "mywm-shell-services" ];
+    cargoBuildFlags = [ "-p" "splice-compositor" "-p" "splice-portal" "-p" "splice-shell-services" ];
     # The tests run in development (`cargo test --workspace`, the smoke tests in `tests/`) before
     # a dependent flake.lock follows a commit; here they would only compile everything a second time.
     doCheck = false;
@@ -80,9 +80,9 @@ let
 
     # EGL, libinput and libxkbcommon are opened at run time.
     postFixup = ''
-      patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/mywm-compositor
-      patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/mywm-portal
-      patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/mywm-shell-services
+      patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/splice-compositor
+      patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/splice-portal
+      patchelf --add-rpath ${lib.makeLibraryPath runtimeLibraries} $out/bin/splice-shell-services
     '';
 
     inherit meta;
@@ -92,14 +92,14 @@ let
     description = "Smithay-based tiling Wayland compositor with its built-in shell and screen-cast portal";
     homepage = "https://github.com/Chr1ssi/MyWM-Smithay";
     license = lib.licenses.mit;
-    mainProgram = "mywm-compositor";
+    mainProgram = "splice-compositor";
     platforms = lib.platforms.linux;
   };
 in
 # The binaries, the session scripts, the portal files and the helpers they start. A cheap copy next to
 # the Rust build, so that the scripts can change without compiling Rust again.
 stdenvNoCC.mkDerivation {
-  pname = "mywm";
+  pname = "splice";
   version = "0.1.0";
 
   src = lib.fileset.toSource {
@@ -107,6 +107,7 @@ stdenvNoCC.mkDerivation {
     fileset = lib.fileset.unions [
       ../scripts
       ../portal
+      ../assets
     ];
   };
 
@@ -119,24 +120,25 @@ stdenvNoCC.mkDerivation {
 
   installPhase = ''
     runHook preInstall
-    mkdir -p $out/bin $out/share/mywm $out/share/xdg-desktop-portal/portals $out/share/dbus-1/services $out/lib/systemd/user
-    # mywm-shell-services next to the compositor, which starts it from there.
-    cp ${unwrapped}/bin/mywm-compositor ${unwrapped}/bin/mywm-portal ${unwrapped}/bin/mywm-shell-services $out/bin/
-    cp -r scripts $out/share/mywm/
-    install -Dm644 portal/mywm.portal $out/share/xdg-desktop-portal/portals/mywm.portal
-    substitute portal/org.freedesktop.impl.portal.desktop.mywm.service \
-      $out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.mywm.service \
-      --replace-fail "/usr/bin/env mywm-portal" "$out/bin/mywm-portal"
-    substitute portal/mywm-portal.service $out/lib/systemd/user/mywm-portal.service \
-      --replace-fail "/usr/bin/env mywm-portal" "$out/bin/mywm-portal"
-    install -Dm755 scripts/mywm-session $out/bin/mywm-session
+    mkdir -p $out/bin $out/share/splice $out/share/xdg-desktop-portal/portals $out/share/dbus-1/services $out/lib/systemd/user
+    # splice-shell-services next to the compositor, which starts it from there.
+    cp ${unwrapped}/bin/splice-compositor ${unwrapped}/bin/splice-portal ${unwrapped}/bin/splice-shell-services $out/bin/
+    cp -r scripts $out/share/splice/
+    install -Dm644 portal/splice.portal $out/share/xdg-desktop-portal/portals/splice.portal
+    substitute portal/org.freedesktop.impl.portal.desktop.splice.service \
+      $out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.splice.service \
+      --replace-fail "/usr/bin/env splice-portal" "$out/bin/splice-portal"
+    substitute portal/splice-portal.service $out/lib/systemd/user/splice-portal.service \
+      --replace-fail "/usr/bin/env splice-portal" "$out/bin/splice-portal"
+    install -Dm644 assets/splice.svg $out/share/icons/hicolor/scalable/apps/splice.svg
+    install -Dm755 scripts/splice-session $out/bin/splice-session
     install -Dm755 scripts/session-environment $out/bin/session-environment
     runHook postInstall
   '';
 
   # The helpers the compositor and the session start.
   postFixup = ''
-    wrapProgram $out/bin/mywm-compositor \
+    wrapProgram $out/bin/splice-compositor \
       --prefix PATH : ${lib.makeBinPath [
         swayidle
         wlopm
@@ -149,9 +151,9 @@ stdenvNoCC.mkDerivation {
         xwayland
         coreutils
       ]}
-    wrapProgram $out/bin/mywm-session \
-      --set-default MYWM_BINARY $out/bin/mywm-compositor \
-      --set-default MYWM_SESSION_ENVIRONMENT $out/bin/session-environment \
+    wrapProgram $out/bin/splice-session \
+      --set-default SPLICE_BINARY $out/bin/splice-compositor \
+      --set-default SPLICE_SESSION_ENVIRONMENT $out/bin/session-environment \
       --prefix PATH : ${lib.makeBinPath [ dbus systemd coreutils util-linux ]}
   '';
 

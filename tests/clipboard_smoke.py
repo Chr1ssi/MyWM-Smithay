@@ -1,7 +1,7 @@
 """Copy and paste between clients (wl-clipboard) against the nested compositor.
 
 Two paths are covered: the ordinary one, where a client gets the selection because it has
-keyboard focus (MYWM_NO_DATA_CONTROL hides wlr-data-control so wl-copy/wl-paste fall back to
+keyboard focus (SPLICE_NO_DATA_CONTROL hides wlr-data-control so wl-copy/wl-paste fall back to
 it), and the data-control one used by clipboard managers.
 Needs wl-clipboard. Run from the repository root with $DISPLAY set:
     PYTHONPATH=tests python3 tests/clipboard_smoke.py
@@ -18,7 +18,7 @@ def roundtrip(comp, primary=False):
     assert pasted.stdout == b"hello from a test", (pasted.stdout, pasted.stderr)
 
 
-for name, extra in (("focus-based", {"MYWM_NO_DATA_CONTROL": "1"}), ("data-control", {})):
+for name, extra in (("focus-based", {"SPLICE_NO_DATA_CONTROL": "1"}), ("data-control", {})):
     comp = Compositor(extra_env=extra)
     try:
         time.sleep(2)

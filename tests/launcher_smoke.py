@@ -1,4 +1,4 @@
-"""The built-in shell's launcher with harmless test applications (as mywm-shell's test of the Quickshell launcher):
+"""The built-in shell's launcher with harmless test applications (as splice-shell's test of the Quickshell launcher):
 the launcher binding opens it, every word typed must match (keywords count), the selection moves with the arrows,
 Return starts the application with its arguments and working directory (in the terminal when it asks for one) and
 closes, no match starts nothing, Escape closes, a click on a row starts it, and a held Backspace repeats.

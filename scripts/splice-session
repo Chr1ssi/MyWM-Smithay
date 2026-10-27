@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Session entry point (started by the display manager): runs the compositor as the session
+# leader and, inside it, a polkit agent and the portal environment (the shell is part of the compositor).
+#
+# Environment (all optional): SPLICE_BINARY, SPLICE_POLKIT_AGENT,
+# SPLICE_SESSION_ENVIRONMENT, SPLICE_CONFIG, SPLICE_GREETER_DIR.
+set -euo pipefail
+
+binary=${SPLICE_BINARY:-splice-compositor}
+session_environment=${SPLICE_SESSION_ENVIRONMENT:-session-environment}
+export XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-splice}
+export XDG_SESSION_DESKTOP=splice
+export XDG_SESSION_TYPE=wayland
+
+# A private directory isolates the control socket from other sessions and stale sockets.
+ipc_dir=$(mktemp -d "${XDG_RUNTIME_DIR:?}/splice-session.XXXXXX")
+export SPLICE_SOCKET="$ipc_dir/control.sock"
+cleanup() {
+    # Ends the session's systemd units (portal, services bound to graphical-session.target),
+    # so the next login starts them again with its own environment.
+    if systemctl --user cat splice-session.target >/dev/null 2>&1; then
+        systemctl --user stop splice-session.target graphical-session.target || true
+    fi
+    rm -f -- "$SPLICE_SOCKET" "$ipc_dir/startup.sh"
+    rmdir -- "$ipc_dir" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Colors from the last wallpaper, before anything is drawn.
+wallpaper_state="${XDG_STATE_HOME:-$HOME/.local/state}/splice/wallpaper.json"
+"$binary" --theme-from-state "$wallpaper_state" || echo 'Warning: no theme from the wallpaper' >&2
+
+# Runs inside the compositor (WAYLAND_DISPLAY is set by then) and ends with it.
+startup="$ipc_dir/startup.sh"
+cat > "$startup" <<STARTUP
+#!/usr/bin/env bash
+children=()
+"$session_environment" || echo 'Warning: portal environment incomplete' >&2
+if [ -n "\${SPLICE_POLKIT_AGENT:-}" ]; then "\$SPLICE_POLKIT_AGENT" & children+=(\$!); fi
+parent=\$PPID
+# waitpid (util-linux) sleeps until the compositor ends; without it (or if it fails) poll instead.
+waitpid -e "\$parent" 2>/dev/null || while kill -0 "\$parent" 2>/dev/null; do sleep 1; done
+kill "\${children[@]}" 2>/dev/null || true
+STARTUP
+
+# Not exec: the trap above removes the socket when the compositor ends.
+"$binary" "bash '$startup'"

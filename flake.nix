@@ -1,5 +1,5 @@
 {
-  description = "mywm – a Smithay-based tiling Wayland compositor";
+  description = "splice – a Smithay-based tiling Wayland compositor";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -17,8 +17,8 @@
         let package = packageFor nixpkgs.legacyPackages.${system};
         in {
           default = package;
-          mywm = package;
-          mywm-settings = settingsFor nixpkgs.legacyPackages.${system};
+          splice = package;
+          splice-settings = settingsFor nixpkgs.legacyPackages.${system};
         });
 
       devShells = forAllSystems (system:
@@ -28,7 +28,7 @@
           # Everything `cargo build`, `cargo test` and `cargo clippy` need, plus the runtime
           # libraries so that the nested compositor (`cargo run`) finds EGL, xkbcommon and libinput.
           default = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.default.unwrapped self.packages.${system}.mywm-settings ];
+            inputsFrom = [ self.packages.${system}.default.unwrapped self.packages.${system}.splice-settings ];
             packages = with pkgs; [ clippy rustfmt rust-analyzer ];
             # bindgen (pipewire-sys) needs libclang.
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
@@ -77,7 +77,7 @@
               gst_all_1.gstreamer
             ];
             # The built-in lock screen's test brings its own PAM service (pam_exec), never a real account.
-            MYWM_TEST_PAM_MODULES = "${pkgs.linux-pam}/lib/security";
+            SPLICE_TEST_PAM_MODULES = "${pkgs.linux-pam}/lib/security";
             # pipewiresrc, videoconvert and pngenc for the portal test.
             GST_PLUGIN_SYSTEM_PATH_1_0 = pkgs.lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" (with pkgs; [
               pipewire
@@ -89,11 +89,11 @@
         });
 
       overlays.default = final: _prev: {
-        mywm = packageFor final;
-        mywm-settings = settingsFor final;
+        splice = packageFor final;
+        splice-settings = settingsFor final;
       };
 
       nixosModules.default = import ./nix/module.nix { inherit self; };
-      nixosModules.mywm = self.nixosModules.default;
+      nixosModules.splice = self.nixosModules.default;
     };
 }

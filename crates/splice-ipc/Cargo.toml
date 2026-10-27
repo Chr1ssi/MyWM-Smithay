@@ -1,0 +1,9 @@
+[package]
+name = "splice-ipc"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Line protocol between the Splice compositor and its bar (splice-shell)"
+
+[dependencies]
+splice-layout = { path = "../splice-layout" }

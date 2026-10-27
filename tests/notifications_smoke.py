@@ -1,4 +1,4 @@
-"""The built-in shell's notifications (the service in mywm-shell-services, toasts and the notification center) on a
+"""The built-in shell's notifications (the service in splice-shell-services, toasts and the notification center) on a
 private session bus: a toast shows and hides after its time unless the pointer holds it, its "×" and its action
 answer the app over D-Bus, the app can close it, and the bell opens the notification center, which clears all,
 closes with Escape and when something else is clicked.
@@ -80,7 +80,7 @@ try:
     comp = Compositor(top="builtin_shell = true\n", extra_env=extra)
     assert wait(lambda: subprocess.run(["busctl", f"--address={address}", "status", "org.freedesktop.Notifications"],
                                        capture_output=True).returncode == 0, 15), "the notification service did not come"
-    assert call("GetServerInformation").startswith('ssss "mywm" "mywm"'), call("GetServerInformation")
+    assert call("GetServerInformation").startswith('ssss "splice" "splice"'), call("GetServerInformation")
     assert '"actions"' in call("GetCapabilities") and '"body-markup"' in call("GetCapabilities")
     subprocess.run(["xdotool", "mousemove", "300", "500"], check=True)
     time.sleep(2)

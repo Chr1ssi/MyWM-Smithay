@@ -6,7 +6,7 @@ Needs `cargo build --workspace` and grim. Run from the repository root with $DIS
 import subprocess, time
 from smoke_support import Bar, Compositor, wait
 
-CAPTURE = "./target/debug/mywm-capture-test"
+CAPTURE = "./target/debug/splice-capture-test"
 # Distinct colors: the capture border must not be the focus border.
 CONFIG = "[appearance]\nactive_border = '#0000ff'\ncapture_border = '#ff8800'\nborder_width = 4\n"
 

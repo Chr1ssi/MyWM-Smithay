@@ -20,7 +20,7 @@ comp = Compositor(top="builtin_shell = true\n", config=CONFIG)
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 1)
-    locker = subprocess.run(["./target/debug/mywm-compositor", "--lock"], env=comp.env(), timeout=15)
+    locker = subprocess.run(["./target/debug/splice-compositor", "--lock"], env=comp.env(), timeout=15)
     assert locker.returncode == 0
     bar.until(lambda s: bar.locked, 5)
     time.sleep(0.5)

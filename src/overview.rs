@@ -10,8 +10,8 @@
 //! Enter) its monitor, `d` a dynamic cast; closing it in any way answers that nothing was picked.
 use std::time::{Duration, Instant};
 
-use mywm_ipc::{Chosen, SourceKinds};
-use mywm_layout::{Rect, Workspace, arrange, place_floating};
+use splice_ipc::{Chosen, SourceKinds};
+use splice_layout::{Rect, Workspace, arrange, place_floating};
 use smithay::{
     backend::{
         input::ButtonState,

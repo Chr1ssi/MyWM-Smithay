@@ -1,0 +1,10 @@
+/* Colors for the regreet login screen, rendered by splice. */
+@define-color splice_bg {{ colors.surface.default.hex }};
+@define-color splice_panel {{ colors.surface_container.default.hex }};
+@define-color splice_field {{ colors.surface_container_high.default.hex }};
+@define-color splice_text {{ colors.on_surface.default.hex }};
+@define-color splice_border {{ colors.outline_variant.default.hex }};
+@define-color splice_hover {{ colors.surface_container_highest.default.hex }};
+@define-color splice_accent {{ colors.primary.default.hex }};
+@define-color splice_on_accent {{ colors.on_primary.default.hex }};
+@define-color splice_error {{ colors.error.default.hex }};

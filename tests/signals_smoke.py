@@ -11,7 +11,7 @@ SIGINT, SIGTERM = 2, 15
 out = None
 comp = None
 try:
-    marker = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"mywm-signals-{os.getpid()}")
+    marker = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"splice-signals-{os.getpid()}")
     # The startup command runs through a shell; its child reports the mask it was given.
     comp = Compositor(extra_args=f"grep SigBlk /proc/self/status > {marker}; ")
     assert wait(lambda: os.path.exists(marker) and open(marker).read().strip(), 10), "the startup command did not run"

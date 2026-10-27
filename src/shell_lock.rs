@@ -1,23 +1,23 @@
-//! The built-in shell's lock screen (as mywm-shell's `lock.qml`): the compositor locks the session itself
+//! The built-in shell's lock screen (as splice-shell's `lock.qml`): the compositor locks the session itself
 //! (`own_lock` in `session`), so no client draws, reaches or ends the lock, and only a password that PAM
 //! accepts unlocks it.
 //!
-//! Each check runs `mywm-shell-services --authenticate` in a process of its own, the password on its stdin:
+//! Each check runs `splice-shell-services --authenticate` in a process of its own, the password on its stdin:
 //! a PAM module that crashes ends that attempt, never the lock (one that hangs keeps it waiting, as lock.qml
 //! did). The session unlocks only when that process exits cleanly and answers `success` for the attempt still
 //! being checked.
 //!
 //! The picture: the theme's image (`source` of `theme.json`), cut to each monitor's size on a worker thread
 //! and dimmed, the theme's background until it is ready; on the primary monitor the clock and the card in
-//! front (`mywm_ui::lock_screen`), painted on the CPU when what they show changes.
+//! front (`splice_ui::lock_screen`), painted on the CPU when what they show changes.
 use std::{
     io::{Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
 };
 
-use mywm_shell_protocol::AuthOutcome;
-use mywm_ui::{
+use splice_shell_protocol::AuthOutcome;
+use splice_ui::{
     clock::{self, LocalTime},
     lock_screen::{self, LockMessage, LockModel, LockTarget},
     text::Fonts,
@@ -217,8 +217,8 @@ impl State {
         lock.source = match &lock.greeter {
             Some(greeter) => greeter.background.clone(),
             None => {
-                let json = mywm_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
-                json.as_deref().and_then(mywm_ui::theme::generated_source).map(PathBuf::from)
+                let json = splice_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
+                json.as_deref().and_then(splice_ui::theme::generated_source).map(PathBuf::from)
             }
         };
         self.shell_reload_theme();

@@ -6,7 +6,7 @@ Run from the repository root with $DISPLAY set: PYTHONPATH=tests python3 tests/f
 import subprocess
 from smoke_support import Compositor
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 
 
 def rates(process, count):

@@ -2,8 +2,8 @@
 //! whose button was clicked. A click into a panel gives it the keyboard (Escape closes it), as its window got it on
 //! demand; a button pressed anywhere but the panel and the bar closes it, as the window did when it lost the
 //! keyboard. The wheel scrolls the notification list where it is over it, else the panel's area.
-use mywm_shell_protocol::{Command, NodeKind, PlayerAction};
-use mywm_ui::{
+use splice_shell_protocol::{Command, NodeKind, PlayerAction};
+use splice_ui::{
     audio::{self, AudioModel, AudioTarget, NodeView},
     bar::Panel,
     media::{MediaTarget, PlayerView},

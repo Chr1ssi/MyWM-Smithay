@@ -1,4 +1,4 @@
-"""The built-in shell's wallpaper picker (as mywm-shell's test of the Quickshell picker): the wallpaper binding opens
+"""The built-in shell's wallpaper picker (as splice-shell's test of the Quickshell picker): the wallpaper binding opens
 it on the image in use, the filter narrows the images, Return saves the choice as a file URL once the image loads
 (the wallpaper follows, the theme is generated from it) and closes; an image that does not load is refused and the
 picker stays; no match saves nothing; Escape and a click beside the tiles close it; a click on a neighbour selects
@@ -63,7 +63,7 @@ comp = None
 try:
     extra = {"DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/nonexistent", "PIPEWIRE_RUNTIME_DIR": "/nonexistent", "LANG": "de_DE.UTF-8"}
     comp = Compositor(top=f'builtin_shell = true\nwallpaper_directory = "{images}"\n', extra_env=extra)
-    state = f"{comp.dir}/state/mywm"
+    state = f"{comp.dir}/state/splice"
     is_closed = lambda: max(pixel(comp, *CORNER)) > 120
     assert wait(is_closed, 20), "the wallpaper was not drawn"
 

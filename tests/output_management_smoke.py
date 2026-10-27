@@ -6,7 +6,7 @@ Run from the repository root with $DISPLAY set:
 import subprocess
 from smoke_support import Bar, Compositor, wait
 
-comp = Compositor(windows=1, extra_env={"MYWM_VIRTUAL_OUTPUTS": "1"})
+comp = Compositor(windows=1, extra_env={"SPLICE_VIRTUAL_OUTPUTS": "1"})
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 2)

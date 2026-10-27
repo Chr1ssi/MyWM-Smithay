@@ -1,4 +1,4 @@
-//! The built-in shell's services process (`mywm-shell-services`): started with the shell, read without ever
+//! The built-in shell's services process (`splice-shell-services`): started with the shell, read without ever
 //! blocking, and started again (after a growing pause) whenever it ends. Until it reports, and while it is down,
 //! the bar shows what the Quickshell bar showed without the services.
 use std::{
@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mywm_shell_protocol::{Event, MAX_LINE, Status, decode, encode};
+use splice_shell_protocol::{Event, MAX_LINE, Status, decode, encode};
 use smithay::reexports::calloop::{
     Interest, Mode, PostAction,
     generic::Generic,
@@ -18,7 +18,7 @@ use smithay::reexports::calloop::{
 
 use crate::State;
 
-pub const PROGRAM: &str = "mywm-shell-services";
+pub const PROGRAM: &str = "splice-shell-services";
 /// Pauses before the next start after the process ended (the last one repeats).
 const BACKOFF: [u64; 6] = [1, 2, 4, 8, 16, 30];
 /// A process that ran this long counts as healthy: the next restart waits the shortest pause again.
@@ -28,8 +28,8 @@ const AUDIO_PATIENCE: Duration = Duration::from_secs(1);
 
 /// A player as the services process reported it, its cover decoded.
 pub struct PlayerEntry {
-    pub player: mywm_shell_protocol::Player,
-    pub cover: Option<mywm_ui::scene::Picture>,
+    pub player: splice_shell_protocol::Player,
+    pub cover: Option<splice_ui::scene::Picture>,
 }
 
 #[derive(Default)]
@@ -41,7 +41,7 @@ pub struct Services {
     pub tray: Vec<crate::shell_tray::TrayEntry>,
     /// The volume and mute last asked for per node, until a report shows them: reports sent before the command
     /// arrived would set the bar or a slider (and the next wheel notch, which counts from it) back.
-    pub asked: std::collections::HashMap<u32, (mywm_shell_protocol::Audio, Instant)>,
+    pub asked: std::collections::HashMap<u32, (splice_shell_protocol::Audio, Instant)>,
     stdin: Option<ChildStdin>,
     input: Vec<u8>,
     started: Option<Instant>,
@@ -52,7 +52,7 @@ pub struct Services {
 
 /// The program next to the compositor's own binary (installed side by side), else from `PATH`.
 pub fn program() -> PathBuf {
-    mywm_config::current_exe()
+    splice_config::current_exe()
         .ok()
         .and_then(|exe| Some(exe.parent()?.join(PROGRAM)))
         .filter(|path| path.exists())
@@ -85,11 +85,11 @@ impl State {
     /// Set a node's volume (and unmute it), shown at once; the services' report confirms it.
     pub fn node_set_volume(&mut self, id: u32, volume: f32) {
         let Some(node) = self.shell.services.status.nodes.iter_mut().find(|n| n.id == id) else { return };
-        let audio = mywm_shell_protocol::Audio { volume: volume.clamp(0.0, 1.0), muted: false };
+        let audio = splice_shell_protocol::Audio { volume: volume.clamp(0.0, 1.0), muted: false };
         node.audio = Some(audio);
         self.shell.services.asked.insert(id, (audio, Instant::now()));
         self.shell_changed();
-        self.services_send(mywm_shell_protocol::Command::SetVolume { id, volume: audio.volume });
+        self.services_send(splice_shell_protocol::Command::SetVolume { id, volume: audio.volume });
     }
 
     pub fn node_toggle_mute(&mut self, id: u32) {
@@ -98,7 +98,7 @@ impl State {
         audio.muted = !audio.muted;
         self.shell.services.asked.insert(id, (*audio, Instant::now()));
         self.shell_changed();
-        self.services_send(mywm_shell_protocol::Command::ToggleMute { id });
+        self.services_send(splice_shell_protocol::Command::ToggleMute { id });
     }
 
     /// What the bar's media button says: the first playing player's title, else its name.
@@ -153,7 +153,7 @@ impl State {
         services.started = Some(Instant::now());
         // Read before the launcher first opens, as Quickshell read the entries at its start.
         if self.builtin_launcher() {
-            self.services_send(mywm_shell_protocol::Command::Applications);
+            self.services_send(splice_shell_protocol::Command::Applications);
         }
     }
 
@@ -215,7 +215,7 @@ impl State {
                     self.shell.services.players = players
                         .into_iter()
                         .map(|mut player| {
-                            let cover = player.cover.take().and_then(|c| mywm_ui::scene::Picture::from_rgba(c.width, c.height, &c.rgba));
+                            let cover = player.cover.take().and_then(|c| splice_ui::scene::Picture::from_rgba(c.width, c.height, &c.rgba));
                             PlayerEntry { player, cover }
                         })
                         .collect();
@@ -260,7 +260,7 @@ impl State {
     }
 
     /// Send `command`; dropped if the process is down or does not keep up (it never blocks the compositor).
-    pub fn services_send(&mut self, command: mywm_shell_protocol::Command) {
+    pub fn services_send(&mut self, command: splice_shell_protocol::Command) {
         let Some(stdin) = &mut self.shell.services.stdin else { return };
         match stdin.write(encode(&command).as_bytes()) {
             Ok(_) => {}

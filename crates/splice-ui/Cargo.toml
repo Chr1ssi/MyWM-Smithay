@@ -1,0 +1,14 @@
+[package]
+name = "splice-ui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Drawing of Splice's built-in shell (bar, power menu, notices): text, shapes, theme and texts"
+
+[dependencies]
+# Shaping, font fallback and line breaking; fonts come from the system's fontconfig directories.
+cosmic-text = "0.19"
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+serde_json = "1.0.145"
+libc = "0.2"
+tracing = "0.1"

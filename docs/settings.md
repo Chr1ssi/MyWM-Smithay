@@ -1,24 +1,24 @@
-# Einstellungen per GUI: `mywm-settings`
+# Einstellungen per GUI: `splice-settings`
 
 Ein eigenständiges Fenster (egui) zum Ändern von Einstellungen und Tastenbelegung. Es ist ein
-eigenes Binary und im Flake ein eigenes Paket (`packages.mywm-settings`), liegt aber in diesem
-Repo, weil es Schema, Prüfung und Tastennamen des Compositors (`mywm-config`) mitbenutzt.
+eigenes Binary und im Flake ein eigenes Paket (`packages.splice-settings`), liegt aber in diesem
+Repo, weil es Schema, Prüfung und Tastennamen des Compositors (`splice-config`) mitbenutzt.
 
 ```sh
-cargo run -p mywm-settings -- [--config /pfad/zur/config.toml]
+cargo run -p splice-settings -- [--config /pfad/zur/config.toml]
 ```
 
 ## Wie es mit der Config umgeht
 - Es bearbeitet **die Config-Datei selbst** mit `toml_edit`: Kommentare, Reihenfolge und alles, was die GUI
   nicht kennt (z. B. `[[outputs]]`), bleiben unverändert.
-- **Dotfiles und Nix:** Liegt `~/.config/mywm/config.toml` als Symlink auf eine Datei in deinem
+- **Dotfiles und Nix:** Liegt `~/.config/splice/config.toml` als Symlink auf eine Datei in deinem
   Dotfiles-Ordner (`mkOutOfStoreSymlink`), schreibt die GUI in diese Datei. Der Symlink bleibt, Git sieht die Änderung,
   und ein `switch` überschreibt nichts. Ein Pfad im Nix-Store (schreibgeschützt) wird erkannt; dann den Dotfiles-Pfad
-  unter „Datei“ eintragen (er wird gemerkt, in `~/.config/mywm-settings/config-path`).
+  unter „Datei“ eintragen (er wird gemerkt, in `~/.config/splice-settings/config-path`).
 - **Prüfung:** Vor dem Speichern prüft dieselbe Funktion wie im Compositor die Datei. Ungültiges
   (Werte außerhalb der Grenzen, doppelte Tasten, unbekannte Tasten) lässt sich nicht speichern; der Grund steht oben.
-- **Live:** Nach dem Speichern bekommt der laufende Compositor den Befehl zum Neuladen (über `MYWM_SOCKET`,
-  sonst `$XDG_RUNTIME_DIR/mywm.sock`). Felder mit „(Neustart)“ (Monitore, Idle, VRR, Xwayland, eingebaute Shell) wirken erst
+- **Live:** Nach dem Speichern bekommt der laufende Compositor den Befehl zum Neuladen (über `SPLICE_SOCKET`,
+  sonst `$XDG_RUNTIME_DIR/splice.sock`). Felder mit „(Neustart)“ (Monitore, Idle, VRR, Xwayland, eingebaute Shell) wirken erst
   nach dem nächsten Start; die GUI sagt es nach dem Speichern.
 
 ## Seiten
@@ -30,6 +30,6 @@ vom Wallpaper-Theme in `theme.json` überschrieben, wie in der Shell) und System
 sind die der Shell. Fehler und der Stand des Speicherns stehen unten im Fenster, damit sich der Inhalt nicht
 verschiebt.
 
-Aus dem Commandcenter (Zeile „Einstellungen“) startet die Shell `mywm-settings` aus dem `PATH`.
+Aus dem Commandcenter (Zeile „Einstellungen“) startet die Shell `splice-settings` aus dem `PATH`.
 
 Monitore stellt man weiter mit kanshi oder `wlr-randr` ein.

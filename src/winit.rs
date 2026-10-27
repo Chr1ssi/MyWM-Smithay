@@ -17,7 +17,7 @@ fn new_output(name: &str, model: &str, mode: Mode, state: &State) -> Output {
         PhysicalProperties {
             size: (0, 0).into(),
             subpixel: Subpixel::Unknown,
-            make: "MyWM".into(),
+            make: "Splice".into(),
             model: model.into(),
         },
     );
@@ -37,8 +37,8 @@ pub fn init(event_loop: &mut EventLoop<State>, state: &mut State) -> Result<(), 
     state.add_output(output.clone(), Some((0, 0).into()));
 
     // Extra outputs without a picture, to exercise multi-monitor logic (workspaces, focus,
-    // the bar protocol) without a second screen: MYWM_VIRTUAL_OUTPUTS=<count>.
-    let virtual_count: usize = std::env::var("MYWM_VIRTUAL_OUTPUTS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    // the bar protocol) without a second screen: SPLICE_VIRTUAL_OUTPUTS=<count>.
+    let virtual_count: usize = std::env::var("SPLICE_VIRTUAL_OUTPUTS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
     for index in 1..=virtual_count {
         let mode = Mode { size: (1280, 800).into(), refresh: 60_000 };
         let extra = new_output(&format!("virtual-{index}"), "Virtual", mode, state);

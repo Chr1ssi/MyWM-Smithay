@@ -1,0 +1,231 @@
+# Beispielkonfiguration für splice (nur zur Orientierung).
+#
+# Alle Einstellungen sind auskommentiert; es gelten die eingebauten Standardwerte.
+# Zum Anpassen die Datei nach $XDG_CONFIG_HOME/splice/config.toml kopieren und die
+# gewünschten Zeilen aktivieren (führendes "#" entfernen). Auskommentierte
+# Einstellungen stehen ohne Leerzeichen nach dem "#", erklärende Kommentare mit.
+# Auf NixOS wird die echte Konfiguration über Home Manager erzeugt.
+
+# Jeder Monitor hat einen festen Workspace, nummeriert in der Reihenfolge dieser
+# Liste (der erste Monitor bekommt 1, der zweite 2, ...). Nicht aufgeführte Monitore
+# folgen danach. Zusätzliche Workspaces (bis Nummer 9) entstehen dynamisch auf dem
+# aktuellen Monitor und verschwinden wieder, sobald sie leer sind und man sie verlässt.
+# Änderungen gelten nach Neustart.
+#workspace_outputs = ["DP-3", "HDMI-A-1", "DP-1"]
+# Fenster mit Elternfenster (z. B. Dateidialoge) standardmäßig frei schwebend.
+#float_dialogs = true
+# Ein schwebendes Fenster öffnet dort (und so groß), wo das letzte Fenster derselben App war,
+# auch nach einem Neustart (gemerkt in ~/.local/state/splice/floating). Dialoge öffnen mittig.
+# Der Gaming-Workspace entsteht auf diesem Monitor, sobald ein Spiel startet, und
+# verschwindet mit dem letzten Spielfenster wieder (Standard: Monitor mit Workspace 1).
+# Er ist ausschließlich für Spiele reserviert: andere Fenster können weder dort
+# starten noch dorthin verschoben werden. Als Spiel gilt ein Fenster mit einem dieser
+# Präfixe, ein Windows-Programm (`*.exe`) oder eins mit dem Content-Type `game` (z. B. SDL3).
+#gaming_output = "DP-3"
+#game_app_id_prefixes = ["steam_app_", "gamescope"]
+# Programm und Argumente getrennt, ohne Shell-Auswertung.
+#terminal = ["foot"]
+# Standard: $HOME/Bilder/Wallpaper. Muss ein absoluter Pfad sein.
+#screenshot_directory = "/home/nutzer/Bilder/Screenshots"
+#wallpaper_directory = "/home/nutzer/Bilder/Wallpaper"
+# Bar, Launcher, Wallpaper-Picker, Sperrbildschirm und Hinweise zeichnet der Compositor selbst (siehe
+# docs/shell.md). Aus (nur für Tests) gibt es weder Bar noch Sperrbildschirm. Änderungen gelten nach Neustart.
+#builtin_shell = true
+
+# Optional: adaptive sync remains off except while a recognized game is visibly
+# fullscreen on this output. Der Compositor schaltet VRR selbst (DRM).
+#[vrr]
+#enabled = false
+#output = "DP-3"
+
+# Maus und Tastatur. Nicht gesetzte Werte lassen die Einstellung des Geräts unverändert.
+#[input]
+#accel_profile = "flat"    # "flat" (roh, ideal für Spiele) oder "adaptive"
+#accel_speed = 0.0         # -1.0 bis 1.0
+#natural_scroll = false
+#tap = true                # Tippen zum Klicken (Touchpad)
+#left_handed = false
+#repeat_rate = 25          # Wiederholungen pro Sekunde
+#repeat_delay = 200        # Millisekunden bis zur ersten Wiederholung
+
+# Effekte (nie bei Vollbildfenstern, also nicht in Spielen).
+#[effects]
+#corner_radius = 12        # abgerundete Fenster und Rahmen, logische Pixel
+#inactive_opacity = 0.95   # Fenster ohne Fokus leicht durchsichtig
+#animation_ms = 160        # Fenster gleiten an ihren Platz und blenden ein (0 = aus)
+#shadow = 24               # weicher Schatten, Ausdehnung in logischen Pixeln
+#blur = 6                  # unscharfes Wallpaper hinter durchsichtigen Fenstern (1-16, 0 = aus)
+# Transparenz pro Programm: in einer Regel, z. B.
+# [[rules]]
+# app_id = "kitty"
+# opacity = 0.92
+
+# Nur Smithay-Compositor (Hardware): Frames so spaet wie moeglich vor dem Vblank
+# rendern, damit sie den neuesten Client-Inhalt zeigen (weniger Latenz). Bei VRR
+# inaktiv. margin_ms ist die Reserve zusaetzlich zur gemessenen Renderzeit.
+#[render]
+#late_scheduling = false
+#margin_ms = 2.0
+
+# Sekunden; 0 deaktiviert den jeweiligen Inaktivitäts-Timer. Solange ein Spiel im
+# Vollbild zu sehen ist, laufen beide nicht (ein Controller ist für splice keine Eingabe).
+#[idle]
+#lock_after_seconds = 300
+#monitor_off_after_seconds = 600
+
+#[keyboard]
+#layout = "de"
+#variant = ""
+#options = ""
+
+#[appearance]
+#gaps_inner = 4
+#gaps_outer = 4
+#border_width = 2
+#active_border = "#89b4fa"
+#inactive_border = "#45475a"
+#urgent_border = "#f38ba8"   # Fenster, das Aufmerksamkeit will (xdg-activation)
+# Gemeinsame Palette für WM und Shell.
+#background = "#1e1e2e"
+#surface = "#313244"
+#text = "#cdd6f4"
+#muted_text = "#a6adc8"
+
+#[bindings]
+#reload = ["Super+Shift+r"]
+#wallpaper = ["Super+Shift+w"]
+# Screenshot: Bereich ziehen oder Fenster anklicken (Enter = ganzer Monitor, Esc = abbrechen).
+# Speichert ein PNG in screenshot_directory und kopiert es in die Zwischenablage (wl-copy).
+#screenshot = ["Super+s"]
+#screenshot_screen = ["Super+Shift+s"]   # Monitor unter dem Mauszeiger
+#screenshot_window = ["Super+Ctrl+s"]    # fokussiertes Fenster
+# Farbpipette: eine Lupe am Mauszeiger, ein Klick kopiert die Farbe darunter als #rrggbb (Esc bricht ab);
+# ohne Standardtaste.
+#color_picker = ["Super+Shift+c"]
+# Übersicht: alle Workspaces jedes Monitors als Vorschau, dazu `+` und das Scratchpad; Klick, Pfeiltasten + Enter
+# oder eine Ziffer wählen, ein Klick auf ein Fenster zeigt es, Ziehen verschiebt es, q oder Mittelklick schließt es,
+# Esc schließt die Übersicht.
+#overview = ["Super+Tab"]
+# Spiele und VMs dürfen Tastenkürzel abfangen (keyboard-shortcuts-inhibit). Mit dieser Taste holt man sich die Tastatur zurück.
+#release_shortcuts = ["Super+Shift+Escape"]
+#lock = ["Super+Escape"]
+#terminal = ["Super+Return"]
+#launcher = ["Super+Space"]
+#close = ["Super+q"]
+# Mit laufender Bar fragt sie erst nach (Enter bestätigt, Esc bricht ab); ohne Bar endet die Sitzung sofort.
+#exit = ["Super+m"]
+#toggle_floating = ["Super+v"]
+# Neu im Smithay-Compositor: Vollbild umschalten, Spaltenbreite ändern.
+#toggle_fullscreen = ["Super+f"]
+#column_shrink = ["Super+minus"]
+#column_grow = ["Super+equal"]
+# Globaler Floating-Stack: ein-/ausblenden bzw. Fenster hinein-/herausverschieben.
+#toggle_scratchpad = ["Super+grave"]
+#move_to_scratchpad = ["Super+Shift+grave"]
+# Zum Fenster springen, das Aufmerksamkeit will (roter Rahmen); ohne Standardtaste.
+#focus_urgent = ["Super+u"]
+# Fenster auf allen Workspaces seines Monitors (schwebend, z. B. Bild-im-Bild); ohne Standardtaste.
+#toggle_sticky = ["Super+p"]
+# Dynamischer Stream (beim Teilen D drücken): zeigt das fokussierte Fenster, den fokussierten
+# Monitor oder nichts (schwarz); der Stream in OBS/Browser läuft dabei weiter. Ohne Standardtasten.
+#cast_window = ["Super+Ctrl+w"]
+#cast_monitor = ["Super+Ctrl+o"]
+#cast_clear = ["Super+Ctrl+x"]
+# Monitorfokus bzw. fokussiertes Fenster geometrisch zum Nachbarmonitor bewegen.
+#focus_output_left = ["Super+Alt+Left"]
+#focus_output_right = ["Super+Alt+Right"]
+#focus_output_up = ["Super+Alt+Up"]
+#focus_output_down = ["Super+Alt+Down"]
+#move_to_output_left = ["Super+Shift+Left"]
+#move_to_output_right = ["Super+Shift+Right"]
+#move_to_output_up = ["Super+Shift+Up"]
+#move_to_output_down = ["Super+Shift+Down"]
+# Mit linker Maustaste Floating-Fenster verschieben; mit rechter Floating-Fenster
+# oder gekachelte Spalten skalieren.
+#pointer_modifiers = "Super"
+#focus_left = ["Super+h", "Super+Left"]
+#focus_right = ["Super+l", "Super+Right"]
+#move_left = ["Super+Shift+h"]
+#move_right = ["Super+Shift+l"]
+# Workspace auf dem aktuellen Monitor wechseln (zyklisch, inklusive dynamischer).
+#workspace_previous = ["Super+Ctrl+Left", "Super+Ctrl+Up"]
+#workspace_next = ["Super+Ctrl+Right", "Super+Ctrl+Down"]
+# Fenster in den vorigen/nächsten Workspace des Monitors verschieben.
+#move_to_workspace_previous = ["Super+Ctrl+Shift+Up"]
+#move_to_workspace_next = ["Super+Ctrl+Shift+Down"]
+# Neuen Workspace auf dem aktuellen Monitor anlegen und wechseln bzw. das
+# fokussierte Fenster in einen neuen Workspace verschieben.
+#new_workspace = ["Super+n"]
+#move_to_new_workspace = ["Super+Shift+n"]
+# Zusammen mit den Ziffern 1 bis 9 (Nummern bestehender Workspaces).
+#workspace_modifiers = "Super"
+#move_to_workspace_modifiers = "Super+Shift"
+
+# Frei benannte Kürzel zum Starten beliebiger Programme.
+#[program_bindings.browser]
+#keys = ["Super+b"]
+#command = ["helium-browser"]
+#app_id = "helium*"  # läuft schon ein Fenster mit dieser app_id, wird es gezeigt statt neu gestartet
+
+#[program_bindings.file_manager]
+#keys = ["Super+e"]
+#command = ["thunar"]
+
+# Medientasten (XF86AudioRaiseVolume, XF86AudioLowerVolume, XF86AudioMute,
+# XF86AudioMicMute, XF86AudioPlay, XF86AudioPause, XF86AudioNext, XF86AudioPrev,
+# XF86AudioStop) gehen auch ohne Modifier.
+#[program_bindings.volume_up]
+#keys = ["XF86AudioRaiseVolume"]
+#command = ["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"]
+#allow_when_locked = true  # läuft auch bei gesperrtem Bildschirm (sonst gehen alle Tasten an die Sperre)
+
+# App-IDs werden beim Start einer Anwendung im splice-Log ausgegeben.
+# Selektoren: app_id, title, dialog. Alle angegebenen müssen passen; Texte passen als Ganzes
+# und mit Groß-/Kleinschreibung, `*` steht für beliebig viele Zeichen. Letzte Angabe je
+# Eigenschaft gewinnt. workspace, output, floating und fullscreen gelten beim Öffnen,
+# opacity und block_from_capture laufend (auch wenn sich der Titel ändert).
+#
+#[[rules]]
+#app_id = "firefox"
+#workspace = 2  # Nummer wie in der Bar; wirkt nur, solange dieser Workspace existiert
+#
+#[[rules]]
+#app_id = "org.gnome.Calculator"
+#floating = true
+#
+#[[rules]]
+#dialog = true
+#floating = true
+#
+#[[rules]]
+#app_id = "steam_app_*"
+#output = "DP-3"     # Monitor, auf dem das Fenster öffnet (workspace hat Vorrang)
+#fullscreen = true   # false: bleibt im Fenster, auch wenn das Programm Vollbild will
+#
+#[[rules]]
+#title = "Bild-im-Bild"
+#sticky = true      # schwebt auf allen Workspaces seines Monitors
+#
+#[[rules]]
+#title = "*Bitwarden*"
+#floating = true
+#block_from_capture = true  # in Screenshots, Aufnahmen und Streams eine schwarze Fläche
+
+# Neu im Smithay-Compositor (ersetzt kanshi): Monitore einrichten. Position in
+# logischen Pixeln (links oben); ohne Angabe folgt der Monitor rechts vom vorigen.
+# transform: normal, 90, 180, 270, flipped, flipped-90, flipped-180, flipped-270.
+#[[outputs]]
+#name = "HDMI-A-1"
+#mode = "2560x1080@60"
+#position = [0, 0]
+#
+#[[outputs]]
+#name = "DP-3"
+#mode = "2560x1440@143.97"
+#position = [0, 1080]
+#
+#[[outputs]]
+#name = "DP-1"
+#mode = "2560x1440@59.95"
+#position = [2560, 0]
+#transform = "270"

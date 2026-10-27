@@ -1,0 +1,14 @@
+[package]
+name = "splice-config"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "TOML configuration for the Splice compositor"
+
+[dependencies]
+splice-layout = { path = "../splice-layout" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+serde_json = "1.0.145"
+# Key names: every keysym of every layout.
+xkbcommon = { version = "0.8", default-features = false }

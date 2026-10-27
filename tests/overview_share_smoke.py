@@ -92,7 +92,7 @@ def surface_pixels(comp, output):
     return round(float(out))
 
 
-comp = Compositor(config='[bindings]\nfocus_output_right = ["Super+Ctrl+period"]\n', extra_env={"MYWM_VIRTUAL_OUTPUTS": "1"})
+comp = Compositor(config='[bindings]\nfocus_output_right = ["Super+Ctrl+period"]\n', extra_env={"SPLICE_VIRTUAL_OUTPUTS": "1"})
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 2)

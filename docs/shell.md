@@ -8,7 +8,7 @@ Farben und Texte stammen von der früheren Quickshell-Shell (`bar.qml`, `BarButt
 `Theme.qml`, `I18n.qml`), die es nicht mehr gibt. Die Schrift ist die Systemschrift (die Familie, die fontconfig für
 „Sans Serif“ wählt, `fc-match`); Nerd-Font-Symbole in Texten setzt die Shell immer aus „IosevkaTerm Nerd Font
 Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in abgerundete Karten (Radien in
-`crates/mywm-ui/src/theme.rs`).
+`crates/splice-ui/src/theme.rs`).
 
 ## Was sie schon kann
 
@@ -48,7 +48,7 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   solange das Panel offen ist; ein Klick kopiert eine mit `wl-copy`) und die Bluetooth-Geräte mit Akkustand zum
   Verbinden und Trennen; „Suchen“ findet neue, „Koppeln“ vertraut ihnen zuerst, damit sie sich später selbst verbinden.
   Das Nachtlicht hält `gammastep -O 4000` am Laufen, solange es an ist, und merkt sich die Wahl in
-  `$XDG_STATE_HOME/mywm/night-light`. Die letzte Zeile „Einstellungen“ startet `mywm-settings` (aus dem `PATH`) und
+  `$XDG_STATE_HOME/splice/night-light`. Die letzte Zeile „Einstellungen“ startet `splice-settings` (aus dem `PATH`) und
   schließt das Panel.
 - **Audio-Panel**: Standardausgang und -mikrofon mit Regler (ziehen) und Prozentknopf (stumm), die übrigen hinter
   „Anderen Ausgang wählen“/„Anderes Mikrofon wählen“ (ein Klick macht sie zum Standard), dazu die Anwendungen, die
@@ -56,10 +56,10 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
 - **Medien-Panel**: alle MPRIS-Player mit Cover, Titel, Interpret und Zurück/Abspielen/Weiter; was ein Player nicht
   erlaubt, ist ausgegraut. Cover kommen aus `file://`-Adressen; Cover aus dem Netz (`https://`) lädt die Shell nicht.
 - **Kalender-Panel** (Klick auf die Uhr): Monat mit „‹“/„›“, Tage mit bis zu drei Punkten in den Farben ihrer
-  Termine, die Termine des gewählten Tages und die nächsten acht, „Kalender-App öffnen“ (`foot … mywm-calendar app`).
-  Die Termine liefert `mywm-calendar events <Monatserster> <8. des Folgemonats>` (khal), die Kalender
-  `mywm-calendar calendars`, jeweils in einem eigenen Thread; jedes Öffnen beginnt wie bei Quickshell neu beim
-  heutigen Tag. „+“ öffnet das Formular (Titel, Start, Ende, Ort, Kalender) für `mywm-calendar create`; Felder und
+  Termine, die Termine des gewählten Tages und die nächsten acht, „Kalender-App öffnen“ (`foot … splice-calendar app`).
+  Die Termine liefert `splice-calendar events <Monatserster> <8. des Folgemonats>` (khal), die Kalender
+  `splice-calendar calendars`, jeweils in einem eigenen Thread; jedes Öffnen beginnt wie bei Quickshell neu beim
+  heutigen Tag. „+“ öffnet das Formular (Titel, Start, Ende, Ort, Kalender) für `splice-calendar create`; Felder und
   Kalenderauswahl sind abgerundete Kästen im Stil der Shell (Akzentrand beim Fokus, die offene Liste liegt undurchsichtig
   darüber).
 - **Launcher** (Launcher-Binding, solange `launcher` in der Konfiguration nicht auf ein anderes Programm zeigt):
@@ -76,7 +76,7 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   nach Dateinamen, Pfeile, Tab, Mausrad über den Kacheln oder ein Klick auf einen Nachbarn wählen (am letzten Bild ist
   Schluss), Enter oder ein Klick auf das gewählte übernimmt es, Escape oder ein Klick daneben schließen. Übernommen
   wird ein Bild erst, wenn es sich laden lässt; dann speichert er es als `file://`-Adresse in
-  `$XDG_STATE_HOME/mywm/wallpaper.json`, das Wallpaper wechselt sofort, und das Farbschema erzeugt
+  `$XDG_STATE_HOME/splice/wallpaper.json`, das Wallpaper wechselt sofort, und das Farbschema erzeugt
   `--theme-from-wallpaper` im Hintergrund. Jedes Öffnen liest Ordner und Auswahl neu und vergisst beim Schließen
   alles, wie der Quickshell-Picker, der nur bei Bedarf lief.
 - **Sperrbildschirm** (Sperren-Binding, `--lock`, swayidle): Der Compositor sperrt selbst, statt `lock.qml`
@@ -84,8 +84,8 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   `allow_when_locked`), einen Klick oder das Mausrad, und Aufnahmen ganzer Monitore zeigen nur den
   Sperrbildschirm. Ein anderer
   Bildschirmsperrer wird abgewiesen (`finished`) und kann die Sperre weder übernehmen noch aufheben. Das Passwort
-  prüft PAM (Dienst `mywm-lock`, mit `$MYWM_PAM_DIR` aus einem anderen Verzeichnis) mit
-  `mywm-shell-services --authenticate`, einem eigenen Prozess je Versuch: Stirbt ein PAM-Modul, endet nur dieser
+  prüft PAM (Dienst `splice-lock`, mit `$SPLICE_PAM_DIR` aus einem anderen Verzeichnis) mit
+  `splice-shell-services --authenticate`, einem eigenen Prozess je Versuch: Stirbt ein PAM-Modul, endet nur dieser
   Versuch; hängt es, wartet der Sperrbildschirm wie `lock.qml`, bis es endet, und nimmt so lange keine Taste an.
   Entsperrt wird nur bei sauberem Ende mit `success` für den laufenden Versuch. Wie bei `lock.qml`
   heißt jedes andere Ergebnis außer „Zu viele Versuche“ „Falsches Passwort“ (Quickshell überschreibt seine
@@ -94,20 +94,20 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   abgedunkelt, bis dahin die Hintergrundfarbe; auf dem Monitor mit Workspace 1 Uhr, Datum (ausgeschriebene Namen)
   und die Karte mit Initiale, `$USER`, Passwortfeld (Punkte, rot nach einem abgelehnten Passwort) und Knopf, der
   beim Überfahren aufleuchtet und wie Enter prüft. Das Feld kennt Tippen, Rücktaste und Enter.
-- **Anmeldebildschirm** (`mywm-compositor --greeter` ohne Befehl, im NixOS-Modul die Standardeinstellung von
-  `programs.mywm.greeter`): die Karte des Sperrbildschirms mit Feld für den
-  Benutzer (`MYWM_GREETER_USER` füllt es vor, dann hat das Passwort die Tastatur), unten links die Sitzungen aus
-  `MYWM_GREETER_SESSIONS` (nach Dateiname, erstes `Name=` und `Exec=` ohne Feldcodes; nur bei mehr als einer),
-  unten rechts Neustart und Ausschalten (`systemctl reboot|poweroff`), als Hintergrund `MYWM_GREETER_BACKGROUND`.
+- **Anmeldebildschirm** (`splice-compositor --greeter` ohne Befehl, im NixOS-Modul die Standardeinstellung von
+  `programs.splice.greeter`): die Karte des Sperrbildschirms mit Feld für den
+  Benutzer (`SPLICE_GREETER_USER` füllt es vor, dann hat das Passwort die Tastatur), unten links die Sitzungen aus
+  `SPLICE_GREETER_SESSIONS` (nach Dateiname, erstes `Name=` und `Exec=` ohne Feldcodes; nur bei mehr als einer),
+  unten rechts Neustart und Ausschalten (`systemctl reboot|poweroff`), als Hintergrund `SPLICE_GREETER_BACKGROUND`.
   Tab geht wie bei Qt durch Felder und Knöpfe, Enter im Benutzerfeld zum Passwort, Enter oder Leertaste auf einem
   Knopf drückt ihn. Er liegt von Anfang an hinter der eigenen Sperre: keine Bindings (außer Programm-Bindings mit
   `allow_when_locked`), kein Client erreichbar. Die Anmeldung läuft über greetd (`$GREETD_SOCK`) mit
-  `mywm-shell-services --login`, einem eigenen Prozess je Versuch, wie Quickshells `Greetd`: jede Frage bekommt
+  `splice-shell-services --login`, einem eigenen Prozess je Versuch, wie Quickshells `Greetd`: jede Frage bekommt
   das Passwort, Fehlermeldungen von PAM erscheinen, „Sitzung startet …“, dann endet der Compositor mit Code 0, und
   greetd startet die Sitzung. Eine liegengebliebene Sitzung („a session is already being configured“) bricht er ab
   und beginnt neu. Dienstprozess und Nachtlicht laufen hier nicht. `--greeter "<Befehl>"` startet wie bisher den
   Befehl (`greeter.qml`).
-- **Nachtlicht**: steht in `$XDG_STATE_HOME/mywm/night-light` „1“, läuft `gammastep -O 4000` wie bei der
+- **Nachtlicht**: steht in `$XDG_STATE_HOME/splice/night-light` „1“, läuft `gammastep -O 4000` wie bei der
   Quickshell-Bar (nur auf echter Hardware); umschalten lässt es sich erst mit dem Commandcenter.
 
 ## Was noch fehlt
@@ -125,7 +125,7 @@ wie bei Qt blau.
 
 ## Aufbau
 
-- `crates/mywm-ui` (ohne Compositor-Abhängigkeit, mit Tests): Szenen aus Rechtecken, Texten und Bögen
+- `crates/splice-ui` (ohne Compositor-Abhängigkeit, mit Tests): Szenen aus Rechtecken, Texten und Bögen
   (`bar`, `power`, `notices`), Zeichnen auf der CPU (tiny-skia, Text mit cosmic-text und den Schriften aus
   fontconfig), Theme, Texte, Uhr.
 - `src/shell.rs`: füllt die Szenen aus dem Zustand des Compositors, zeichnet sie nur bei Änderungen neu
@@ -134,7 +134,7 @@ wie bei Qt blau.
 - Reihenfolge von vorn nach hinten: Powermenü, `Overlay`-Layer, Hinweise, Vollbildfenster, `Top`-Layer,
   Bar, Fenster. Zeiger und Klicks folgen derselben Reihenfolge (`pointer_target_over` in `src/input.rs`).
 
-- `mywm-shell-services` (`crates/mywm-shell-services`, eigenes Programm neben dem Compositor): fragt die
+- `splice-shell-services` (`crates/splice-shell-services`, eigenes Programm neben dem Compositor): fragt die
   Dienste ab, damit ein hängender oder abstürzender Dienst nie Bild oder Eingabe einfriert. PipeWire
   (Ausgänge, Mikrofone und Anwendungsströme mit Lautstärke, kubisch wie bei `wpctl` und Quickshell, und die beiden
   Standards aus der `default`-Metadaten), MPRIS auf dem
@@ -146,39 +146,39 @@ wie bei Qt blau.
   dem App-Symbol oder dem Symbol des `desktop-entry`; Symbole sucht er im Icon-Theme aus GTKs `settings.ini`,
   dessen Vorfahren, `hicolor` und `pixmaps` (SVG über resvg). Er dekodiert sie in einem eigenen Thread und
   verkleinert sie auf höchstens 128 Pixel.
-- `crates/mywm-shell-protocol`: eine JSON-Zeile je Nachricht über stdin/stdout. Der Dienstprozess schickt bei
+- `crates/splice-shell-protocol`: eine JSON-Zeile je Nachricht über stdin/stdout. Der Dienstprozess schickt bei
   jeder Änderung den ganzen Status und jede Benachrichtigung einzeln (Bilder als Base64), der Compositor Befehle. Der Compositor liest ohne zu blockieren, verwirft
   Befehle, die der Prozess nicht abnimmt, und startet ihn nach dem Ende mit wachsender Pause neu (1 bis 30
   Sekunden; nach einer Minute Laufzeit wieder kurz). Stirbt der Compositor, endet der Prozess mit ihm
-  (`PR_SET_PDEATHSIG`). Statusänderungen protokolliert er mit `RUST_LOG=mywm_compositor::shell_services=debug`.
+  (`PR_SET_PDEATHSIG`). Statusänderungen protokolliert er mit `RUST_LOG=splice_compositor::shell_services=debug`.
   Eine Lautstärke, die die Bar verlangt hat, zeigt sie, bis ein Bericht sie bestätigt (höchstens eine Sekunde):
   Berichte von vor dem Befehl würden sonst zurückspringen lassen, und die nächste Raste zählte vom alten Wert.
-- `crates/mywm-ui/src/notifications.rs`: die Karte (`NotificationCard.qml`) und die Zentrale
+- `crates/splice-ui/src/notifications.rs`: die Karte (`NotificationCard.qml`) und die Zentrale
   (`NotificationCenter.qml` im Panelrahmen von `bar.qml`); `src/shell_notifications.rs` hält Liste, Toasts und
   Zentrale. cosmic-text 0.19 lässt beim Kürzen der letzten erlaubten Zeile das Leerzeichen des Umbruchs vor ihr
   stehen; `text.rs` beginnt solche Folgezeilen beim ersten Wort (Workaround, bis cosmic-text das selbst richtig
   macht).
 
-- `crates/mywm-ui/src/calendar.rs`: Inhalt des Kalender-Panels (`CalendarPanelInteractive.qml`) mit den
-  Formularfeldern; `src/shell_calendar.rs` ruft `mywm-calendar` auf, hält Monat, Termine und Formular und nimmt die
+- `crates/splice-ui/src/calendar.rs`: Inhalt des Kalender-Panels (`CalendarPanelInteractive.qml`) mit den
+  Formularfeldern; `src/shell_calendar.rs` ruft `splice-calendar` auf, hält Monat, Termine und Formular und nimmt die
   Tasten der Felder.
 
-- `crates/mywm-ui/src/launcher.rs` (Suche, Sortierung, Karte nach `shell.qml`), `src/shell_launcher.rs` (Öffnen,
-  Tasten, Starten), `crates/mywm-shell-services/src/apps.rs` (Desktop-Einträge nach Quickshells
+- `crates/splice-ui/src/launcher.rs` (Suche, Sortierung, Karte nach `shell.qml`), `src/shell_launcher.rs` (Öffnen,
+  Tasten, Starten), `crates/splice-shell-services/src/apps.rs` (Desktop-Einträge nach Quickshells
   `desktopentry.cpp`). Hält die Shell die Tastatur, wiederholt der Compositor gehaltene Tasten selbst
   (`shell_key_pressed`), wie es Clients für sich tun.
 
-- `crates/mywm-ui/src/wallpaper_picker.rs` (Maße des Karussells nach `wallpaper.qml`, Texte, Treffer auf schrägen
+- `crates/splice-ui/src/wallpaper_picker.rs` (Maße des Karussells nach `wallpaper.qml`, Texte, Treffer auf schrägen
   Kacheln), `src/shell_wallpaper.rs` (Ordner lesen, Bilder in Worker-Threads dekodieren, höchstens zwei zugleich, nur
   für die sichtbaren Kacheln und auf die Größe der breiten Kachel verkleinert, Speichern, Theme). Die Kacheln zeichnet
   die GPU: ein Shader (`tile` in `src/effects.rs`) richtet jeden Punkt wieder gerade und malt dort Fläche, Bild,
   Abdunklung und Rahmen. Auf der CPU kostete eine Kachel bei 2560×1440 um 14 ms, das Gleiten bräuchte das jeden
   Frame; so malt die CPU nur die Texte neu.
 
-- `crates/mywm-ui/src/lock_screen.rs` (Uhr und Karte), `src/shell_lock.rs` (Passwort, Prüfung, Hintergrund), `own_lock`/`own_unlock` in `src/session.rs` (eigene
-  Sperrzustände neben denen von `ext-session-lock`), `crates/mywm-shell-services/src/pam.rs` (die Prüfung wie
+- `crates/splice-ui/src/lock_screen.rs` (Uhr und Karte), `src/shell_lock.rs` (Passwort, Prüfung, Hintergrund), `own_lock`/`own_unlock` in `src/session.rs` (eigene
+  Sperrzustände neben denen von `ext-session-lock`), `crates/splice-shell-services/src/pam.rs` (die Prüfung wie
   Quickshells `PamContext`: nur `pam_authenticate`, jede Frage bekommt das Passwort).
-- `src/shell_greeter.rs` (Sitzungen, Anmeldung, Knöpfe des Anmeldebildschirms), `crates/mywm-shell-services/src/login.rs`
+- `src/shell_greeter.rs` (Sitzungen, Anmeldung, Knöpfe des Anmeldebildschirms), `crates/splice-shell-services/src/login.rs`
   (greetds IPC: JSON mit vorangestellter Länge).
 
 ## Test
@@ -188,7 +188,7 @@ abgebrochener und abgelaufener Logout-Countdown, Konfigurationshinweis.
 `tests/shell_services_smoke.py`: mit eigenem PipeWire (Null-Sink), nachgebautem Player (`tests/fake_mpris.py`) und
 nachgebautem BlueZ (`tests/fake_bluez.py`): Mausrad und Rechtsklick auf der Lautstärke, Medientitel, Bluetooth,
 Neustart des Dienstprozesses nach `kill -9`.
-`tests/control_smoke.py`: nachgebautes BlueZ und Platzhalter für `gammastep`, `ip`, `wl-copy`, `mywm-settings`:
+`tests/control_smoke.py`: nachgebautes BlueZ und Platzhalter für `gammastep`, `ip`, `wl-copy`, `splice-settings`:
 Bluetooth an, verbinden, suchen, koppeln, Adresse kopieren, Nachtlicht an und aus, Einstellungen starten, gemerktes
 Nachtlicht beim nächsten Start.
 `tests/audio_smoke.py`: eigenes PipeWire mit zwei Ausgängen, Mikrofon, Smart-Filter und Anwendungsstrom: Regler
@@ -199,24 +199,24 @@ der die Lautstärke des Standardausgangs setzt, könnte die eines echten Geräts
 zweite Aktivierung, Scrollen, Menü mit Untermenü und verstecktem Eintrag, Klick auf einen Eintrag, Eintrag endet.
 `tests/media_smoke.py`: nachgebauter Player mit Cover, Medien-Panel mittig, Abspielen/Pause/Weiter und ein
 nicht erlaubtes Zurück.
-`tests/calendar_smoke.py`: Platzhalter für `mywm-calendar` und `foot`: die Uhr öffnet das Panel (Termine des Monats
+`tests/calendar_smoke.py`: Platzhalter für `splice-calendar` und `foot`: die Uhr öffnet das Panel (Termine des Monats
 und Kalender abgefragt), ein Termin ohne Titel wird nicht angelegt, getippter Titel und gewählter Kalender gehen an
-`mywm-calendar create`, danach lädt es neu; Monat vor und zurück, Kalender-App öffnen schließt das Panel.
-`tests/launcher_smoke.py`: Test-Apps wie in mywm-shells Launcher-Test: Suche über Schlüsselwörter, Symbol aus
+`splice-calendar create`, danach lädt es neu; Monat vor und zurück, Kalender-App öffnen schließt das Panel.
+`tests/launcher_smoke.py`: Test-Apps wie in splice-shells Launcher-Test: Suche über Schlüsselwörter, Symbol aus
 `Icon=`, Start mit Argumenten und Verzeichnis, Pfeil und Terminal-App, keine Treffer, gehaltene Rücktaste, Escape,
 Klick auf eine Zeile.
-`tests/wallpaper_picker_smoke.py`: Bilder wie in mywm-shells Picker-Test (Leerzeichen, `#` und `%` im Namen) und
+`tests/wallpaper_picker_smoke.py`: Bilder wie in splice-shells Picker-Test (Leerzeichen, `#` und `%` im Namen) und
 ein kaputtes: Filter und Enter speichern, Wallpaper und Theme folgen; Start auf dem Bild in Gebrauch, das kaputte wird
 abgelehnt, keine Treffer, Escape, Klick daneben, Klick auf Nachbar und gewähltes, gehaltener Pfeil endet am letzten,
 Mausrad.
-`tests/lock_screen_smoke.py`: PAM mit eigenem Dienstverzeichnis (`pam_exec`, kein echtes Konto, wie mywm-shells
+`tests/lock_screen_smoke.py`: PAM mit eigenem Dienstverzeichnis (`pam_exec`, kein echtes Konto, wie splice-shells
 Test von `lock.qml`): `--lock` bestätigt, Fenster und Ecken verdeckt (Aufnahme mit grim), Befehle abgewiesen; falsches
-Passwort, eine Prüfung, die mittendrin stirbt, und ein fremder Sperrer (`mywm-test-client lock`) entsperren nicht,
+Passwort, eine Prüfung, die mittendrin stirbt, und ein fremder Sperrer (`splice-test-client lock`) entsperren nicht,
 das Fenster bekommt keine Taste, der Rand des Felds wird rot; das richtige Passwort entsperrt mit einem Klick auf den
 Knopf. Ein Fenster unter dem ruhenden Zeiger verliert ihn beim Sperren; das Bild eines erst danach geschriebenen
 `theme.json` erscheint abgedunkelt.
 `tests/greeter_smoke.py`: `--greeter` mit zwei Monitoren gegen nachgebautes greetd (`tests/fake_greetd.py` aus
-mywm-shell): Karte nur auf dem ersten, Bindings tun nichts, falsches Passwort (`create_session`, `response wrong`,
+splice-shell): Karte nur auf dem ersten, Bindings tun nichts, falsches Passwort (`create_session`, `response wrong`,
 roter Rand), Tab und Enter wählen die zweite Sitzung, das richtige Passwort startet sie ohne Feldcodes, der
 Compositor endet mit 0; „Ausschalten“ ruft `systemctl poweroff` (ein Platzhalter vorn im `PATH`).
 `tests/notifications_smoke.py`: auf eigenem Session-Bus Toast mit Ablaufzeit und Festhalten, „×“, Aktion und

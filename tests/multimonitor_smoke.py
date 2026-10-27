@@ -11,7 +11,7 @@ CONFIG = """
 focus_output_left = ["Super+Ctrl+comma"]
 focus_output_right = ["Super+Ctrl+period"]
 """
-comp = Compositor(config=CONFIG, windows=2, extra_env={"MYWM_VIRTUAL_OUTPUTS": "2"})
+comp = Compositor(config=CONFIG, windows=2, extra_env={"SPLICE_VIRTUAL_OUTPUTS": "2"})
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 3 and s[0]["workspaces"].get(1))

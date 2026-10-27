@@ -309,7 +309,7 @@ impl State {
         if m.fullscreen {
             return 1.0;
         }
-        let rule = mywm_config::opacity(&self.config.rules, m.subject());
+        let rule = splice_config::opacity(&self.config.rules, m.subject());
         let focus = if self.desktop.focused() == Some(m.id) { 1.0 } else { self.config.effects.inactive_opacity };
         rule.unwrap_or(1.0) * focus
     }

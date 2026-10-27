@@ -36,9 +36,9 @@ title = "*Bitwarden*"
 block_from_capture = true
 ```
 
-## Eigenes Portal: `mywm-portal` (empfohlen)
+## Eigenes Portal: `splice-portal` (empfohlen)
 
-`mywm-portal` ersetzt `xdg-desktop-portal-wlr`. Es ist das ScreenCast-Backend von
+`splice-portal` ersetzt `xdg-desktop-portal-wlr`. Es ist das ScreenCast-Backend von
 `xdg-desktop-portal` und fragt **im Compositor** nach der Quelle: Beim Teilen (Vesktop, Discord,
 Browser, OBS) öffnet sich auf allen Monitoren die Workspace-Übersicht (Rahmen in der Aufnahme-Farbe).
 Ein Klick auf ein **Fenster** teilt dieses Fenster, auch eines auf einem gerade nicht gezeigten
@@ -49,30 +49,30 @@ ohne `slurp`/Chooser-Programm. Die Fenstergröße wird live nachgeführt, der Cu
 
 Außerdem ist es das Inhibit-Backend: Firefox (und Flatpak-Apps) verhindern Sperre und Monitor-Aus beim
 Video über das Portal statt über Wayland. Das GTK-Portal nimmt solche Anfragen zwar an, braucht dahinter
-aber eine GNOME-Sitzung; `mywm-portal` gibt sie an den Compositor weiter. Dafür steht in
-`mywm-portals.conf` neben ScreenCast auch `org.freedesktop.impl.portal.Inhibit=mywm`.
+aber eine GNOME-Sitzung; `splice-portal` gibt sie an den Compositor weiter. Dafür steht in
+`splice-portals.conf` neben ScreenCast auch `org.freedesktop.impl.portal.Inhibit=splice`.
 
 Einrichtung:
 
-1. `cargo build --release -p mywm-portal` und die Binary `mywm-portal` in den `PATH` legen.
-2. Aus `portal/` installieren: `mywm.portal` nach `…/share/xdg-desktop-portal/portals/`,
-   `org.freedesktop.impl.portal.desktop.mywm.service` nach `…/share/dbus-1/services/`,
-   `mywm-portal.service` nach `~/.config/systemd/user/` (die D-Bus-Aktivierung startet das Portal als
+1. `cargo build --release -p splice-portal` und die Binary `splice-portal` in den `PATH` legen.
+2. Aus `portal/` installieren: `splice.portal` nach `…/share/xdg-desktop-portal/portals/`,
+   `org.freedesktop.impl.portal.desktop.splice.service` nach `…/share/dbus-1/services/`,
+   `splice-portal.service` nach `~/.config/systemd/user/` (die D-Bus-Aktivierung startet das Portal als
    diese Unit, die mit der Sitzung endet; ohne sie bliebe ein Portal mit dem Socket einer alten
    Sitzung hängen), und die
-   Portal-Auswahl `mywm-portals.conf` nach `~/.config/xdg-desktop-portal/` (Sitzung und Compositor
-   setzen `XDG_CURRENT_DESKTOP=mywm`).
-   Unter NixOS gehört `mywm.portal` in ein Paket, das unter `xdg.portal.extraPortals` steht.
-3. Das Portal braucht in seiner Umgebung `WAYLAND_DISPLAY` und `MYWM_SOCKET` (derselbe Socket wie
-   für die Bar, sonst `$XDG_RUNTIME_DIR/mywm.sock`). Die Sitzung sollte sie dem D-Bus bekanntmachen:
-   `dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP MYWM_SOCKET`.
+   Portal-Auswahl `splice-portals.conf` nach `~/.config/xdg-desktop-portal/` (Sitzung und Compositor
+   setzen `XDG_CURRENT_DESKTOP=splice`).
+   Unter NixOS gehört `splice.portal` in ein Paket, das unter `xdg.portal.extraPortals` steht.
+3. Das Portal braucht in seiner Umgebung `WAYLAND_DISPLAY` und `SPLICE_SOCKET` (derselbe Socket wie
+   für die Bar, sonst `$XDG_RUNTIME_DIR/splice.sock`). Die Sitzung sollte sie dem D-Bus bekanntmachen:
+   `dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP SPLICE_SOCKET`.
 4. `xdg-desktop-portal-wlr` nicht mehr starten. Nötig bleiben `xdg-desktop-portal`, `pipewire`, `wireplumber`.
 
 Ruhige Bilder: Steht das Bild still, liefert der Compositor trotzdem etwa alle 0,4 s ein Bild (Keepalive),
 sonst hält Chromium (Discord, Vesktop) den Strom für tot. Öffnet eine App zwei Sitzungen gleichzeitig (Vesktop tut das),
 beantwortet die Auswahl beide; die zweite wird nicht abgelehnt.
 
-Logs: `journalctl --user -u mywm-portal` bzw. die Ausgabe von `mywm-portal` zeigt Format, Bildgröße,
+Logs: `journalctl --user -u splice-portal` bzw. die Ausgabe von `splice-portal` zeigt Format, Bildgröße,
 Verbraucher und Bilder pro 5 s; im Compositor-Log stehen `capture session: …` (Quelle, Größe, erstes Bild, Ende).
 
 Technik: Das Portal hängt als Wayland-Client am Compositor (`ext-image-copy-capture`) und schreibt
@@ -84,14 +84,14 @@ Bild erst, wenn eine GPU-Fence meldet, dass die Kopie fertig ist.
 
 ## Alternative: `xdg-desktop-portal-wlr`
 
-Statt `mywm-portal` geht auch `xdg-desktop-portal-wlr` über `wlr-screencopy`; es kann nur Monitore.
-Dafür in `mywm-portals.conf` `org.freedesktop.impl.portal.ScreenCast=wlr` eintragen (unter NixOS in
-`xdg.portal.config.mywm`). Nötige Pakete: `xdg-desktop-portal`, `xdg-desktop-portal-wlr`, `pipewire`,
+Statt `splice-portal` geht auch `xdg-desktop-portal-wlr` über `wlr-screencopy`; es kann nur Monitore.
+Dafür in `splice-portals.conf` `org.freedesktop.impl.portal.ScreenCast=wlr` eintragen (unter NixOS in
+`xdg.portal.config.splice`). Nötige Pakete: `xdg-desktop-portal`, `xdg-desktop-portal-wlr`, `pipewire`,
 `wireplumber`.
 
 ## Grenzen
 
-- **Fensteraufnahme** gibt es mit `mywm-portal` (siehe oben) und über `ext-foreign-toplevel-list` + `ext-image-copy-capture`
+- **Fensteraufnahme** gibt es mit `splice-portal` (siehe oben) und über `ext-foreign-toplevel-list` + `ext-image-copy-capture`
   (Toplevel-Quellen, SHM und Dmabuf). `xdg-desktop-portal-wlr` spricht nur `wlr-screencopy`
   und damit nur Monitore; für Fenster braucht es ein Portal oder Programm mit Unterstützung
   dieser Protokolle. Bis dahin: Monitor aufnehmen und in OBS zuschneiden. Der Cursor wird nur
@@ -103,7 +103,7 @@ Dafür in `mywm-portals.conf` `org.freedesktop.impl.portal.ScreenCast=wlr` eintr
 
 ## Schnelltest ohne OBS: Vesktop/Discord
 
-1. Prüfen, dass die Portale laufen: `systemctl --user status xdg-desktop-portal mywm-portal pipewire`.
+1. Prüfen, dass die Portale laufen: `systemctl --user status xdg-desktop-portal splice-portal pipewire`.
 2. In Vesktop: Sprachkanal beitreten → „Bildschirm teilen“. Das geht über Portal und PipeWire; der
    Compositor zeigt seine Auswahl (Fenster anklicken, Desktop oder Enter für den Monitor, Esc bricht ab).
 3. Erst ohne Portal prüfen, ob der Compositor liefert: `grim /tmp/test.png` muss ein Bild erzeugen.

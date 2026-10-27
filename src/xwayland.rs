@@ -176,7 +176,7 @@ impl XwmHandler for State {
             Some((id, floating)) => {
                 if floating && (w.is_some() || h.is_some()) {
                     if let (Some(area), Some(m)) = (self.desktop.monitor_area_of(id), self.desktop.get_mut(id)) {
-                        let mut rect = m.floating_rect.unwrap_or(mywm_layout::Rect::centered(area.width, area.height));
+                        let mut rect = m.floating_rect.unwrap_or(splice_layout::Rect::centered(area.width, area.height));
                         rect.width = w.map_or(rect.width, |w| w as i32);
                         rect.height = h.map_or(rect.height, |h| h as i32);
                         m.floating_rect = Some(rect);

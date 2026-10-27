@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A small stand-in for BlueZ on the bus in $DBUS_SYSTEM_BUS_ADDRESS: one adapter (off), a paired headset and a
 speaker that only a search finds. Method calls and property writes are appended to the file named by the first
-argument, one line each, so a test can see what the shell asked for. (The same as mywm-shell's tests/fake_bluez.py.)"""
+argument, one line each, so a test can see what the shell asked for. (The same as splice-shell's tests/fake_bluez.py.)"""
 import sys
 
 import dbus

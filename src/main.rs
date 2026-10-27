@@ -1,4 +1,4 @@
-//! MyWM compositor entry point: DRM/libinput on hardware, or nested in a window for development.
+//! Splice compositor entry point: DRM/libinput on hardware, or nested in a window for development.
 
 mod attention;
 mod barriers;
@@ -48,6 +48,7 @@ use tracing_subscriber::EnvFilter;
 pub use state::State;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    splice_config::migrate_legacy_state_dir();
     // Client modes (`--lock`, `--idle`) write to the terminal only; the compositor logs to a file too.
     let client_mode = matches!(
         std::env::args().nth(1).as_deref(),
@@ -63,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     if !client_mode {
         tracing::info!(
-            "mywm-compositor {} starting (log: {})",
+            "splice-compositor {} starting (log: {})",
             env!("CARGO_PKG_VERSION"),
             log_file.as_ref().map_or("stderr only".into(), |p| p.display().to_string())
         );
@@ -71,13 +72,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Client modes used by the session scripts and swayidle.
     match std::env::args().nth(1).as_deref() {
-        Some("--lock") => return mywm_config::session::lock_and_wait(),
-        Some("--idle") => return mywm_config::session::exec_idle(&config_or_default().idle),
+        Some("--lock") => return splice_config::session::lock_and_wait(),
+        Some("--idle") => return splice_config::session::exec_idle(&config_or_default().idle),
         _ => {}
     }
     let args: Vec<String> = std::env::args().collect();
-    let (config, config_error) = mywm_config::Config::load_or_default();
-    if let Some(result) = mywm_theme::client_mode(&args, &config) {
+    let (config, config_error) = splice_config::Config::load_or_default();
+    if let Some(result) = splice_theme::client_mode(&args, &config) {
         if let Some(error) = &config_error {
             tracing::warn!("configuration not loaded, using the defaults: {error}");
         }
@@ -86,19 +87,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut event_loop: EventLoop<State> = EventLoop::try_new()?;
     let display = smithay::reexports::wayland_server::Display::new()?;
-    tracing::info!("configuration: {}", mywm_config::Config::path().map_or("defaults".into(), |p| p.display().to_string()));
+    tracing::info!("configuration: {}", splice_config::Config::path().map_or("defaults".into(), |p| p.display().to_string()));
     if let Some(error) = &config_error {
         tracing::error!("configuration not loaded, using the defaults: {error}");
     }
     // Inside another compositor or X server we run nested; on a bare seat we drive the hardware.
-    // MYWM_BACKEND=winit|drm overrides the guess.
-    let nested = match std::env::var("MYWM_BACKEND").as_deref() {
+    // SPLICE_BACKEND=winit|drm overrides the guess.
+    let nested = match std::env::var("SPLICE_BACKEND").as_deref() {
         Ok("winit") => true,
         Ok("drm" | "udev") => false,
         _ => std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some(),
     };
-    // Nested, the host owns Super; MYWM_MODKEY=super keeps the configured modifiers.
-    let remap_super = nested && std::env::var("MYWM_MODKEY").map_or(true, |v| !v.eq_ignore_ascii_case("super"));
+    // Nested, the host owns Super; SPLICE_MODKEY=super keeps the configured modifiers.
+    let remap_super = nested && std::env::var("SPLICE_MODKEY").map_or(true, |v| !v.eq_ignore_ascii_case("super"));
     // SAFETY: nothing else runs yet.
     unsafe { cursor::export_theme() };
     let mut state = State::new(&mut event_loop, display, config, remap_super);
@@ -117,10 +118,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
         if !nested {
-            // The desktop portals pick their backends by this name (`mywm-portals.conf`,
-            // `UseIn=mywm` of mywm-portal); `mywm-session` sets the same.
+            // The desktop portals pick their backends by this name (`splice-portals.conf`,
+            // `UseIn=splice` of splice-portal); `splice-session` sets the same.
             if std::env::var_os("XDG_CURRENT_DESKTOP").is_none() {
-                std::env::set_var("XDG_CURRENT_DESKTOP", "mywm");
+                std::env::set_var("XDG_CURRENT_DESKTOP", "splice");
             }
             std::env::set_var("XDG_SESSION_TYPE", "wayland");
         }
@@ -145,7 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // On hardware, idle handling (lock after a while, then monitors off) is swayidle's job.
     if !nested
         && let Ok(executable) = std::env::current_exe()
-        && let Some(mut command) = mywm_config::session::idle_command(&state.config.idle, &executable.to_string_lossy())
+        && let Some(mut command) = splice_config::session::idle_command(&state.config.idle, &executable.to_string_lossy())
     {
         command.env("WAYLAND_DISPLAY", &state.socket_name);
         match command.spawn() {
@@ -183,8 +184,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// The configuration for the client modes (lock screen, idle): its defaults if the file is broken.
-fn config_or_default() -> mywm_config::Config {
-    let (config, error) = mywm_config::Config::load_or_default();
+fn config_or_default() -> splice_config::Config {
+    let (config, error) = splice_config::Config::load_or_default();
     if let Some(error) = error {
         tracing::warn!("configuration not loaded, using the defaults: {error}");
     }

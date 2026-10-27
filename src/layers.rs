@@ -1,7 +1,7 @@
 //! Layer shell (`wlr-layer-shell`): bars, launchers, wallpapers and notifications.
 use std::time::Duration;
 
-use mywm_layout::Rect;
+use splice_layout::Rect;
 use smithay::{
     delegate_layer_shell,
     backend::renderer::element::{RenderElementStates, default_primary_scanout_output_compare},

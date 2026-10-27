@@ -17,17 +17,17 @@ Bitte deshalb zuerst so testen, dass ein Fehlschlag folgenlos bleibt.
 Von einer freien TTY (nicht aus einer Grafiksitzung):
 
 ```sh
-RUST_LOG=info MYWM_CONFIG=$HOME/.config/mywm/config.toml \
-  ./target/release/mywm-compositor "foot" 2>compositor.log
+RUST_LOG=info SPLICE_CONFIG=$HOME/.config/splice/config.toml \
+  ./target/release/splice-compositor "foot" 2>compositor.log
 ```
 
-Mit `MYWM_BACKEND=drm` lässt sich die Backend-Wahl erzwingen. Beenden: `Super+m`
-(Standard-Binding `exit`; mit laufender Bar danach Enter), oder per SSH `pkill -TERM mywm-compositor`.
+Mit `SPLICE_BACKEND=drm` lässt sich die Backend-Wahl erzwingen. Beenden: `Super+m`
+(Standard-Binding `exit`; mit laufender Bar danach Enter), oder per SSH `pkill -TERM splice-compositor`.
 
 ## Monitore
 
-Statt kanshi gibt es `[[outputs]]` in der Config (`crates/mywm-config/example.toml`).
-Für den Aufbau aus `config/kanshi.conf` von MyWM:
+Statt kanshi gibt es `[[outputs]]` in der Config (`crates/splice-config/example.toml`).
+Für den Aufbau aus `config/kanshi.conf` von Splice:
 
 ```toml
 [[outputs]]
@@ -63,7 +63,7 @@ Monitor, steht dort der Grund (kein CRTC, Modus nicht angeboten, Surface-Fehler)
 
 ## Spiele und VRR (M3)
 
-mywm flippt immer synchron (kein Tearing): Rendert ein Spiel schneller als der Monitor,
+Splice flippt immer synchron (kein Tearing): Rendert ein Spiel schneller als der Monitor,
 zeigt jeder Refresh das neueste fertige Bild.
 
 ```toml
@@ -94,7 +94,7 @@ Prüfen:
 
 - **Bar/Launcher**: zeichnet der Compositor selbst (`builtin_shell`, Standard an; siehe `docs/shell.md`).
 - **Sperre/Idle**: `Super+Escape` startet den eingebauten Sperrbildschirm (Passwort über den PAM-Dienst
-  `mywm-lock`). Auf Hardware startet der Compositor außerdem `swayidle` (Sperre nach `[idle] lock_after_seconds`,
+  `splice-lock`). Auf Hardware startet der Compositor außerdem `swayidle` (Sperre nach `[idle] lock_after_seconds`,
   danach Monitore aus über `wlopm`). Dafür müssen `swayidle` und `wlopm` installiert sein.
 - **Steam/X11**: `steam` läuft über Xwayland (`DISPLAY` setzt der Compositor für gestartete
   Programme selbst). Nativ: Proton mit `PROTON_ENABLE_WAYLAND=1`, SDL mit `SDL_VIDEODRIVER=wayland`.
@@ -123,10 +123,10 @@ erhöhen oder die Option auslassen. Bitte Eindruck (Latenz/Ruckler) und die `per
 
 ## fifo und commit-timing
 
-mywm bietet `wp-fifo-v1` und `wp-commit-timing-v1` an. Der Compositor gibt die Sperren mit den
+Splice bietet `wp-fifo-v1` und `wp-commit-timing-v1` an. Der Compositor gibt die Sperren mit den
 Frames frei: sichtbare Oberflächen mit jedem Bild ihres Ausgangs, unsichtbare (verdeckt, versteckter
 Workspace, Monitor aus) höchstens einmal pro Sekunde. Ein Commit mit Zeitstempel wird frühestens ein
-Refresh-Intervall vor seinem Termin freigegeben; ist der Ausgang sonst ruhig, plant mywm dafür einen
+Refresh-Intervall vor seinem Termin freigegeben; ist der Ausgang sonst ruhig, plant splice dafür einen
 Frame ein. Nested lässt sich nur die Logik prüfen (`tests/pacing_smoke.py`), nicht das Timing.
 
 Prüfen:
@@ -211,8 +211,8 @@ Prüfen:
 
 ## Logs
 
-Der Compositor schreibt jetzt immer eine Logdatei: `~/.local/state/mywm/compositor.log`
-(Pfad mit `MYWM_LOG_FILE` änderbar, `MYWM_LOG_FILE=off` schaltet sie ab; die Datei der vorigen
+Der Compositor schreibt jetzt immer eine Logdatei: `~/.local/state/splice/compositor.log`
+(Pfad mit `SPLICE_LOG_FILE` änderbar, `SPLICE_LOG_FILE=off` schaltet sie ab; die Datei der vorigen
 Sitzung bleibt als `compositor.log.1` liegen). Darin stehen Start, Config-Pfad, jeder Monitor mit
 Position und Größe, GPU und Modus, neue Fenster mit App-ID, Layer-Surfaces (Bar, Wallpaper),
 Xwayland, VRR und jeder Client, der wegen eines Protokollfehlers rausgeworfen wurde.

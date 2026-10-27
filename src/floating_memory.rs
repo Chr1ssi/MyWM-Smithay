@@ -1,14 +1,14 @@
 //! Where each app's floating window was last: a window of the app that opens floating starts there again,
-//! also after a restart (`$XDG_STATE_HOME/mywm/floating`). Dialogs are left out; they open over their parent.
+//! also after a restart (`$XDG_STATE_HOME/splice/floating`). Dialogs are left out; they open over their parent.
 use std::{collections::HashMap, path::PathBuf};
 
-use mywm_layout::Rect;
+use splice_layout::Rect;
 
 use crate::{State, desktop::WindowId};
 
 /// One line per app: `x y width height app_id`, the rect relative to the monitor's work area.
 fn path() -> Option<PathBuf> {
-    Some(mywm_config::state_dir()?.join("floating"))
+    Some(splice_config::state_dir()?.join("floating"))
 }
 
 pub fn load() -> HashMap<String, Rect> {

@@ -25,14 +25,14 @@ subprocess.run(["convert", "-size", "64x32", "xc:#00ff00", green], check=True)
 
 def choose(state_home, path):
     """What the picker saves (a percent-encoded file URL)."""
-    os.makedirs(f"{state_home}/mywm", exist_ok=True)
+    os.makedirs(f"{state_home}/splice", exist_ok=True)
     url = "file://" + "".join(c if c.isalnum() or c in "/-_.~" else "%%%02X" % ord(c) for c in path)
-    with open(f"{state_home}/mywm/wallpaper.json", "w") as f:
+    with open(f"{state_home}/splice/wallpaper.json", "w") as f:
         json.dump({"version": 1, "wallpaper": url}, f)
 
 
 # The state directory is the compositor's own; the choice must be there before it starts.
-comp = Compositor(extra_env={"MYWM_VIRTUAL_OUTPUTS": "1"}, top=f'wallpaper_directory = "{images}"\n')
+comp = Compositor(extra_env={"SPLICE_VIRTUAL_OUTPUTS": "1"}, top=f'wallpaper_directory = "{images}"\n')
 try:
     # Without a saved choice: the first image of the directory (sorted, "green" < "split").
     env = comp.env()

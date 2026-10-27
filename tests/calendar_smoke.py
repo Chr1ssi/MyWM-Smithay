@@ -1,4 +1,4 @@
-"""The built-in shell's calendar panel against a stand-in for the mywm-calendar helper (and for foot): opened by the
+"""The built-in shell's calendar panel against a stand-in for the splice-calendar helper (and for foot): opened by the
 clock, it asks for the month's events and the calendars; paging asks for the next month; the form checks its fields,
 creates an event on the selected day (typed into its fields, in the calendar chosen from its list) and reloads; the
 button opens the calendar app and closes the panel. Clicked at the places of the Quickshell panel on 1280x800.
@@ -45,7 +45,7 @@ def stub(name, script):
 
 
 # Every call is recorded with its arguments, one per line (an empty location as a trailing "|").
-stub("mywm-calendar", f"""(IFS='|'; echo "$*") >> {record}
+stub("splice-calendar", f"""(IFS='|'; echo "$*") >> {record}
 case $1 in
   events) echo '{events}';;
   calendars) echo '[{{"name":"Arbeit","color":""}},{{"name":"Privat","color":"#ff8800"}}]';;
@@ -126,7 +126,7 @@ try:
     # The app opens in foot; the panel closes (the clock is no longer selected).
     selected = pixel(comp, CLOCK[0], 9)  # in the clock's pill, above its text
     click(*OPEN_APP)
-    assert wait(lambda: "foot|--app-id|mywm-calendar|--title|Kalender|mywm-calendar|app" in recorded()), recorded()
+    assert wait(lambda: "foot|--app-id|splice-calendar|--title|Kalender|splice-calendar|app" in recorded()), recorded()
     assert wait(lambda: pixel(comp, CLOCK[0], 9) != selected), "the panel stayed open"
     print("app OK")
     assert comp.stop()

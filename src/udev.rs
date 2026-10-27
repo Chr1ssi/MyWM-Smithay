@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mywm_config::{OutputConfig, OutputMode, OutputTransform};
+use splice_config::{OutputConfig, OutputMode, OutputTransform};
 use smithay::{
     backend::{
         allocator::{
@@ -214,7 +214,7 @@ pub struct UdevData {
 }
 
 /// Apply `[input]` to a pointer device; settings the device does not support are skipped.
-fn apply_input_config(device: &mut smithay::reexports::input::Device, config: &mywm_config::InputConfig) {
+fn apply_input_config(device: &mut smithay::reexports::input::Device, config: &splice_config::InputConfig) {
     use smithay::reexports::input::AccelProfile;
     if !device.has_capability(DeviceCapability::Pointer) {
         return;
@@ -223,8 +223,8 @@ fn apply_input_config(device: &mut smithay::reexports::input::Device, config: &m
         && device.config_accel_is_available()
     {
         let profile = match profile {
-            mywm_config::AccelProfile::Flat => AccelProfile::Flat,
-            mywm_config::AccelProfile::Adaptive => AccelProfile::Adaptive,
+            splice_config::AccelProfile::Flat => AccelProfile::Flat,
+            splice_config::AccelProfile::Adaptive => AccelProfile::Adaptive,
         };
         let _ = device.config_accel_set_profile(profile);
     }
@@ -310,7 +310,7 @@ pub fn init(event_loop: &mut EventLoop<'static, State>, state: &mut State) -> Re
     Ok(())
 }
 
-pub fn late_margin(config: &mywm_config::RenderConfig) -> Option<Duration> {
+pub fn late_margin(config: &splice_config::RenderConfig) -> Option<Duration> {
     config.late_scheduling.then(|| Duration::from_secs_f64(config.margin_ms / 1000.0))
 }
 
@@ -433,7 +433,7 @@ impl UdevData {
     }
 
     /// Apply `[input]` to every known device (config reload).
-    pub fn apply_input_config(&mut self, config: &mywm_config::InputConfig) {
+    pub fn apply_input_config(&mut self, config: &splice_config::InputConfig) {
         for device in &mut self.devices {
             apply_input_config(device, config);
         }

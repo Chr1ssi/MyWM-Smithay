@@ -2255,142 +2255,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
-name = "mywm-capture-test"
-version = "0.1.0"
-dependencies = [
- "wayland-client",
- "wayland-protocols",
-]
-
-[[package]]
-name = "mywm-compositor"
-version = "0.1.0"
-dependencies = [
- "calloop 0.14.4",
- "drm-ffi",
- "image",
- "libc",
- "mywm-config",
- "mywm-ipc",
- "mywm-layout",
- "mywm-shell-protocol",
- "mywm-theme",
- "mywm-ui",
- "png 0.17.16",
- "smithay",
- "smithay-drm-extras",
- "tracing",
- "tracing-subscriber",
- "xcursor",
-]
-
-[[package]]
-name = "mywm-config"
-version = "0.1.0"
-dependencies = [
- "mywm-layout",
- "serde",
- "serde_json",
- "toml 0.9.12+spec-1.1.0",
- "xkbcommon",
-]
-
-[[package]]
-name = "mywm-ipc"
-version = "0.1.0"
-dependencies = [
- "mywm-layout",
-]
-
-[[package]]
-name = "mywm-layout"
-version = "0.1.0"
-
-[[package]]
-name = "mywm-portal"
-version = "0.1.0"
-dependencies = [
- "blocking",
- "libc",
- "mywm-ipc",
- "pipewire",
- "tracing",
- "tracing-subscriber",
- "wayland-client",
- "wayland-protocols",
- "zbus",
-]
-
-[[package]]
-name = "mywm-settings"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "mywm-config",
- "png 0.17.16",
- "serde_json",
- "toml_edit",
- "xkbcommon",
-]
-
-[[package]]
-name = "mywm-shell-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "mywm-shell-services"
-version = "0.1.0"
-dependencies = [
- "image",
- "libc",
- "mywm-shell-protocol",
- "pipewire",
- "resvg",
- "serde",
- "serde_json",
- "tracing",
- "tracing-subscriber",
- "zbus",
-]
-
-[[package]]
-name = "mywm-test-client"
-version = "0.1.0"
-dependencies = [
- "libc",
- "wayland-client",
- "wayland-protocols",
- "wayland-protocols-wlr",
-]
-
-[[package]]
-name = "mywm-theme"
-version = "0.1.0"
-dependencies = [
- "libc",
- "material-colors",
- "minijinja",
- "mywm-config",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "mywm-ui"
-version = "0.1.0"
-dependencies = [
- "cosmic-text",
- "libc",
- "serde_json",
- "tiny-skia",
- "tracing",
-]
-
-[[package]]
 name = "naga"
 version = "27.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3882,6 +3746,142 @@ name = "smol_str"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eeb7109d23f319619d4cc0de5464613c8b7b1a09db2774a58101459cf6be2f10"
+
+[[package]]
+name = "splice-capture-test"
+version = "0.1.0"
+dependencies = [
+ "wayland-client",
+ "wayland-protocols",
+]
+
+[[package]]
+name = "splice-compositor"
+version = "0.1.0"
+dependencies = [
+ "calloop 0.14.4",
+ "drm-ffi",
+ "image",
+ "libc",
+ "png 0.17.16",
+ "smithay",
+ "smithay-drm-extras",
+ "splice-config",
+ "splice-ipc",
+ "splice-layout",
+ "splice-shell-protocol",
+ "splice-theme",
+ "splice-ui",
+ "tracing",
+ "tracing-subscriber",
+ "xcursor",
+]
+
+[[package]]
+name = "splice-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "splice-layout",
+ "toml 0.9.12+spec-1.1.0",
+ "xkbcommon",
+]
+
+[[package]]
+name = "splice-ipc"
+version = "0.1.0"
+dependencies = [
+ "splice-layout",
+]
+
+[[package]]
+name = "splice-layout"
+version = "0.1.0"
+
+[[package]]
+name = "splice-portal"
+version = "0.1.0"
+dependencies = [
+ "blocking",
+ "libc",
+ "pipewire",
+ "splice-ipc",
+ "tracing",
+ "tracing-subscriber",
+ "wayland-client",
+ "wayland-protocols",
+ "zbus",
+]
+
+[[package]]
+name = "splice-settings"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "png 0.17.16",
+ "serde_json",
+ "splice-config",
+ "toml_edit",
+ "xkbcommon",
+]
+
+[[package]]
+name = "splice-shell-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "splice-shell-services"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "libc",
+ "pipewire",
+ "resvg",
+ "serde",
+ "serde_json",
+ "splice-shell-protocol",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
+name = "splice-test-client"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "splice-theme"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "material-colors",
+ "minijinja",
+ "serde",
+ "serde_json",
+ "splice-config",
+]
+
+[[package]]
+name = "splice-ui"
+version = "0.1.0"
+dependencies = [
+ "cosmic-text",
+ "libc",
+ "serde_json",
+ "tiny-skia",
+ "tracing",
+]
 
 [[package]]
 name = "stable_deref_trait"

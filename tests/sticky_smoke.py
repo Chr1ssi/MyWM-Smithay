@@ -6,13 +6,13 @@ Needs `cargo build --workspace`. Run from the repository root with $DISPLAY set:
 import subprocess, time
 from smoke_support import Bar, Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 CONFIG = """
 [bindings]
 toggle_sticky = ["Super+p"]
 
 [[rules]]
-app_id = "mywm.test.pip"
+app_id = "splice.test.pip"
 sticky = true
 """
 
@@ -33,9 +33,9 @@ comp = Compositor(config=CONFIG)
 try:
     bar = Bar(comp.sock)
     bar.until(lambda s: len(s) == 1)
-    named(comp, "mywm.test.notes")
+    named(comp, "splice.test.notes")
     assert wait(lambda: windows(comp) == 1, 10)
-    named(comp, "mywm.test.pip")
+    named(comp, "splice.test.pip")
     assert wait(lambda: windows(comp) == 2, 10)
     time.sleep(1)
 

@@ -7,7 +7,7 @@ from smoke_support import Compositor
 
 comp = Compositor()
 try:
-    out = subprocess.run(["./target/debug/mywm-test-client", "popup", "2"], env=comp.env(), capture_output=True, text=True, timeout=30).stdout
+    out = subprocess.run(["./target/debug/splice-test-client", "popup", "2"], env=comp.env(), capture_output=True, text=True, timeout=30).stdout
     assert "popup configured" in out, f"the popup never got its configure: {out!r}"
     x, y, w, h = map(int, out.split("popup configured")[1].split()[:4])
     assert (w, h) == (100, 80), (w, h)

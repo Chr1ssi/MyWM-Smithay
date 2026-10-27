@@ -1,5 +1,5 @@
 """The built-in shell's command center against a stand-in for BlueZ (tests/fake_bluez.py on a private system bus) and
-stand-ins for gammastep, ip, wl-copy and mywm-settings: Bluetooth on, connect, search, pair (trusted first), copy the address, the
+stand-ins for gammastep, ip, wl-copy and splice-settings: Bluetooth on, connect, search, pair (trusted first), copy the address, the
 night light on and off and remembered, the settings app started from the panel, and a saved night light starts with
 the session.
 
@@ -47,7 +47,7 @@ def stub(name, script):
 stub("gammastep", f'echo "gammastep $*" >> {record}\ntrap \'echo "gammastep stopped" >> {record}; exit 0\' TERM\nwhile true; do sleep 0.1; done\n')
 stub("ip", 'echo "2: eno1    inet 192.168.1.23/24 brd 192.168.1.255 scope global eno1"\n')
 stub("wl-copy", f'echo "copy $*" >> {record}\n')
-stub("mywm-settings", f'echo settings >> {record}\n')
+stub("splice-settings", f'echo settings >> {record}\n')
 
 os.makedirs(f"{work}/system")
 system_command, system_address = private_bus(f"{work}/system")
@@ -58,7 +58,7 @@ open(bluez_log, "w").close()
 processes.append(subprocess.Popen(["python3", "tests/fake_bluez.py", bluez_log], env=dict(os.environ, DBUS_SYSTEM_BUS_ADDRESS=system_address)))
 assert wait(lambda: "ready" in open(bluez_log).read()), "the stand-in for BlueZ did not start"
 state = f"{work}/state"
-os.makedirs(f"{state}/mywm")
+os.makedirs(f"{state}/splice")
 
 
 def calls():
@@ -112,16 +112,16 @@ try:
     # The night light tile runs gammastep while on and remembers the choice.
     click(*NIGHT_TILE)
     assert wait(lambda: "gammastep -m wayland -O 4000" in recorded()), recorded()
-    assert open(f"{state}/mywm/night-light").read().strip() == "1"
+    assert open(f"{state}/splice/night-light").read().strip() == "1"
     click(*NIGHT_TILE)
     assert wait(lambda: "gammastep stopped" in recorded()), recorded()
-    assert open(f"{state}/mywm/night-light").read().strip() == "0"
+    assert open(f"{state}/splice/night-light").read().strip() == "0"
     # The settings row starts the settings app.
     click(*SETTINGS_ROW)
     assert wait(lambda: "settings" in recorded()), recorded()
     print("settings OK")
     # Saved as on, a new session starts it at once.
-    with open(f"{state}/mywm/night-light", "w") as f:
+    with open(f"{state}/splice/night-light", "w") as f:
         f.write("1\n")
     assert comp.stop()
     open(record, "w").close()

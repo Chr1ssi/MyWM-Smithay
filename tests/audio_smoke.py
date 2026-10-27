@@ -85,7 +85,7 @@ try:
     first = default_sink()
 
     extra = {name: env[name] for name in ("PIPEWIRE_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")}
-    extra.update(DBUS_SYSTEM_BUS_ADDRESS="unix:path=/nonexistent", RUST_LOG="info,mywm_compositor::shell_services=debug", LANG="de_DE.UTF-8")
+    extra.update(DBUS_SYSTEM_BUS_ADDRESS="unix:path=/nonexistent", RUST_LOG="info,splice_compositor::shell_services=debug", LANG="de_DE.UTF-8")
     comp = Compositor(top="builtin_shell = true\n", extra_env=extra)
     log = lambda: open(comp.dir + "/log").read()
     assert wait(lambda: re.search(r'application: "Testapp"', log()), 20), "no application stream reported"

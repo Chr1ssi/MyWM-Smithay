@@ -219,7 +219,7 @@ def zoom(comp):
 
 
 run("basics", basics, windows=2)
-run("urgent", urgent, extra_args="./target/debug/mywm-test-client urgent 40 & sleep 1; ")
-run("every monitor", every_monitor, extra_env={"MYWM_VIRTUAL_OUTPUTS": "1"})
+run("urgent", urgent, extra_args="./target/debug/splice-test-client urgent 40 & sleep 1; ")
+run("every monitor", every_monitor, extra_env={"SPLICE_VIRTUAL_OUTPUTS": "1"})
 run("zoom", zoom, windows=1, config="[effects]\nanimation_ms = 1000\n")
 print("OK")

@@ -1,4 +1,4 @@
-"""The screen-cast portal (mywm-portal): choose a source in the compositor, stream it over PipeWire.
+"""The screen-cast portal (splice-portal): choose a source in the compositor, stream it over PipeWire.
 
 Needs dbus-daemon, pipewire, wireplumber, busctl, gst-launch-1.0 with the pipewire plugin, and
 `cargo build --workspace`. Run from the repository root with $DISPLAY set:
@@ -28,7 +28,7 @@ def busctl(*args, timeout=30):
     return subprocess.run(["busctl", f"--address={bus_address}", "--user", "call", *args], env=pw_env, capture_output=True, text=True, timeout=timeout)
 
 
-PORTAL = ["org.freedesktop.impl.portal.desktop.mywm", "/org/freedesktop/portal/desktop", "org.freedesktop.impl.portal.ScreenCast"]
+PORTAL = ["org.freedesktop.impl.portal.desktop.splice", "/org/freedesktop/portal/desktop", "org.freedesktop.impl.portal.ScreenCast"]
 def brightness(path):
     out = subprocess.check_output(["convert", path, "-resize", "1x1!", "-colorspace", "Gray", "-format", "%[fx:mean]", "info:"])
     return float(out.decode())
@@ -58,8 +58,8 @@ try:
     cast_keys = '[bindings]\ncast_window = ["Super+w"]\ncast_monitor = ["Super+o"]\ncast_clear = ["Super+x"]\n'
     comp = Compositor(windows=1, config=cast_keys)
     time.sleep(3)
-    portal_env = dict(pw_env, WAYLAND_DISPLAY=comp.display, MYWM_SOCKET=comp.sock, RUST_LOG="info")
-    spawn(["./target/debug/mywm-portal"], portal_env, "portal")
+    portal_env = dict(pw_env, WAYLAND_DISPLAY=comp.display, SPLICE_SOCKET=comp.sock, RUST_LOG="info")
+    spawn(["./target/debug/splice-portal"], portal_env, "portal")
     assert wait(lambda: busctl(*PORTAL[:1], "/", "org.freedesktop.DBus.Peer", "Ping").returncode == 0, 10), open(f"{work}/portal.log").read()
 
     win = subprocess.check_output(["xdotool", "search", "--onlyvisible", "--name", "Smithay"]).split()[0].decode()
@@ -88,7 +88,7 @@ try:
         path = f"{work}/{label}.png"
         convert = ["!", caps] if caps else []
         gst = subprocess.run(
-            ["gst-launch-1.0", "-q", "pipewiresrc", "target-object=mywm-screencast", "num-buffers=3", *convert, "!", "videoconvert", "!", "pngenc", "snapshot=true", "!", "filesink", f"location={path}"],
+            ["gst-launch-1.0", "-q", "pipewiresrc", "target-object=splice-screencast", "num-buffers=3", *convert, "!", "videoconvert", "!", "pngenc", "snapshot=true", "!", "filesink", f"location={path}"],
             env=pw_env, capture_output=True, text=True, timeout=30)
         assert gst.returncode == 0 and os.path.exists(path), gst.stderr + open(f"{work}/portal.log").read()
         return subprocess.check_output(["identify", "-format", "%wx%h", path]).decode(), path
@@ -100,7 +100,7 @@ try:
     assert dims == "1280x800", dims
     assert brightness(path) > 0.1, "the monitor stream is black"
     print("monitor stream:", dims)
-    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    closed = busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
 
     # A window: click it in the chooser.
@@ -115,12 +115,12 @@ try:
     assert dims == "1260x780", dims
     assert brightness(path) > 0.1, "the window stream is black"
     print("window stream:", dims)
-    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    closed = busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
 
     # The window resizes (a second window tiles next to it): the stream follows with new caps.
     session, node, size, source_type = stream(click_window, "resize")
-    watcher = subprocess.Popen(["gst-launch-1.0", "-v", "pipewiresrc", "target-object=mywm-screencast", "num-buffers=200", "!", "videoconvert", "!", "fakesink"],
+    watcher = subprocess.Popen(["gst-launch-1.0", "-v", "pipewiresrc", "target-object=splice-screencast", "num-buffers=200", "!", "videoconvert", "!", "fakesink"],
                                env=pw_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     time.sleep(2)
     subprocess.Popen(WINDOW_CLIENT.split(), env=comp.env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -130,7 +130,7 @@ try:
     widths = re.findall(r"width=\(int\)(\d+)", caps)
     assert "1260" in widths and any(int(w) < 1000 for w in widths), ("stream did not follow the resize", widths, caps[-600:])
     print("resize followed:", sorted(set(widths)))
-    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    closed = busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
 
     # A consumer that asks for BGRA (Chromium does) must get opaque pixels.
@@ -139,7 +139,7 @@ try:
     opaque = subprocess.check_output(["identify", "-format", "%[opaque]", path]).decode()
     assert opaque.lower() == "true", f"BGRA frames are not opaque: {opaque}"
     print("BGRA opaque OK")
-    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    closed = busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
 
     # A dynamic stream ("d" in the overview): black until a key gives it a target, then whatever the keys
@@ -161,7 +161,7 @@ try:
     dims, path = grab(node, "dynamic-clear")
     assert brightness(path) < 0.02, ("the stream still shows the monitor after cast_clear", brightness(path))
     print("dynamic stream: monitor, then black again OK")
-    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    closed = busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
 
     # A still picture keeps delivering frames (keepalive): no window is animating any more.
@@ -173,13 +173,13 @@ try:
     session, node, size, source_type = stream(lambda: comp.key("Return"), "still")
     start = time.time()
     # Four frames of a picture that never changes: the first at once, the others from the keepalive.
-    gst = subprocess.run(["gst-launch-1.0", "-q", "pipewiresrc", "target-object=mywm-screencast", "num-buffers=4", "!", "videoconvert", "!", "fakesink"],
+    gst = subprocess.run(["gst-launch-1.0", "-q", "pipewiresrc", "target-object=splice-screencast", "num-buffers=4", "!", "videoconvert", "!", "fakesink"],
                          env=pw_env, capture_output=True, text=True, timeout=30)
     assert gst.returncode == 0, gst.stderr
     took = time.time() - start
     assert 0.8 < took < 15, f"a still screen should deliver a frame about every 0.4 s, four took {took:.1f} s"
     print("still picture stream OK in %.1f s" % took)
-    closed = busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+    closed = busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
     assert closed.returncode == 0, closed.stderr
 
     # Two sessions of one app at once (Vesktop does this): both succeed and share the choice.
@@ -201,7 +201,7 @@ try:
     assert all(p.returncode == 0 and out.startswith("ua{sv} 0") for p, (out, _) in zip(starts, outputs)), outputs
     print("two sessions at once OK")
     for session in sessions:
-        busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+        busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
 
     # Vesktop's second question within a moment reuses the first answer; a later one asks again.
     def ask(label):
@@ -222,7 +222,7 @@ try:
     assert out.startswith("ua{sv} 0"), out
     print("a follow-up session reuses the choice")
     for session in (first, second):
-        busctl("org.freedesktop.impl.portal.desktop.mywm", session, "org.freedesktop.impl.portal.Session", "Close")
+        busctl("org.freedesktop.impl.portal.desktop.splice", session, "org.freedesktop.impl.portal.Session", "Close")
     time.sleep(9)
     third, p3 = ask("reuse3")
     time.sleep(1.5)
@@ -230,7 +230,7 @@ try:
     comp.key("Return")
     out, _ = p3.communicate(timeout=30)
     assert out.startswith("ua{sv} 0"), out
-    busctl("org.freedesktop.impl.portal.desktop.mywm", third, "org.freedesktop.impl.portal.Session", "Close")
+    busctl("org.freedesktop.impl.portal.desktop.splice", third, "org.freedesktop.impl.portal.Session", "Close")
 
     # Escape cancels the chooser: response 1.
     def cancel():

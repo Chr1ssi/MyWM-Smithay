@@ -38,7 +38,7 @@ try:
     env = comp.env()
     # The client replaces its first inhibitor with a second one on the same surface and then exits
     # without destroying the second.
-    client = subprocess.Popen(["./target/debug/mywm-test-client", "idle-inhibit", "6"], env=env,
+    client = subprocess.Popen(["./target/debug/splice-test-client", "idle-inhibit", "6"], env=env,
                               stdout=subprocess.PIPE, text=True)
     assert client.stdout.readline().strip() == "inhibiting", "the idle-inhibit client did not start"
     if os.path.exists(f"{idle_dir}/idle"):
@@ -60,7 +60,7 @@ try:
     # --- session lock (ext-session-lock, the built-in lock screen) ---
     screenshot(f"{comp.dir}/before.png")
     before = pixel(f"{comp.dir}/before.png", 300, 400)
-    result = subprocess.run(["./target/debug/mywm-compositor", "--lock"], env=env, timeout=15)
+    result = subprocess.run(["./target/debug/splice-compositor", "--lock"], env=env, timeout=15)
     assert result.returncode == 0, "--lock did not get a confirmation"
     bar.until(lambda s: bar.locked, 5)
     time.sleep(1)

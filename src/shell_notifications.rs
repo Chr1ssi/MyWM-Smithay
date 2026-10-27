@@ -1,4 +1,4 @@
-//! Notifications in the built-in shell, as mywm-shell's Quickshell bar kept them: a list (newest first) behind
+//! Notifications in the built-in shell, as splice-shell's Quickshell bar kept them: a list (newest first) behind
 //! the bell, which opens the notification center (see `shell_panels`), and toasts at the top right of the first
 //! monitor.
 //!
@@ -8,8 +8,8 @@
 //! critical notifications pop up; the rest wait in the list. A hidden toast stays in the list.
 use std::time::{Duration, Instant};
 
-use mywm_shell_protocol::{Command, Notification, Urgency};
-use mywm_ui::{markup, notifications::NotificationView, scene::Picture};
+use splice_shell_protocol::{Command, Notification, Urgency};
+use splice_ui::{markup, notifications::NotificationView, scene::Picture};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 
 use crate::{State, shell::ShellHit};
@@ -129,7 +129,7 @@ impl State {
     /// The pointer is over `hit`: a toast under it is held, one it left starts its time again.
     pub fn toasts_hovered(&mut self, hit: Option<ShellHit>) {
         let held = match hit {
-            Some(ShellHit::Notices(mywm_ui::notices::NoticeTarget::Toast(target))) => Some(target.id()),
+            Some(ShellHit::Notices(splice_ui::notices::NoticeTarget::Toast(target))) => Some(target.id()),
             _ => None,
         };
         let notes = &mut self.shell.notes;

@@ -1,4 +1,4 @@
-//! Bar socket (`$MYWM_SOCKET`), speaking the `v1` protocol of `mywm-ipc`.
+//! Bar socket (`$SPLICE_SOCKET`), speaking the `v1` protocol of `splice-ipc`.
 //! Bounded and nonblocking: a stuck or misbehaving client is dropped, never waited for.
 use std::{
     io::{self, Read, Write},
@@ -9,8 +9,8 @@ use std::{
     path::PathBuf,
 };
 
-use mywm_config::Action;
-use mywm_ipc::{Chosen, Command, INVALID, OK, confirm_logout, parse_command};
+use splice_config::Action;
+use splice_ipc::{Chosen, Command, INVALID, OK, confirm_logout, parse_command};
 use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction, generic::Generic};
 
 use crate::State;
@@ -81,7 +81,7 @@ fn bind(path: &PathBuf) -> io::Result<UnixListener> {
 }
 
 pub fn init(handle: &LoopHandle<'static, State>, state: &mut State) -> io::Result<()> {
-    let Some(path) = std::env::var_os("MYWM_SOCKET").map(PathBuf::from) else {
+    let Some(path) = std::env::var_os("SPLICE_SOCKET").map(PathBuf::from) else {
         return Ok(());
     };
     let listener = bind(&path)?;
@@ -272,7 +272,7 @@ impl State {
 
     /// Send the current state to every client whose copy is outdated.
     /// Change what dynamic screen casts show; their streams are told at the next flush.
-    pub fn set_cast_target(&mut self, target: mywm_ipc::CastTarget) {
+    pub fn set_cast_target(&mut self, target: splice_ipc::CastTarget) {
         if self.cast_target == target {
             return;
         }

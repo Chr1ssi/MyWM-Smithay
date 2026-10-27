@@ -1,4 +1,4 @@
-"""The screen-cast portal (mywm-portal) ends with its session bus instead of lingering as an orphan.
+"""The screen-cast portal (splice-portal) ends with its session bus instead of lingering as an orphan.
 
 A session bus that goes away (a test bus, a session without systemd) does not stop the services it
 activated. Needs dbus-daemon, busctl and `cargo build --workspace`. Run from the repository root:
@@ -14,11 +14,11 @@ bus = subprocess.Popen(bus_command, env=env)
 portal = None
 try:
     assert wait(lambda: os.path.exists(f"{work}/bus")), "no bus"
-    portal = subprocess.Popen(["./target/debug/mywm-portal"], env=env, stdout=open(f"{work}/portal.log", "w"), stderr=subprocess.STDOUT)
+    portal = subprocess.Popen(["./target/debug/splice-portal"], env=env, stdout=open(f"{work}/portal.log", "w"), stderr=subprocess.STDOUT)
 
     def owned():
         names = subprocess.run(["busctl", f"--address={address}", "list", "--no-legend"], env=env, capture_output=True, text=True).stdout
-        return "org.freedesktop.impl.portal.desktop.mywm" in names
+        return "org.freedesktop.impl.portal.desktop.splice" in names
     assert wait(owned), "the portal did not take its bus name"
 
     bus.terminate()

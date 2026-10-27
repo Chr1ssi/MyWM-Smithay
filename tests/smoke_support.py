@@ -1,13 +1,13 @@
 """Helpers for the smoke tests: run the nested compositor and talk to its bar socket.
 
 Needs an X server ($DISPLAY, e.g. Xvfb :99) and a debug build of the workspace (`cargo build --workspace`:
-the compositor and mywm-test-client). `tests/run-smoke` sets all of this up.
+the compositor and splice-test-client). `tests/run-smoke` sets all of this up.
 """
 import os, socket, subprocess, tempfile, time
 
-DEBUG_BINARY = "./target/debug/mywm-compositor"
+DEBUG_BINARY = "./target/debug/splice-compositor"
 # An ordinary animated window (the role weston-simple-shm used to play).
-WINDOW_CLIENT = "./target/debug/mywm-test-client simple 3600"
+WINDOW_CLIENT = "./target/debug/splice-test-client simple 3600"
 
 
 def private_bus(directory):
@@ -69,11 +69,11 @@ class Compositor:
             # `top` holds top-level keys, which must precede the first table.
             f.write(top + f'[keyboard]\nlayout = "{layout}"\n' + config)
         # Isolated from the user's session: own state directory (theme, wallpaper), no log file (the compositor
-        # would rotate the real session's log), and no environment of a running mywm session.
+        # would rotate the real session's log), and no environment of a running splice session.
         os.makedirs(f"{self.dir}/state")
-        env = dict(os.environ, MYWM_SOCKET=self.sock, MYWM_CONFIG=f"{self.dir}/config.toml", RUST_LOG="info",
-                   XDG_STATE_HOME=f"{self.dir}/state", MYWM_LOG_FILE="off")
-        for name in [name for name in env if name.startswith("MYWM_") and name not in ("MYWM_SOCKET", "MYWM_CONFIG")]:
+        env = dict(os.environ, SPLICE_SOCKET=self.sock, SPLICE_CONFIG=f"{self.dir}/config.toml", RUST_LOG="info",
+                   XDG_STATE_HOME=f"{self.dir}/state", SPLICE_LOG_FILE="off")
+        for name in [name for name in env if name.startswith("SPLICE_") and name not in ("SPLICE_SOCKET", "SPLICE_CONFIG")]:
             del env[name]
         env.update(extra_env or {})
         env.pop("WAYLAND_DISPLAY", None)
@@ -97,7 +97,7 @@ class Compositor:
 
     def env(self):
         """Environment for running a Wayland client against this compositor."""
-        env = dict(os.environ, WAYLAND_DISPLAY=self.display, MYWM_SOCKET=self.sock, MYWM_CONFIG=self.dir + "/config.toml")
+        env = dict(os.environ, WAYLAND_DISPLAY=self.display, SPLICE_SOCKET=self.sock, SPLICE_CONFIG=self.dir + "/config.toml")
         return env
 
     def stop(self):

@@ -1,12 +1,12 @@
 """keyboard-shortcuts-inhibit and xdg-activation (urgent windows) against the nested compositor.
 
-Needs `cargo build --workspace` (crates/mywm-test-client). Run from the repository root with
+Needs `cargo build --workspace` (crates/splice-test-client). Run from the repository root with
 $DISPLAY set: PYTHONPATH=tests python3 tests/attention_smoke.py
 """
 import os, subprocess, tempfile, time
 from smoke_support import Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 
 
 def pixel(path, x, y):

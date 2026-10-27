@@ -1,5 +1,5 @@
 //! Window management model: windows, per-monitor workspaces and their mapping onto the smithay `Space`.
-use mywm_layout::{
+use splice_layout::{
     Appearance, Desk, DragKind, Edges, GAMING, Placement, Rect, WindowInfo, Workspace,
     arrange, place_floating,
 };
@@ -86,8 +86,8 @@ pub struct Managed {
 
 impl Managed {
     /// What window rules select it by.
-    pub fn subject(&self) -> mywm_config::Subject<'_> {
-        mywm_config::Subject { app_id: self.app_id.as_deref(), title: self.title.as_deref(), dialog: self.parent.is_some() }
+    pub fn subject(&self) -> splice_config::Subject<'_> {
+        splice_config::Subject { app_id: self.app_id.as_deref(), title: self.title.as_deref(), dialog: self.parent.is_some() }
     }
 }
 
@@ -412,8 +412,8 @@ impl State {
         // No title: it may say more about the user than the log should.
         tracing::info!("new window: app_id={app_id:?} dialog={dialog}");
 
-        let subject = mywm_config::Subject { app_id: app_id.as_deref(), title: title.as_deref(), dialog };
-        let placement = mywm_config::resolve(&self.config.rules, subject, self.config.float_dialogs);
+        let subject = splice_config::Subject { app_id: app_id.as_deref(), title: title.as_deref(), dialog };
+        let placement = splice_config::resolve(&self.config.rules, subject, self.config.float_dialogs);
         let remembered = (!dialog).then(|| self.recall_floating(app_id.as_deref())).flatten();
         let surface = self.desktop.get(id).and_then(|m| m.surface());
         let game = self.is_game(app_id.as_deref(), surface.as_ref(), parent);
@@ -478,7 +478,7 @@ impl State {
 
     /// Whether a rule keeps `m` out of screenshots, recordings and streams.
     pub fn blocks_capture(&self, m: &Managed) -> bool {
-        mywm_config::any_blocks_capture(&self.config.rules) && mywm_config::blocks_capture(&self.config.rules, m.subject())
+        splice_config::any_blocks_capture(&self.config.rules) && splice_config::blocks_capture(&self.config.rules, m.subject())
     }
 
     /// A toplevel got a parent after it was placed (`xdg-foreign` sets it once the dialog exists): it is a
@@ -495,8 +495,8 @@ impl State {
         if parent.is_none() || parent == m.parent {
             return;
         }
-        let subject = mywm_config::Subject { dialog: true, ..m.subject() };
-        let floating = mywm_config::resolve(&self.config.rules, subject, self.config.float_dialogs).floating;
+        let subject = splice_config::Subject { dialog: true, ..m.subject() };
+        let floating = splice_config::resolve(&self.config.rules, subject, self.config.float_dialogs).floating;
         if let Some(m) = self.desktop.get_mut(id) {
             m.parent = parent;
             if floating && !m.floating {
@@ -565,8 +565,8 @@ impl State {
         self.remember_floating(id);
         // A dynamic cast of this window shows nothing from now on.
         let shown = self.desktop.get(id).and_then(|m| m.foreign.as_ref()).map(|h| h.identifier());
-        if shown.is_some_and(|id| self.cast_target == mywm_ipc::CastTarget::Window(id)) {
-            self.set_cast_target(mywm_ipc::CastTarget::Nothing);
+        if shown.is_some_and(|id| self.cast_target == splice_ipc::CastTarget::Window(id)) {
+            self.set_cast_target(splice_ipc::CastTarget::Nothing);
         }
         if let Some(managed) = self.desktop.get(id) {
             self.space.unmap_elem(&managed.window);

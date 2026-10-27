@@ -1,5 +1,5 @@
-use mywm_config::{Action, Modifiers};
-use mywm_layout::{DragKind, Edges};
+use splice_config::{Action, Modifiers};
+use splice_layout::{DragKind, Edges};
 use smithay::{
     backend::session::Session,
     wayland::shell::wlr_layer::Layer,
@@ -81,7 +81,7 @@ impl State {
                 let Some(binding) = self.config.program_bindings.values().nth(index) else { return };
                 // Run or raise: an open window of the app is shown instead of starting another.
                 let open = binding.app_id.as_deref().and_then(|pattern| {
-                    self.next_window_where(|m| m.app_id.as_deref().is_some_and(|id| mywm_config::glob(pattern, id)))
+                    self.next_window_where(|m| m.app_id.as_deref().is_some_and(|id| splice_config::glob(pattern, id)))
                 });
                 match open {
                     Some(id) => self.show_window(id),
@@ -92,16 +92,16 @@ impl State {
             Action::CastWindow => {
                 let target = self.desktop.focused().and_then(|id| self.desktop.get(id)).and_then(|m| m.foreign.as_ref());
                 if let Some(handle) = target {
-                    self.set_cast_target(mywm_ipc::CastTarget::Window(handle.identifier()));
+                    self.set_cast_target(splice_ipc::CastTarget::Window(handle.identifier()));
                 }
             }
             Action::CastMonitor => {
                 let output = self.outputs.get(self.desktop.focused_monitor).map(|e| e.output.name());
                 if let Some(name) = output {
-                    self.set_cast_target(mywm_ipc::CastTarget::Monitor(name));
+                    self.set_cast_target(splice_ipc::CastTarget::Monitor(name));
                 }
             }
-            Action::CastClear => self.set_cast_target(mywm_ipc::CastTarget::Nothing),
+            Action::CastClear => self.set_cast_target(splice_ipc::CastTarget::Nothing),
             Action::FocusUrgent => {
                 if let Some(id) = self.next_window_where(|m| m.urgent) {
                     self.show_window(id);

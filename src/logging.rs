@@ -1,8 +1,8 @@
 //! Logging to stderr and to a file, so a session started from a greeter still leaves a trail.
 //!
-//! The file is `$MYWM_LOG_FILE`, else `$XDG_STATE_HOME/mywm/compositor.log`
-//! (`~/.local/state/mywm/compositor.log`); the previous session's log is kept as `compositor.log.1`.
-//! `MYWM_LOG_FILE=off` turns the file off. `RUST_LOG` sets the level (default `info`).
+//! The file is `$SPLICE_LOG_FILE`, else `$XDG_STATE_HOME/splice/compositor.log`
+//! (`~/.local/state/splice/compositor.log`); the previous session's log is kept as `compositor.log.1`.
+//! `SPLICE_LOG_FILE=off` turns the file off. `RUST_LOG` sets the level (default `info`).
 use std::{fs::File, io, path::PathBuf, sync::Mutex};
 
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -12,7 +12,7 @@ use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::Subs
 const DEFAULT_FILTER: &str = "info,smithay::xwayland::xwm=warn";
 
 fn log_path() -> Option<PathBuf> {
-    match std::env::var_os("MYWM_LOG_FILE") {
+    match std::env::var_os("SPLICE_LOG_FILE") {
         Some(value) if value == "off" => None,
         Some(value) if !value.is_empty() => Some(value.into()),
         _ => {
@@ -20,7 +20,7 @@ fn log_path() -> Option<PathBuf> {
                 .filter(|p| !p.is_empty())
                 .map(PathBuf::from)
                 .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))?;
-            Some(state.join("mywm/compositor.log"))
+            Some(state.join("splice/compositor.log"))
         }
     }
 }

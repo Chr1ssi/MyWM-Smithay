@@ -1,0 +1,20 @@
+[package]
+name = "splice-shell-services"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Services of Splice's built-in shell (PipeWire, MPRIS, BlueZ, notifications, tray) in a process of their own"
+
+[dependencies]
+splice-shell-protocol = { path = "../splice-shell-protocol" }
+pipewire = "0.9"
+zbus = "5"
+serde = "1"
+serde_json = "1.0.145"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Notification pictures and icons: SVG (without text) and the usual bitmap formats.
+resvg = { version = "0.48", default-features = false }
+image = "0.25"
+# The lock screen's PAM conversation: answers allocated with calloc/strdup, the user from getpwuid_r.
+libc = "0.2"

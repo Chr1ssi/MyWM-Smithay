@@ -14,7 +14,7 @@ def colors(path):
     return len(out.strip().splitlines()) - 1
 
 
-comp = Compositor(windows=3, extra_env={"MYWM_VIRTUAL_OUTPUTS": "1"})
+comp = Compositor(windows=3, extra_env={"SPLICE_VIRTUAL_OUTPUTS": "1"})
 try:
     time.sleep(4)
     # Focus the first column so the row scrolls back and the last window hangs over the right edge.

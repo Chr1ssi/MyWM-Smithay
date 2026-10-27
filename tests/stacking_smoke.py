@@ -7,7 +7,7 @@ Needs `cargo build --workspace`. Run from the repository root with $DISPLAY set:
 import subprocess, time
 from smoke_support import Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 
 
 def pixel(path, x, y):
@@ -69,7 +69,7 @@ except BaseException:
     raise
 
 # --- A floating window (a dialog) covers the borders of the tiled windows behind it.
-comp = Compositor(windows=2, config="[[rules]]\napp_id = 'mywm.test.float'\nfloating = true\n")
+comp = Compositor(windows=2, config="[[rules]]\napp_id = 'splice.test.float'\nfloating = true\n")
 try:
     time.sleep(3)
     before = shot(comp, "tiled")
@@ -77,7 +77,7 @@ try:
     columns = [300 + i for i, p in enumerate(pixel_row(before, 400, 300, 980)) if p in border]
     assert columns, "no window border in the middle of the screen"
     # Its buffer is black, as nothing else on the screen is.
-    subprocess.Popen([CLIENT, "named", "30", "mywm.test.float", "-"], env=comp.env(), stdout=subprocess.DEVNULL)
+    subprocess.Popen([CLIENT, "named", "30", "splice.test.float", "-"], env=comp.env(), stdout=subprocess.DEVNULL)
     assert wait(lambda: count_windows(comp) >= 3, 10)
     time.sleep(2)
     after = shot(comp, "dialog")

@@ -61,7 +61,7 @@ pub struct Wallpaper {
 }
 
 impl Wallpaper {
-    pub fn new(loop_handle: &LoopHandle<'static, State>, config: &mywm_config::Config) -> Self {
+    pub fn new(loop_handle: &LoopHandle<'static, State>, config: &splice_config::Config) -> Self {
         let (sender, receiver) = channel::channel();
         if let Err(error) = loop_handle.insert_source(receiver, |event, _, state| {
             if let channel::Event::Msg(result) = event {
@@ -75,9 +75,9 @@ impl Wallpaper {
 }
 
 /// The picker's choice (or the first image of the wallpaper directory).
-fn chosen_file(config: &mywm_config::Config) -> Option<(PathBuf, Option<SystemTime>)> {
-    let state = mywm_theme::wallpaper_state_path()?;
-    match mywm_theme::current_wallpaper(&state, config.wallpaper_directory.as_ref()) {
+fn chosen_file(config: &splice_config::Config) -> Option<(PathBuf, Option<SystemTime>)> {
+    let state = splice_theme::wallpaper_state_path()?;
+    match splice_theme::current_wallpaper(&state, config.wallpaper_directory.as_ref()) {
         Ok(path) => {
             let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
             Some((path, modified))

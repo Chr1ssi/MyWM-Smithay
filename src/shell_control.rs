@@ -1,11 +1,11 @@
 //! The command center's own parts in the built-in shell: the night light (gammastep keeps the warm screen as long
-//! as it runs, the choice is kept across logins in `$XDG_STATE_HOME/mywm/night-light`), the local IPv4 addresses
+//! as it runs, the choice is kept across logins in `$XDG_STATE_HOME/splice/night-light`), the local IPv4 addresses
 //! (asked of `ip` every five seconds while the command center is open, as the Quickshell panel did) and copying one
 //! of them, what its clicks do, and the way to the settings app.
 use std::time::Duration;
 
-use mywm_shell_protocol::{Bluetooth, Command};
-use mywm_ui::{
+use splice_shell_protocol::{Bluetooth, Command};
+use splice_ui::{
     bar::Panel,
     control::{AdapterView, ControlModel, ControlTarget, DeviceBusy, DeviceView},
 };
@@ -16,8 +16,8 @@ use smithay::reexports::calloop::{
 
 use crate::State;
 
-/// The settings editor (`mywm-settings`), found on `PATH` like the other helpers.
-const SETTINGS: &str = "mywm-settings";
+/// The settings editor (`splice-settings`), found on `PATH` like the other helpers.
+const SETTINGS: &str = "splice-settings";
 /// How long "Kopiert" stands instead of the address.
 const COPIED: Duration = Duration::from_millis(1500);
 const ADDRESSES_EVERY: Duration = Duration::from_secs(5);
@@ -37,7 +37,7 @@ pub struct Control {
 }
 
 fn night_light_file() -> Option<std::path::PathBuf> {
-    Some(mywm_config::state_dir()?.join("night-light"))
+    Some(splice_config::state_dir()?.join("night-light"))
 }
 
 /// `ip -4 -o addr show scope global`: "2: eno1    inet 192.168.178.56/24 brd … scope global …".
@@ -255,9 +255,9 @@ fn adapter_view(bluetooth: &Bluetooth) -> AdapterView {
             connected: d.connected,
             battery: d.battery,
             busy: d.busy.map(|busy| match busy {
-                mywm_shell_protocol::Busy::Pairing => DeviceBusy::Pairing,
-                mywm_shell_protocol::Busy::Connecting => DeviceBusy::Connecting,
-                mywm_shell_protocol::Busy::Disconnecting => DeviceBusy::Disconnecting,
+                splice_shell_protocol::Busy::Pairing => DeviceBusy::Pairing,
+                splice_shell_protocol::Busy::Connecting => DeviceBusy::Connecting,
+                splice_shell_protocol::Busy::Disconnecting => DeviceBusy::Disconnecting,
             }),
         })
         .collect();

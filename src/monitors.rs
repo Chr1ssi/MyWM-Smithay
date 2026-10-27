@@ -1,5 +1,5 @@
 //! Outputs as monitors: hotplug, pointer/monitor focus and the workspace commands that span monitors.
-use mywm_layout::{Direction, GAMING, Rect};
+use splice_layout::{Direction, GAMING, Rect};
 use smithay::{
     backend::renderer::element::{
         Kind,
@@ -121,7 +121,7 @@ impl State {
         self.desktop.desk.remove_monitor(index);
         for (id, old) in before {
             let new = self.desktop.desk.locate(&id).map(|(m, _)| m);
-            let old = old.and_then(|(m, _)| mywm_layout::scrolling::index_after_remove(m, index));
+            let old = old.and_then(|(m, _)| splice_layout::scrolling::index_after_remove(m, index));
             if old != new
                 && let Some(m) = self.desktop.get_mut(id)
             {
@@ -129,7 +129,7 @@ impl State {
             }
         }
         let focused = self.desktop.focused_monitor;
-        self.desktop.focused_monitor = mywm_layout::scrolling::index_after_remove(focused, index).unwrap_or(0);
+        self.desktop.focused_monitor = splice_layout::scrolling::index_after_remove(focused, index).unwrap_or(0);
         self.desktop.desk.prune();
         self.refresh();
         self.output_management_changed();
@@ -148,7 +148,7 @@ impl State {
     }
 
     /// Name of the monitor with workspace 1 (the first of `workspace_outputs`): where the login and lock
-    /// screens ask for the password (`MYWM_PRIMARY_OUTPUT`).
+    /// screens ask for the password (`SPLICE_PRIMARY_OUTPUT`).
     pub fn primary_output_name(&self) -> Option<String> {
         let desk = &self.desktop.desk;
         let monitor = (0..desk.monitors.len()).find(|index| desk.home_number(*index) == 1)?;
@@ -318,10 +318,10 @@ impl State {
 }
 
 impl State {
-    /// State for the bar (see `mywm-ipc`).
-    pub fn ipc_snapshot(&self) -> mywm_ipc::Snapshot {
+    /// State for the bar (see `splice-ipc`).
+    pub fn ipc_snapshot(&self) -> splice_ipc::Snapshot {
         let d = &self.desktop;
-        let mut snapshot = mywm_ipc::Snapshot {
+        let mut snapshot = splice_ipc::Snapshot {
             scratchpad_visible: d.scratchpad_visible,
             scratchpad_occupied: !d.scratchpad.windows.is_empty(),
             locked: self.session_lock.is_locked(),
@@ -334,7 +334,7 @@ impl State {
         };
         for (index, (entry, monitor)) in self.outputs.iter().zip(&d.desk.monitors).enumerate() {
             let (overflow_left, overflow_right) = self.overflow(index);
-            snapshot.outputs.push(mywm_ipc::OutputState {
+            snapshot.outputs.push(splice_ipc::OutputState {
                 id: entry.id,
                 x: monitor.area.x,
                 y: monitor.area.y,
@@ -362,7 +362,7 @@ impl State {
             .filter(|m| !m.floating)
             .filter_map(|m| m.frame)
             .map(|(f, b)| Rect { x: f.x + b, y: f.y + b, width: f.width - 2 * b, height: f.height - 2 * b });
-        mywm_ipc::overflow_directions(monitor.usable, tiled)
+        splice_ipc::overflow_directions(monitor.usable, tiled)
     }
 
     /// Show or hide the edge markers after a layout change; true if one changed (the usable areas then

@@ -1,0 +1,10 @@
+[package]
+name = "splice-shell-protocol"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Messages between the Splice compositor and its shell services process (splice-shell-services)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.145"

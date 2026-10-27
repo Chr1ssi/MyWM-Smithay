@@ -6,7 +6,7 @@ Needs `cargo build --workspace`. Run from the repository root with $DISPLAY set:
 import subprocess, time
 from smoke_support import Compositor, wait
 
-CLIENT = "./target/debug/mywm-test-client"
+CLIENT = "./target/debug/splice-test-client"
 BORDER = {"#89B4FA", "#45475A"}
 
 
@@ -21,7 +21,7 @@ def row(path, y, xs):
 
 
 # The keys client draws a fixed 200x150 buffer whatever size it is configured to, like a GTK dialog.
-comp = Compositor('[[rules]]\napp_id = "mywm.test.0"\nfloating = true\n')
+comp = Compositor('[[rules]]\napp_id = "splice.test.0"\nfloating = true\n')
 try:
     subprocess.Popen([CLIENT, "keys", "30"], env=comp.env(), stdout=subprocess.DEVNULL)
     assert wait(lambda: open(comp.dir + "/log").read().count("new window") >= 1, 10)
