@@ -90,7 +90,7 @@ let
 
   meta = {
     description = "Smithay-based tiling Wayland compositor with its built-in shell and screen-cast portal";
-    homepage = "https://github.com/Chr1ssi/MyWM-Smithay";
+    homepage = "https://github.com/Chr1ssi/Splice-Compositor";
     license = lib.licenses.mit;
     mainProgram = "splice-compositor";
     platforms = lib.platforms.linux;

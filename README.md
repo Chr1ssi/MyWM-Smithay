@@ -2,7 +2,7 @@
 
 # splice-compositor
 
-Smithay-basierter Wayland-Compositor für [Splice](https://github.com/Chr1ssi/mywm):
+Splice ist ein Smithay-basierter Wayland-Compositor:
 leicht, latenzarm (Gaming) und mit sauberem Screen-Capture (Streaming).
 
 ## Status

@@ -12,7 +12,7 @@ täglichen Gebrauch. Das Modul legt die Sitzung „splice“ an (`programs.splic
 
 ```nix
 # flake.nix des Systems
-inputs.splice.url = "github:Chr1ssi/MyWM-Smithay";
+inputs.splice.url = "github:Chr1ssi/Splice-Compositor";
 # ...
 modules = [
   inputs.splice.nixosModules.default

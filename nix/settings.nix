@@ -61,7 +61,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Graphical settings and keybinding editor for splice";
-    homepage = "https://github.com/Chr1ssi/MyWM-Smithay";
+    homepage = "https://github.com/Chr1ssi/Splice-Compositor";
     mainProgram = "splice-settings";
     platforms = lib.platforms.linux;
   };
