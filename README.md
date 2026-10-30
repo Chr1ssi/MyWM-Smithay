@@ -53,6 +53,8 @@ Farbfamilien des Bildes: Die drei nach Fläche × Sättigung stärksten werden p
 tertiary, die Flächen nehmen den Farbton der dunklen Bildbereiche an, error ist immer ein kräftiges Rot,
 und die Terminalfarben behalten ihre Rolle (rot bleibt rot), drehen sich aber zu den Farben des Bildes.
 
+Der Shell-Stil `[appearance] style = "cyberdeck"` zeichnet abgeschrägte statt gerundete Ecken und lässt die Wallpaper-Farben kräftiger leuchten (`docs/shell.md`).
+
 Außerdem: Effekte (abgerundete Ecken, Transparenz für alle Fenster außer Videos, Schatten, Animationen samt Überblendung beim Wallpaper-Wechsel, Xray-Blur; siehe
 `docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).
 Ragen gekachelte Fenster über den linken oder rechten Rand eines Monitors hinaus, zeichnet der Compositor dort

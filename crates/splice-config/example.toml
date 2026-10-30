@@ -85,6 +85,10 @@
 #options = ""
 
 #[appearance]
+# "cyberdeck": abgeschrägte Ecken (oben links, unten rechts) und Linien in der Akzentfarbe in der Shell, kräftige
+# Akzente auf fast schwarzen Flächen im Farbschema. Die Farben kommen weiter aus dem Wallpaper; beim Wechsel
+# erzeugt der Compositor das Farbschema neu.
+#style = "default"
 #gaps_inner = 4
 #gaps_outer = 4
 #border_width = 2

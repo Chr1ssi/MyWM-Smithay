@@ -13,6 +13,15 @@ pub struct Palette {
     pub border: Color,
 }
 
+/// How the shell draws its rounded shapes: with round corners, or chamfered at the top left and bottom right
+/// (the `cyberdeck` style, whose lines are drawn solid on nearly opaque surfaces).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Shape {
+    #[default]
+    Round,
+    Chamfer,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
     pub background: Color,
@@ -23,6 +32,7 @@ pub struct Theme {
     /// Recording and other things that should not go unnoticed.
     pub alert: Color,
     pub border: Color,
+    pub shape: Shape,
 }
 
 /// The Nerd Font symbols are set in this one: the monospaced variants let them overhang to the right of their cell.
@@ -38,6 +48,8 @@ pub const CARD_RADIUS: f32 = 18.0;
 /// Rows and buttons inside cards (and their hover).
 pub const ROW_RADIUS: f32 = 14.0;
 pub const GLASS_OPACITY: f32 = 0.7;
+/// Chamfered surfaces are nearly solid: the hairline around them is what shows.
+pub const CHAMFER_GLASS_OPACITY: f32 = 0.9;
 
 /// The image `theme_json` (the contents of `theme.json`) was generated from: the lock screen's background. Like
 /// the colors, only of a file of version 1 with colors.
@@ -71,12 +83,21 @@ impl Theme {
             accent: token("primary", palette.accent),
             alert: token("error", Color::rgba(0xf3, 0x8b, 0xa8, 255)),
             border: token("outline_variant", palette.border),
+            shape: Shape::Round,
         }
+    }
+
+    /// The theme drawn with `shape`.
+    pub fn with_shape(self, shape: Shape) -> Self {
+        Self { shape, ..self }
     }
 
     /// Layer surfaces get no compositor blur, so translucency is plain alpha.
     pub fn glass(&self) -> Color {
-        self.background.with_alpha(GLASS_OPACITY)
+        match self.shape {
+            Shape::Round => self.background.with_alpha(GLASS_OPACITY),
+            Shape::Chamfer => self.background.with_alpha(CHAMFER_GLASS_OPACITY),
+        }
     }
 
     pub fn glass_surface(&self) -> Color {
@@ -84,7 +105,10 @@ impl Theme {
     }
 
     pub fn glass_border(&self) -> Color {
-        self.border.with_alpha(0.6)
+        match self.shape {
+            Shape::Round => self.border.with_alpha(0.6),
+            Shape::Chamfer => self.border,
+        }
     }
 }
 

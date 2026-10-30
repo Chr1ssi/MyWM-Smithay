@@ -423,6 +423,8 @@ impl State {
             tracing::warn!("{error}");
             self.config_error = Some(error);
         }
+        // The palette's strength depends on the style: generate the theme again (it reloads the config once done).
+        let restyled = self.config.appearance.style != new.appearance.style;
         // Monitor and session settings and the choice of shell need a restart; everything else applies live.
         let Config { workspace_outputs, gaming_output, idle, vrr, builtin_shell, .. } =
             std::mem::take(&mut self.config);
@@ -442,6 +444,9 @@ impl State {
         self.shell_reload_theme();
         self.install_bindings();
         self.refresh();
+        if restyled {
+            self.regenerate_theme();
+        }
         tracing::info!("configuration reloaded");
     }
 

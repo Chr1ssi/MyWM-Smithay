@@ -78,6 +78,16 @@ pub struct InputConfig {
     pub repeat_delay: i32,
 }
 
+/// `cyberdeck`: chamfered corners and thin accent lines in the shell, neon accents on near-black surfaces (colors
+/// still come from the wallpaper).
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ShellStyle {
+    #[default]
+    Default,
+    Cyberdeck,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AccelProfile {
@@ -211,6 +221,8 @@ fn hex(value: &str) -> HexColor {
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppearanceConfig {
+    /// The look of the shell, and how strongly the colors generated from the wallpaper shine.
+    pub style: ShellStyle,
     pub gaps_inner: i32,
     pub gaps_outer: i32,
     pub border_width: i32,
@@ -229,6 +241,7 @@ pub struct AppearanceConfig {
 impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
+            style: ShellStyle::Default,
             gaps_inner: 8,
             gaps_outer: 8,
             border_width: 2,

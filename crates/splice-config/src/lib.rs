@@ -15,7 +15,7 @@ use splice_layout::MAX_NUMBER;
 pub use rules::{Placement, Rule, Subject, any_blocks_capture, blocks_capture, glob, opacity, resolve, video};
 use serde::Deserialize;
 pub use sections::{
-    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig, InputConfig, AccelProfile,
+    AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig, InputConfig, AccelProfile, ShellStyle,
 };
 
 /// Leaves at least one number of 1 to 9 free for dynamic workspaces.

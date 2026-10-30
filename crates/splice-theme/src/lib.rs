@@ -52,7 +52,8 @@ const NVIM: &str = include_str!("../assets/nvim.lua");
 const VESKTOP: &str = include_str!("../assets/vesktop.css");
 const GREETER: &str = include_str!("../assets/greeter.css");
 
-pub fn apply(wallpaper: &Path) -> Result<()> {
+/// Generate the theme from `wallpaper`; `neon` is the `cyberdeck` style's stronger palette.
+pub fn apply(wallpaper: &Path, neon: bool) -> Result<()> {
     let state_path = state_path().ok_or("HOME or XDG_STATE_HOME is required for theme persistence")?;
     // Decoding a large wallpaper is the expensive part (about 150 ms at every session start); the
     // colors and the files are always derived again, so new templates still reach them.
@@ -66,7 +67,7 @@ pub fn apply(wallpaper: &Path) -> Result<()> {
             Analysis::of_image(&image)
         }
     };
-    let state = state_from_analysis(wallpaper, analysis);
+    let state = state_from_analysis(wallpaper, analysis, neon);
     let directory = state_path
         .parent()
         .ok_or("theme state path has no parent directory")?;
@@ -114,8 +115,8 @@ fn cached_analysis(state_path: &Path, wallpaper: &Path) -> Option<Analysis> {
     serde_json::from_value(saved["analysis"].clone()).ok()
 }
 
-pub fn apply_from_wallpaper_state(state: &Path, wallpaper_directory: &Path) -> Result<()> {
-    apply(&current_wallpaper(state, wallpaper_directory)?)
+pub fn apply_from_wallpaper_state(state: &Path, wallpaper_directory: &Path, neon: bool) -> Result<()> {
+    apply(&current_wallpaper(state, wallpaper_directory)?, neon)
 }
 
 /// The wallpaper in use: the picker's choice saved in `state`, else the first image in `wallpaper_directory`.
@@ -275,9 +276,9 @@ fn insert(colors: &mut BTreeMap<String, Token>, name: &str, value: Argb) {
     );
 }
 
-fn state_from_analysis(path: &Path, analysis: Analysis) -> ThemeState {
+fn state_from_analysis(path: &Path, analysis: Analysis, neon: bool) -> ThemeState {
     let mut colors = BTreeMap::new();
-    for (name, value) in palette::roles(&analysis) {
+    for (name, value) in palette::roles(&analysis, neon) {
         insert(&mut colors, name, value);
     }
     ThemeState {
@@ -339,13 +340,14 @@ pub fn wallpaper_state_path() -> Option<PathBuf> {
 /// `None` if `args` is not one of them.
 pub fn client_mode(args: &[String], config: &splice_config::Config) -> Option<Result<()>> {
     let arg = |n: usize| args.get(n).map(String::as_str);
+    let neon = config.appearance.style == splice_config::ShellStyle::Cyberdeck;
     Some(match arg(1)? {
         "--theme-from-wallpaper" => match arg(2) {
-            Some(path) => apply(Path::new(path)),
+            Some(path) => apply(Path::new(path), neon),
             None => Err("--theme-from-wallpaper requires an image path".into()),
         },
         "--theme-from-state" => match arg(2) {
-            Some(state) => apply_from_wallpaper_state(Path::new(state), Path::new(arg(3).unwrap_or(&config.wallpaper_directory))),
+            Some(state) => apply_from_wallpaper_state(Path::new(state), Path::new(arg(3).unwrap_or(&config.wallpaper_directory)), neon),
             None => Err("--theme-from-state requires a wallpaper state path".into()),
         },
         _ => return None,
@@ -358,7 +360,7 @@ mod tests {
 
     fn sample_state() -> ThemeState {
         let analysis = Analysis::of_histogram([(Argb::from_u32(0xff336699), 60), (Argb::from_u32(0xffd4a017), 10), (Argb::from_u32(0xff121820), 30)]);
-        state_from_analysis(Path::new("/wallpaper.png"), analysis)
+        state_from_analysis(Path::new("/wallpaper.png"), analysis, false)
     }
 
     #[test]
@@ -466,7 +468,7 @@ mod tests {
         saved(&image);
         // JSON may round the last digit of a float; the colors are what has to survive.
         let cached = cached_analysis(&state, &image).unwrap();
-        assert_eq!(palette::roles(&cached), palette::roles(&analysis));
+        assert_eq!(palette::roles(&cached, false), palette::roles(&analysis, false));
         // Another image, or this one changed after the theme was generated.
         let other = dir.join("other.png");
         fs::write(&other, b"other").unwrap();

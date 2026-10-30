@@ -166,12 +166,24 @@ fn terminal(colorful: &[(Hct, f64)]) -> [(f64, f64); 6] {
 
 /// The theme's color roles (Material/Noctalia names, so templates and consumers stay unchanged) and the
 /// terminal palette.
-pub fn roles(analysis: &Analysis) -> Vec<(&'static str, Argb)> {
+///
+/// `neon` (the `cyberdeck` style) lets the accents shine at a high chroma on surfaces sunk toward black, with
+/// lines in the primary's hue; the tones keep every contrast of the normal theme.
+pub fn roles(analysis: &Analysis, neon: bool) -> Vec<(&'static str, Argb)> {
     let color = |hue: f64, chroma: f64, tone: f64| -> Argb { Hct::from(hue, chroma, tone).into() };
     // Accents keep the image color's own tone and chroma, pulled into a readable and not greyed-out range.
-    let accent = |[hue, chroma, tone]: [f64; 3]| (hue, (chroma * 1.25).clamp(40.0, 90.0), tone.clamp(64.0, 80.0));
+    let accent = |[hue, chroma, tone]: [f64; 3]| {
+        if neon {
+            (hue, (chroma * 1.6).clamp(75.0, 110.0), tone.clamp(66.0, 74.0))
+        } else {
+            (hue, (chroma * 1.25).clamp(40.0, 90.0), tone.clamp(64.0, 80.0))
+        }
+    };
     let [neutral_hue, tint] = analysis.neutral;
     let neutral = |chroma: f64, tone: f64| color(neutral_hue, chroma, tone);
+    // The surfaces' tone in the normal theme and in neon, where they sink and the accents carry the light.
+    let deep = |normal: f64, neon_tone: f64| if neon { neon_tone } else { normal };
+    let line = |chroma: f64, tone: f64| color(analysis.accents[0][0], chroma, tone);
 
     let mut roles = Vec::with_capacity(72);
     for (index, name) in ["primary", "secondary", "tertiary"].into_iter().enumerate() {
@@ -192,27 +204,29 @@ pub fn roles(analysis: &Analysis) -> Vec<(&'static str, Argb)> {
             roles.push(("surface_tint", color(hue, chroma, tone)));
         }
     }
-    let (surface, on_surface) = (neutral(tint, 7.0), neutral(4.0, 94.0));
+    let (surface, on_surface) = (neutral(tint, deep(7.0, 4.0)), neutral(4.0, 94.0));
     let on_surface_variant = neutral(tint + 4.0, 78.0);
-    let outline = neutral(tint + 6.0, 60.0);
+    // Neon draws its lines in the primary's hue: tone 42 keeps them at three times the contrast of the surface.
+    let outline = if neon { line(30.0, 55.0) } else { neutral(tint + 6.0, 60.0) };
+    let outline_variant = if neon { line(45.0, 42.0) } else { neutral(tint + 8.0, 45.0) };
     roles.extend([
         ("error", color(ERROR_HUE, 120.0, 55.0)),
         ("on_error", color(ERROR_HUE, 14.0, 4.0)),
         ("error_container", color(ERROR_HUE, 80.0, 30.0)),
         ("on_error_container", color(ERROR_HUE, 30.0, 90.0)),
-        ("surface_dim", neutral(tint, 6.0)),
+        ("surface_dim", neutral(tint, deep(6.0, 3.0))),
         ("surface", surface),
-        ("surface_bright", neutral(tint, 24.0)),
-        ("surface_container_lowest", neutral(tint, 4.0)),
-        ("surface_container_low", neutral(tint, 10.0)),
-        ("surface_container", neutral(tint, 13.0)),
-        ("surface_container_high", neutral(tint, 17.0)),
-        ("surface_container_highest", neutral(tint, 22.0)),
-        ("surface_variant", neutral(tint + 4.0, 30.0)),
+        ("surface_bright", neutral(tint, deep(24.0, 16.0))),
+        ("surface_container_lowest", neutral(tint, deep(4.0, 2.0))),
+        ("surface_container_low", neutral(tint, deep(10.0, 5.0))),
+        ("surface_container", neutral(tint, deep(13.0, 8.0))),
+        ("surface_container_high", neutral(tint, deep(17.0, 11.0))),
+        ("surface_container_highest", neutral(tint, deep(22.0, 15.0))),
+        ("surface_variant", neutral(tint + 4.0, deep(30.0, 24.0))),
         ("on_surface", on_surface),
         ("on_surface_variant", on_surface_variant),
         ("outline", outline),
-        ("outline_variant", neutral(tint + 8.0, 45.0)),
+        ("outline_variant", outline_variant),
         ("inverse_surface", neutral(tint, 90.0)),
         ("inverse_on_surface", neutral(tint, 20.0)),
         ("background", surface),
@@ -223,14 +237,15 @@ pub fn roles(analysis: &Analysis) -> Vec<(&'static str, Argb)> {
         ("terminal_foreground", on_surface),
         ("terminal_cursor", on_surface),
         ("terminal_cursor_text", surface),
-        ("terminal_selection_bg", neutral(tint, 22.0)),
+        ("terminal_selection_bg", neutral(tint, deep(22.0, 15.0))),
         ("terminal_selection_fg", on_surface),
-        ("terminal_normal_black", neutral(tint + 2.0, 17.0)),
+        ("terminal_normal_black", neutral(tint + 2.0, deep(17.0, 11.0))),
         ("terminal_normal_white", on_surface_variant),
         ("terminal_bright_black", outline),
         ("terminal_bright_white", on_surface),
     ]);
     for (index, [hue, chroma]) in analysis.terminal.into_iter().enumerate() {
+        let chroma = if neon { (chroma * 1.25).min(110.0) } else { chroma };
         let [normal, bright] = ANSI_NAMES[index];
         roles.push((normal, color(hue, chroma, 68.0)));
         roles.push((bright, color(hue, chroma * 0.85, 80.0)));
@@ -289,7 +304,11 @@ mod tests {
     }
 
     fn colors(analysis: &Analysis) -> HashMap<&'static str, Argb> {
-        roles(analysis).into_iter().collect()
+        roles(analysis, false).into_iter().collect()
+    }
+
+    fn neon_colors(analysis: &Analysis) -> HashMap<&'static str, Argb> {
+        roles(analysis, true).into_iter().collect()
     }
 
     fn ratio(a: Argb, b: Argb) -> f64 {
@@ -307,23 +326,43 @@ mod tests {
         ]
     }
 
+    fn assert_readable(colors: &HashMap<&'static str, Argb>, analysis: &Analysis) {
+        let surface = colors["surface"];
+        assert!(ratio(colors["outline_variant"], surface) >= 3.0, "{analysis:?}");
+        assert!(ratio(colors["on_surface_variant"], surface) >= 7.0, "{analysis:?}");
+        assert!(ratio(colors["on_surface"], surface) > ratio(colors["on_surface_variant"], surface), "{analysis:?}");
+        for accent in ["primary", "secondary", "tertiary", "error"] {
+            assert!(ratio(colors[accent], surface) >= 4.5, "{accent} {analysis:?}");
+            assert!(ratio(colors[accent], colors[&*format!("on_{accent}")]) >= 4.5, "on_{accent} {analysis:?}");
+            assert!(ratio(colors[&*format!("on_{accent}_container")], colors[&*format!("{accent}_container")]) >= 4.5, "{accent} container {analysis:?}");
+        }
+        for [normal, bright] in ANSI_NAMES {
+            assert!(ratio(colors[normal], colors["terminal_background"]) >= 4.5, "{normal} {analysis:?}");
+            assert!(ratio(colors[bright], colors["terminal_background"]) >= 4.5, "{bright} {analysis:?}");
+        }
+    }
+
     #[test]
     fn text_borders_and_accents_stand_out() {
         for analysis in samples() {
-            let colors = colors(&analysis);
-            let surface = colors["surface"];
-            assert!(ratio(colors["outline_variant"], surface) >= 3.0, "{analysis:?}");
-            assert!(ratio(colors["on_surface_variant"], surface) >= 7.0, "{analysis:?}");
-            assert!(ratio(colors["on_surface"], surface) > ratio(colors["on_surface_variant"], surface), "{analysis:?}");
-            for accent in ["primary", "secondary", "tertiary", "error"] {
-                assert!(ratio(colors[accent], surface) >= 4.5, "{accent} {analysis:?}");
-                assert!(ratio(colors[accent], colors[&*format!("on_{accent}")]) >= 4.5, "on_{accent} {analysis:?}");
-                assert!(ratio(colors[&*format!("on_{accent}_container")], colors[&*format!("{accent}_container")]) >= 4.5, "{accent} container {analysis:?}");
-            }
-            for [normal, bright] in ANSI_NAMES {
-                assert!(ratio(colors[normal], colors["terminal_background"]) >= 4.5, "{normal} {analysis:?}");
-                assert!(ratio(colors[bright], colors["terminal_background"]) >= 4.5, "{bright} {analysis:?}");
-            }
+            assert_readable(&colors(&analysis), &analysis);
+        }
+    }
+
+    #[test]
+    fn neon_keeps_every_contrast_and_makes_accents_vivid_on_darker_surfaces() {
+        for analysis in samples() {
+            let (normal, neon) = (colors(&analysis), neon_colors(&analysis));
+            assert_readable(&neon, &analysis);
+            let tone = |colors: &HashMap<&'static str, Argb>, role: &str| Hct::new(colors[role]).get_tone();
+            let chroma = |colors: &HashMap<&'static str, Argb>, role: &str| Hct::new(colors[role]).get_chroma();
+            assert!(tone(&neon, "surface") < tone(&normal, "surface"), "{analysis:?}");
+            assert!(tone(&neon, "surface_container_high") < tone(&normal, "surface_container_high"), "{analysis:?}");
+            // Per accent the gamut decides (a red can hold less chroma at tone 66 than at 64), so compare the sum.
+            let total = |colors: &HashMap<&'static str, Argb>| ["primary", "secondary", "tertiary"].map(|accent| chroma(colors, accent)).iter().sum::<f64>();
+            assert!(total(&neon) >= total(&normal), "{analysis:?}");
+            assert_eq!(neon["error"], normal["error"], "{analysis:?}");
+            assert_eq!(neon.len(), normal.len());
         }
     }
 
@@ -378,7 +417,7 @@ mod tests {
     #[test]
     fn a_grey_image_still_gets_three_accents() {
         let grey = &samples()[2];
-        assert_eq!(roles(grey).len(), roles(&samples()[0]).len());
+        assert_eq!(roles(grey, false).len(), roles(&samples()[0], false).len());
         assert!(grey.accents.iter().all(|accent| accent.iter().all(|value| value.is_finite())), "{grey:?}");
     }
 
@@ -386,6 +425,6 @@ mod tests {
     fn the_cached_analysis_gives_the_same_colors() {
         let analysis = &samples()[0];
         let saved: Analysis = serde_json::from_str(&serde_json::to_string(analysis).unwrap()).unwrap();
-        assert_eq!(roles(&saved), roles(analysis));
+        assert_eq!(roles(&saved, true), roles(analysis, true));
     }
 }

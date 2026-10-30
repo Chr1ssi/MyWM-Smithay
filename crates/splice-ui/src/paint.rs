@@ -1,11 +1,27 @@
 //! Painting a `Scene` into pixels: premultiplied RGBA (byte order R, G, B, A), `scale` physical pixels per
 //! logical one.
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tiny_skia::{FillRule, FilterQuality, LineCap, Mask, Paint, Path, PathBuilder, Pattern, Pixmap, SpreadMode, Stroke, Transform};
 
-use crate::{Align, Color, Measure, Node, Rect, Scene, text::Fonts};
+use crate::{Align, Color, Measure, Node, Rect, Scene, Shape, text::Fonts};
 
-/// The scene's pixels; `None` if it is empty or absurdly large.
+/// Whether `paint` chamfers the corners it would round. The compositor sets it with the theme (a reload repaints
+/// every scene), so the scene builders keep naming radii.
+static CHAMFER: AtomicBool = AtomicBool::new(false);
+
+pub fn set_shape(shape: Shape) {
+    CHAMFER.store(shape == Shape::Chamfer, Ordering::Relaxed);
+}
+
+/// The scene's pixels in the shape set with `set_shape`; `None` if it is empty or absurdly large.
 pub fn paint<T>(scene: &Scene<T>, fonts: &mut Fonts, scale: f32) -> Option<Pixmap> {
+    let shape = if CHAMFER.load(Ordering::Relaxed) { Shape::Chamfer } else { Shape::Round };
+    paint_with(scene, fonts, scale, shape)
+}
+
+/// The scene's pixels with its rounded corners drawn as `shape` says.
+pub fn paint_with<T>(scene: &Scene<T>, fonts: &mut Fonts, scale: f32, shape: Shape) -> Option<Pixmap> {
     let (width, height) = pixel_size(scene.width, scene.height, scale);
     let mut pixmap = Pixmap::new(width, height)?;
     let transform = Transform::from_scale(scale, scale);
@@ -22,17 +38,17 @@ pub fn paint<T>(scene: &Scene<T>, fonts: &mut Fonts, scale: f32) -> Option<Pixma
                     Some((width, color)) if *width > 0.0 && rect.w > 2.0 * width && rect.h > 2.0 * width => {
                         let inner = rect.inset(*width);
                         let inner_radius = (radius - width).max(0.0);
-                        fill_path(&mut pixmap, rounded(&inner, inner_radius), *fill, FillRule::Winding, transform, mask);
+                        fill_path(&mut pixmap, outlined(shape, &inner, inner_radius), *fill, FillRule::Winding, transform, mask);
                         // The ring between the outline and the inner edge, so a translucent fill and border do
                         // not add up where they would overlap.
                         let mut ring = PathBuilder::new();
-                        push_rounded(&mut ring, rect, radius);
-                        push_rounded(&mut ring, &inner, inner_radius);
+                        push_outline(shape, &mut ring, rect, radius);
+                        push_outline(shape, &mut ring, &inner, inner_radius);
                         if let Some(ring) = ring.finish() {
                             fill_path(&mut pixmap, Some(ring), *color, FillRule::EvenOdd, transform, mask);
                         }
                     }
-                    _ => fill_path(&mut pixmap, rounded(rect, radius), *fill, FillRule::Winding, transform, mask),
+                    _ => fill_path(&mut pixmap, outlined(shape, rect, radius), *fill, FillRule::Winding, transform, mask),
                 }
             }
             Node::Label { rect, text, style, color, align } => {
@@ -107,10 +123,39 @@ fn fill_path(pixmap: &mut Pixmap, path: Option<Path>, color: Color, rule: FillRu
     }
 }
 
-fn rounded(rect: &Rect, radius: f32) -> Option<Path> {
+fn outlined(shape: Shape, rect: &Rect, radius: f32) -> Option<Path> {
     let mut builder = PathBuilder::new();
-    push_rounded(&mut builder, rect, radius);
+    push_outline(shape, &mut builder, rect, radius);
     builder.finish()
+}
+
+fn push_outline(shape: Shape, builder: &mut PathBuilder, rect: &Rect, radius: f32) {
+    match shape {
+        Shape::Round => push_rounded(builder, rect, radius),
+        Shape::Chamfer => push_chamfered(builder, rect, chamfer_of(radius)),
+    }
+}
+
+/// The cut that stands for a corner `radius`: half of it, between 3 and 14 pixels. Radii below 3 (marks, bars) stay
+/// square.
+fn chamfer_of(radius: f32) -> f32 {
+    if radius < 3.0 { 0.0 } else { (radius * 0.5).clamp(3.0, 14.0) }
+}
+
+/// A rectangle with its top left and bottom right corner cut off by `cut` (at most half of a side).
+fn push_chamfered(builder: &mut PathBuilder, rect: &Rect, cut: f32) {
+    let (x, y, r, b) = (rect.x, rect.y, rect.right(), rect.bottom());
+    if rect.w <= 0.0 || rect.h <= 0.0 {
+        return;
+    }
+    let cut = cut.min(rect.w / 2.0).min(rect.h / 2.0);
+    builder.move_to(x + cut, y);
+    builder.line_to(r, y);
+    builder.line_to(r, b - cut);
+    builder.line_to(r - cut, b);
+    builder.line_to(x, b);
+    builder.line_to(x, y + cut);
+    builder.close();
 }
 
 /// The control points of a quarter circle drawn as one cubic curve lie this far along the tangents.
@@ -185,6 +230,38 @@ mod tests {
         let pixmap = paint(&scene, &mut fonts, 2.0).expect("pixels");
         assert_eq!((pixmap.width(), pixmap.height()), (80, 40));
         assert_eq!(pixel(&pixmap, 40, 20), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn chamfered_rectangles_cut_the_top_left_and_bottom_right_corner() {
+        let mut scene: Scene<()> = Scene::new(40.0, 20.0);
+        scene.push(Node::Rect {
+            rect: Rect::new(0.0, 0.0, 40.0, 20.0),
+            radius: 16.0,
+            fill: Color::rgba(0, 0, 255, 255),
+            border: Some((1.0, Color::rgba(255, 0, 0, 255))),
+        });
+        let pixmap = paint_with(&scene, &mut Fonts::load(), 1.0, Shape::Chamfer).expect("pixels");
+        assert_eq!(pixel(&pixmap, 20, 10), [0, 0, 255, 255]);
+        // The straight edges carry the line, also at the corners that stay square.
+        assert_eq!(pixel(&pixmap, 20, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&pixmap, 39, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&pixmap, 0, 19), [255, 0, 0, 255]);
+        // The cut corners show nothing, and the line runs along the cut.
+        assert_eq!(pixel(&pixmap, 0, 0)[3], 0);
+        assert_eq!(pixel(&pixmap, 39, 19)[3], 0);
+        assert_eq!(pixel(&pixmap, 1, 1)[3], 0);
+        assert!(pixel(&pixmap, 2, 3)[0] > 150, "{:?}", pixel(&pixmap, 2, 3));
+        assert_eq!(pixel(&pixmap, 5, 5), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn small_radii_stay_square_when_chamfering() {
+        let mut scene: Scene<()> = Scene::new(10.0, 10.0);
+        scene.push(Node::Rect { rect: Rect::new(0.0, 0.0, 10.0, 10.0), radius: 2.0, fill: Color::rgba(0, 255, 0, 255), border: None });
+        let pixmap = paint_with(&scene, &mut Fonts::load(), 1.0, Shape::Chamfer).expect("pixels");
+        assert_eq!(pixel(&pixmap, 0, 0), [0, 255, 0, 255]);
+        assert_eq!(pixel(&pixmap, 9, 9), [0, 255, 0, 255]);
     }
 
     #[test]

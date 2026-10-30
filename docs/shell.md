@@ -23,6 +23,16 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
 - **Hinweise** oben rechts auf dem ersten Monitor: Auswahl beim Teilen, Farbpipette mit Farbfeld,
   fehlerhafte Konfiguration (mit Schließen-Knopf).
 - Theme aus `theme.json` (sonst `[appearance]`), neu geladen mit dem Config-Reload/Theme-Reload des Pickers.
+- **Stil** `[appearance] style = "cyberdeck"` (Standard `default`): Alle Flächen der Shell, die sonst gerundet sind
+  (Bar-Inseln, Panels, Launcher, Karten, Knöpfe), bekommen stattdessen abgeschrägte Ecken oben links und unten rechts
+  (die Abschrägung ist der halbe Radius, 3 bis 14 Pixel; Radien unter 3 bleiben eckig). Die Flächen der Shell sind
+  fast undurchsichtig (90 %) und tragen eine durchgehende Linie in der Linienfarbe des Farbschemas. Dasselbe Stilmittel
+  gilt für alles, was `splice-ui` zeichnet, auch Sperrbildschirm und Anmeldebildschirm. Die Farben kommen weiter aus dem
+  Wallpaper: Der Generator (`splice-theme`) lässt die Akzente mit hoher Chroma (Primär, Sekundär, Tertiär bei Ton 66 bis
+  74) auf Flächen leuchten, die Richtung Schwarz sinken (Oberfläche Ton 4 statt 7), zeichnet die Linien im Farbton
+  des Primärakzents und färbt auch die Terminalfarben kräftiger; Terminal, GTK, Vesktop und Neovim folgen, weil sie
+  aus derselben `theme.json` erzeugt werden. Alle Kontraste des normalen Farbschemas bleiben erhalten. Beim Wechsel des
+  Stils (Config-Reload) erzeugt der Compositor das Farbschema aus dem gewählten Wallpaper neu und lädt danach die Shell.
   Sprache nach `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` (Deutsch, sonst Englisch).
 
 - **Benachrichtigungen**: Die Shell ist selbst der Freedesktop-Benachrichtigungsdienst (Dunst wird nicht

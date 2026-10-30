@@ -185,9 +185,15 @@ fn palette(config: &splice_config::Config) -> Palette {
     }
 }
 
+/// The shell's theme; also sets how `paint` draws corners, which every scene is repainted for after a reload.
 fn load_theme(config: &splice_config::Config) -> Theme {
+    let shape = match config.appearance.style {
+        splice_config::ShellStyle::Default => splice_ui::Shape::Round,
+        splice_config::ShellStyle::Cyberdeck => splice_ui::Shape::Chamfer,
+    };
+    splice_ui::paint::set_shape(shape);
     let json = splice_config::theme_state_path().and_then(|path| std::fs::read_to_string(path).ok());
-    Theme::new(palette(config), json.as_deref())
+    Theme::new(palette(config), json.as_deref()).with_shape(shape)
 }
 
 fn clock_text(language: Language) -> (String, Duration) {

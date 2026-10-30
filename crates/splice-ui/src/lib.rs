@@ -29,4 +29,4 @@ pub mod tray_menu;
 pub mod wallpaper_picker;
 
 pub use scene::{Align, Color, Measure, Node, Rect, Scene, TextStyle};
-pub use theme::Theme;
+pub use theme::{Shape, Theme};

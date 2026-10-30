@@ -431,6 +431,15 @@ impl State {
         self.wallpaper_picker_apply_theme(path);
     }
 
+    /// Generate the theme from the wallpaper in use again, as the palette follows `appearance.style`.
+    pub fn regenerate_theme(&mut self) {
+        let Some(state) = splice_theme::wallpaper_state_path() else { return };
+        match splice_theme::current_wallpaper(&state, self.config.wallpaper_directory.as_ref()) {
+            Ok(path) => self.wallpaper_picker_apply_theme(&path),
+            Err(error) => tracing::warn!("the theme cannot follow the style, no wallpaper: {error}"),
+        }
+    }
+
     /// `--theme-from-wallpaper` of the own binary in the background. It asks the compositor over the bar socket to
     /// reload the theme; without a socket nobody would, so then this does once it is done.
     fn wallpaper_picker_apply_theme(&mut self, path: &Path) {

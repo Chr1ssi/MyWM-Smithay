@@ -74,6 +74,7 @@ pub static SETTINGS: &[Setting] = &[
     s("appearance.border_width", "Rahmenbreite", "Pixel.", Windows, Int { min: 0, max: 32 }, "2"),
     restart(s("xwayland", "Xwayland", "X11-Programme (Steam, ältere Spiele) unterstützen.", Windows, Bool, "true")),
     // Effects
+    s("appearance.style", "Stil der Shell", "„cyberdeck“: Fasen, Linien und kräftige Farben aus dem Wallpaper. Erzeugt das Farbschema neu.", Effects, Choice { options: &["default", "cyberdeck"], optional: false }, "default"),
     s("effects.corner_radius", "Abgerundete Ecken", "Radius in Pixeln; 0 = eckig. Nie bei Vollbild.", Effects, Int { min: 0, max: 64 }, "0"),
     s("effects.window_opacity", "Deckkraft aller Fenster", "1.0 = undurchsichtig. Videofenster bleiben undurchsichtig; eine Regel mit opacity ersetzt den Wert.", Effects, Float { min: 0.1, max: 1.0 }, "1.0"),
     s("effects.inactive_opacity", "Deckkraft ohne Fokus", "1.0 = undurchsichtig.", Effects, Float { min: 0.1, max: 1.0 }, "1.0"),
