@@ -12,7 +12,7 @@ use std::{
 pub use keys::{Modifiers, parse_key};
 use keys::Result;
 use splice_layout::MAX_NUMBER;
-pub use rules::{Placement, Rule, Subject, any_blocks_capture, blocks_capture, glob, opacity, resolve};
+pub use rules::{Placement, Rule, Subject, any_blocks_capture, blocks_capture, glob, opacity, resolve, video};
 use serde::Deserialize;
 pub use sections::{
     AppearanceConfig, HexColor, IdleConfig, KeyboardConfig, OutputConfig, OutputMode, OutputTransform, RenderConfig, VrrConfig, EffectsConfig, InputConfig, AccelProfile,
@@ -694,6 +694,7 @@ mod tests {
             "[input]\nrepeat_rate = 0",
             "[effects]\ncorner_radius = 65",
             "[effects]\ninactive_opacity = 0",
+            "[effects]\nwindow_opacity = 0",
             "[effects]\nanimation_ms = 5000",
             "[effects]\nshadow = 100",
             "[effects]\nblur = 17",

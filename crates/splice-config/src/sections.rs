@@ -117,7 +117,9 @@ impl InputConfig {
 pub struct EffectsConfig {
     /// Corner radius of windows and their borders in logical pixels; 0 keeps square corners.
     pub corner_radius: i32,
-    /// Opacity of windows that do not have the focus (1.0 = opaque).
+    /// Opacity of every window without an `opacity` rule (1.0 = opaque). Never applied to video.
+    pub window_opacity: f32,
+    /// Opacity of windows that do not have the focus (1.0 = opaque). Never applied to video.
     pub inactive_opacity: f32,
     /// Milliseconds windows take to slide to a new place and to fade in; 0 turns animations off.
     pub animation_ms: u32,
@@ -129,7 +131,7 @@ pub struct EffectsConfig {
 
 impl Default for EffectsConfig {
     fn default() -> Self {
-        Self { corner_radius: 0, inactive_opacity: 1.0, animation_ms: 0, shadow: 0, blur: 0 }
+        Self { corner_radius: 0, window_opacity: 1.0, inactive_opacity: 1.0, animation_ms: 0, shadow: 0, blur: 0 }
     }
 }
 
@@ -137,6 +139,9 @@ impl EffectsConfig {
     pub fn validate(&self) -> Result<()> {
         if !(0..=64).contains(&self.corner_radius) {
             return Err("effects.corner_radius must be between 0 and 64".into());
+        }
+        if !(0.1..=1.0).contains(&self.window_opacity) {
+            return Err("effects.window_opacity must be between 0.1 and 1.0".into());
         }
         if !(0.1..=1.0).contains(&self.inactive_opacity) {
             return Err("effects.inactive_opacity must be between 0.1 and 1.0".into());

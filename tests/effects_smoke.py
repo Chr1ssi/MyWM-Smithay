@@ -50,8 +50,8 @@ except BaseException:
     raise
 
 # Opacity from a rule blends the window with the dark background: its average brightness drops.
-def brightness(path):
-    out = subprocess.check_output(["convert", path, "-crop", "600x400+340+200", "-resize", "1x1!", "-colorspace", "Gray", "-format", "%[fx:mean]", "info:"])
+def brightness(path, crop="600x400+340+200"):
+    out = subprocess.check_output(["convert", path, "-crop", crop, "-resize", "1x1!", "-colorspace", "Gray", "-format", "%[fx:mean]", "info:"])
     return float(out.decode())
 
 
@@ -63,6 +63,43 @@ faded = brightness(path)
 assert comp.stop()
 print("brightness", plain, faded)
 assert faded < plain * 0.8, (plain, faded)
+
+# `window_opacity` fades every window; a `video` rule or an `opacity = 1.0` rule keeps its window opaque.
+comp, path = run("[effects]\nwindow_opacity = 0.4\n")
+everything = brightness(path)
+assert comp.stop()
+comp, path = run("[effects]\nwindow_opacity = 0.4\n[[rules]]\napp_id = 'splice.test.simple'\nvideo = true\n")
+video = brightness(path)
+assert comp.stop()
+comp, path = run("[effects]\nwindow_opacity = 0.4\n[[rules]]\napp_id = 'splice.test.simple'\nopacity = 1.0\n")
+exempt = brightness(path)
+assert comp.stop()
+print("brightness", everything, video, exempt)
+assert everything < plain * 0.8, (plain, everything)
+assert abs(video - plain) < plain * 0.05, (plain, video)
+assert abs(exempt - plain) < plain * 0.05, (plain, exempt)
+
+
+# Video is recognized without a rule: by its content type, or by an idle inhibitor on the window. A `video = false`
+# rule overrides that. (`frames` and `idle-inhibit` windows are not the `simple` one: compare them among themselves.)
+def fade_of(client, rule="", crop="600x400+340+200"):
+    comp = Compositor(config="[effects]\nwindow_opacity = 0.4\n" + rule, windows=0, extra_args=f"./target/debug/splice-test-client {client} & ")
+    try:
+        time.sleep(3)
+        return brightness(shot(comp, "shot"), crop)
+    finally:
+        assert comp.stop()
+
+
+opaque_frames = fade_of("frames 3600 video")
+faded_frames = fade_of("frames 3600")
+# The `idle-inhibit` window keeps its 200x150 buffer in the top left corner.
+corner = "180x130+20+20"
+opaque_inhibit = fade_of("idle-inhibit 3600", crop=corner)
+faded_inhibit = fade_of("idle-inhibit 3600", "[[rules]]\napp_id = 'splice.test.0'\nvideo = false\n", corner)
+print("brightness", opaque_frames, faded_frames, opaque_inhibit, faded_inhibit)
+assert faded_frames < opaque_frames * 0.8, (opaque_frames, faded_frames)
+assert faded_inhibit < opaque_inhibit * 0.8, (opaque_inhibit, faded_inhibit)
 
 # Shadow: the strip next to the window is darker than the plain background.
 comp, path = run("[effects]\nshadow = 30\n")

@@ -17,8 +17,10 @@ pub struct Rule {
     pub fullscreen: Option<bool>,
     /// Float on every workspace of its monitor (picture in picture).
     pub sticky: Option<bool>,
-    /// Window opacity (0.1 to 1.0), see `[effects]`.
+    /// Window opacity (0.1 to 1.0) in place of `effects.window_opacity`, see `[effects]`.
     pub opacity: Option<f32>,
+    /// Treat the window as video (`true`: no transparency) or not even if it looks like one (`false`).
+    pub video: Option<bool>,
     /// Shown as a black area in screenshots, recordings and streams.
     pub block_from_capture: Option<bool>,
 }
@@ -57,10 +59,11 @@ impl Rule {
             && self.fullscreen.is_none()
             && self.sticky.is_none()
             && self.opacity.is_none()
+            && self.video.is_none()
             && self.block_from_capture.is_none()
         {
             return Err(
-                "at least one action (workspace, output, floating, fullscreen, sticky, opacity or block_from_capture) is required"
+                "at least one action (workspace, output, floating, fullscreen, sticky, opacity, video or block_from_capture) is required"
                     .into(),
             );
         }
@@ -103,6 +106,11 @@ pub fn glob(pattern: &str, text: &str) -> bool {
 /// The opacity the last matching rule asks for.
 pub fn opacity(rules: &[Rule], window: Subject) -> Option<f32> {
     rules.iter().filter(|rule| rule.matches(window)).filter_map(|rule| rule.opacity).next_back()
+}
+
+/// What the last matching rule says about the window being video (`None`: it does not say).
+pub fn video(rules: &[Rule], window: Subject) -> Option<bool> {
+    rules.iter().filter(|rule| rule.matches(window)).filter_map(|rule| rule.video).next_back()
 }
 
 /// Whether the last matching rule keeps the window out of captures.
@@ -159,6 +167,14 @@ mod tests {
         for (id, dialog) in [(None, true), (Some("test.app"), true), (Some("test.App"), false)] {
             assert_eq!(resolve(&config.rules, app(id, dialog), true).workspace, None);
         }
+    }
+
+    #[test]
+    fn video_comes_from_the_last_matching_rule() {
+        let config = Config::parse("[[rules]]\napp_id = 'mpv'\nvideo = true\n[[rules]]\napp_id = 'mpv'\nvideo = false").unwrap();
+        assert_eq!(video(&config.rules, app(Some("mpv"), false)), Some(false));
+        assert_eq!(video(&config.rules, app(Some("other"), false)), None);
+        assert!(Config::parse("[[rules]]\napp_id = 'mpv'\nvideo = true").is_ok());
     }
 
     #[test]

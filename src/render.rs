@@ -300,18 +300,21 @@ impl State {
         elements.extend(regular);
         elements.extend(behind);
         elements.extend(layer_elements(renderer, &[Layer::Bottom, Layer::Background]));
-        elements.extend(self.wallpaper_element(renderer, output));
+        elements.extend(self.wallpaper_elements(renderer, output));
         elements
     }
 
-    /// Opacity of a window from its rule and focus (1.0 in fullscreen).
+    /// Opacity of a window from its rule (or the default) and focus (1.0 in fullscreen and for video).
     pub fn window_opacity(&self, m: &crate::desktop::Managed) -> f32 {
         if m.fullscreen {
             return 1.0;
         }
-        let rule = splice_config::opacity(&self.config.rules, m.subject());
-        let focus = if self.desktop.focused() == Some(m.id) { 1.0 } else { self.config.effects.inactive_opacity };
-        rule.unwrap_or(1.0) * focus
+        let effects = &self.config.effects;
+        let base = splice_config::opacity(&self.config.rules, m.subject()).unwrap_or(effects.window_opacity);
+        let focus = if self.desktop.focused() == Some(m.id) { 1.0 } else { effects.inactive_opacity };
+        let opacity = base * focus;
+        // Only a window that would be see-through needs the (costlier) video check.
+        if opacity < 1.0 && self.is_video(m) { 1.0 } else { opacity }
     }
 
     /// The layers below the windows and the wallpaper, front to back.
@@ -334,7 +337,7 @@ impl State {
             })
             .map(OutputElement::from)
             .collect();
-        elements.extend(self.wallpaper_element(renderer, output));
+        elements.extend(self.wallpaper_elements(renderer, output));
         elements
     }
 

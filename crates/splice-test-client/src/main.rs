@@ -2,8 +2,8 @@
 //! changes all the time; stands in for `weston-simple-shm`, which nixpkgs does not ship),
 //! `splice-test-client inhibit <seconds>` (a window that inhibits compositor shortcuts),
 //! `splice-test-client idle-inhibit <seconds>` (a window that keeps the session from going idle),
-//! `splice-test-client frames <seconds> [fullscreen] [game]` (a window that draws on every frame callback and prints
-//! `frames <n>` each second; `fullscreen` makes it fullscreen and opaque, `game` marks it with the `game`
+//! `splice-test-client frames <seconds> [fullscreen] [game|video]` (a window that draws on every frame callback and prints
+//! `frames <n>` each second; `fullscreen` makes it fullscreen and opaque, `game` or `video` marks it with that
 //! content type) or
 //! `splice-test-client urgent <seconds>` (two windows; the second asks to activate the first
 //! without any user input behind the request) or `splice-test-client pointer <seconds> [lock]` (a window
@@ -329,10 +329,10 @@ fn simple_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, com
 }
 
 /// A window that commits a new frame whenever the compositor says it may, counting the frame callbacks.
-/// How the `frames` window presents itself: fullscreen, and marked as a game through this content type manager.
+/// How the `frames` window presents itself: fullscreen, and marked with a content type through this manager.
 struct FramesStyle {
     fullscreen: bool,
-    game: Option<WpContentTypeManagerV1>,
+    content_type: Option<(WpContentTypeManagerV1, wp_content_type_v1::Type)>,
 }
 
 fn frames_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, compositor: &WlCompositor, shm: &WlShm, wm_base: &XdgWmBase, seconds: u64, style: FramesStyle) {
@@ -346,8 +346,8 @@ fn frames_window(app: &mut App, queue: &mut wayland_client::EventQueue<App>, com
         toplevel.set_fullscreen(None);
     }
     // Like SDL3: the content type is set before the first commit.
-    if let Some(manager) = &style.game {
-        manager.get_surface_content_type(&surface, &qh, ()).set_content_type(wp_content_type_v1::Type::Game);
+    if let Some((manager, content_type)) = &style.content_type {
+        manager.get_surface_content_type(&surface, &qh, ()).set_content_type(*content_type);
     }
     surface.commit();
     while !app.configured[0] {
@@ -658,10 +658,12 @@ fn main() {
     if mode == "frames" {
         let style = FramesStyle {
             fullscreen: std::env::args().skip(3).any(|a| a == "fullscreen"),
-            game: std::env::args()
-                .skip(3)
-                .any(|a| a == "game")
-                .then(|| globals.bind(&qh, 1..=1, ()).expect("content type manager")),
+            content_type: std::env::args().skip(3).find_map(|a| match a.as_str() {
+                "game" => Some(wp_content_type_v1::Type::Game),
+                "video" => Some(wp_content_type_v1::Type::Video),
+                _ => None,
+            })
+            .map(|kind| (globals.bind(&qh, 1..=1, ()).expect("content type manager"), kind)),
         };
         frames_window(&mut app, &mut queue, &compositor, &shm, &wm_base, seconds, style);
         return;

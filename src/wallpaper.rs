@@ -7,7 +7,7 @@
 //! except building one texture element per output.
 use std::{
     path::PathBuf,
-    time::SystemTime,
+    time::{Instant, SystemTime},
 };
 
 use calloop::{LoopHandle, channel};
@@ -42,11 +42,16 @@ struct Decoded {
     opaque: bool,
 }
 
+/// How long a new wallpaper takes to fade in over the old one (with animations on).
+const FADE_MS: u32 = 600;
+
 struct Picture {
     texture: GlesTexture,
     size: Size<i32, Buffer>,
     id: Id,
     opaque: bool,
+    /// The file it shows, to tell a new wallpaper from the same one rescaled for another desktop size.
+    file: (PathBuf, Option<SystemTime>),
 }
 
 pub struct Wallpaper {
@@ -57,6 +62,8 @@ pub struct Wallpaper {
     /// Pixels of `requested`, waiting for the renderer.
     decoded: Option<Decoded>,
     picture: Option<Picture>,
+    /// The picture being faded out by `picture` and since when.
+    fading: Option<(Picture, Instant)>,
     sender: channel::Sender<Result<Decoded, (Source, String)>>,
 }
 
@@ -70,7 +77,7 @@ impl Wallpaper {
         }) {
             tracing::warn!("the wallpaper cannot be loaded: {}", error.error);
         }
-        Self { file: chosen_file(config), requested: None, decoded: None, picture: None, sender }
+        Self { file: chosen_file(config), requested: None, decoded: None, picture: None, fading: None, sender }
     }
 }
 
@@ -167,22 +174,54 @@ impl State {
                 None => {}
             }
         }
+        // A fade that ran its course ends with one more blur copy, which was made from the old picture.
+        if self.wallpaper.fading.as_ref().is_some_and(|(_, start)| start.elapsed().as_millis() >= u128::from(FADE_MS)) {
+            self.wallpaper.fading = None;
+            self.blur_reset();
+        }
         // The previous picture stays until the new one is ready, so a change never flashes the background.
         let Some(decoded) = self.wallpaper.decoded.take() else { return };
         let size = Size::<i32, Buffer>::from((decoded.source.size.w.max(1), decoded.source.size.h.max(1)));
+        let file = (decoded.source.path.clone(), decoded.source.modified);
+        let previous = self.wallpaper.picture.take();
         self.wallpaper.picture = match renderer.import_memory(&decoded.rgba, Fourcc::Abgr8888, size, false) {
-            Ok(texture) => Some(Picture { texture, size, id: Id::new(), opaque: decoded.opaque }),
+            Ok(texture) => Some(Picture { texture, size, id: Id::new(), opaque: decoded.opaque, file }),
             Err(error) => {
                 tracing::warn!("the wallpaper {} cannot be uploaded: {error}", decoded.source.path.display());
                 None
             }
         };
+        // Another file fades in; the same one at another size (monitor change) just replaces it. A change during
+        // a fade drops the picture that was fading out.
+        self.wallpaper.fading = previous
+            .zip(self.wallpaper.picture.as_ref())
+            .filter(|(old, new)| self.config.effects.animation_ms > 0 && old.file != new.file)
+            .map(|(old, _)| (old, Instant::now()));
         self.blur_reset();
     }
 
-    /// The part of the wallpaper on `output`, filling it.
-    pub fn wallpaper_element(&self, renderer: &GlesRenderer, output: &Output) -> Option<OutputElement> {
-        let picture = self.wallpaper.picture.as_ref()?;
+    /// The wallpaper is fading: keep redrawing.
+    pub fn wallpaper_fading(&self) -> bool {
+        self.wallpaper.fading.is_some()
+    }
+
+    /// The part of the wallpaper on `output`, filling it, front to back: the new picture over the one it replaces
+    /// while fading.
+    pub fn wallpaper_elements(&self, renderer: &GlesRenderer, output: &Output) -> Vec<OutputElement> {
+        let Some(picture) = self.wallpaper.picture.as_ref() else { return Vec::new() };
+        let fade = self.wallpaper.fading.as_ref().map(|(old, start)| {
+            (old, crate::desktop::ease_out(start.elapsed().as_secs_f64() * 1000.0 / f64::from(FADE_MS)) as f32)
+        });
+        let mut elements: Vec<OutputElement> =
+            self.wallpaper_element(renderer, output, picture, fade.map(|(_, alpha)| alpha)).into_iter().collect();
+        if let Some((old, _)) = fade {
+            elements.extend(self.wallpaper_element(renderer, output, old, None));
+        }
+        elements
+    }
+
+    /// One picture's part on `output`, with `alpha` (not opaque then) while it fades in.
+    fn wallpaper_element(&self, renderer: &GlesRenderer, output: &Output, picture: &Picture, alpha: Option<f32>) -> Option<OutputElement> {
         let (desktop, _) = self.desktop_area()?;
         let geo = self.space.output_geometry(output)?;
         // Texture pixels per logical pixel of the desktop (also right while a newer picture is on its way).
@@ -199,10 +238,10 @@ impl State {
             picture.texture.clone(),
             1,
             Transform::Normal,
-            None,
+            alpha,
             Some(src),
             Some(geo.size),
-            picture.opaque.then(|| vec![Rectangle::from_size(picture.size)]),
+            (picture.opaque && alpha.is_none()).then(|| vec![Rectangle::from_size(picture.size)]),
             Kind::Unspecified,
         )))
     }

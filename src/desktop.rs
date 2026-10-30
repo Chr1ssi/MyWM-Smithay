@@ -21,7 +21,8 @@ use smithay::{
     utils::{Logical, Physical, Point, Rectangle},
     xwayland::{X11Surface, xwm::WmWindowType},
     wayland::{
-        compositor::with_states, content_type::ContentTypeSurfaceCachedState,
+        compositor::{TraversalAction, get_parent, with_states, with_surface_tree_downward},
+        content_type::ContentTypeSurfaceCachedState,
         fractional_scale::with_fractional_scale, shell::xdg::XdgToplevelSurfaceData,
     },
 };
@@ -528,6 +529,17 @@ impl State {
         (0..self.desktop.desk.monitors.len()).any(|monitor| self.fullscreen_game_on(monitor).is_some())
     }
 
+    /// A window that shows video must stay opaque (and unblurred, undimmed): a `video` rule decides, otherwise
+    /// the client says so with the `video` content type or by holding an idle inhibitor on the window
+    /// (players do while playing). Browsers inhibit through the portal, which names no window: they need a rule.
+    pub(crate) fn is_video(&self, m: &Managed) -> bool {
+        if let Some(rule) = splice_config::video(&self.config.rules, m.subject()) {
+            return rule;
+        }
+        let Some(surface) = m.surface() else { return false };
+        shows_video(&surface) || self.idle_inhibitors.keys().any(|inhibitor| root_surface(inhibitor) == surface)
+    }
+
     /// Games (and their dialogs) are recognized by app id prefix, as Windows programs (under Wine's
     /// Wayland driver the app id is the executable's name, `worldofwarships64.exe`, not `steam_app_*`),
     /// or by the `game` content type they give their surface (`wp-content-type-v1`, e.g. SDL3).
@@ -982,7 +994,10 @@ impl State {
     /// Some window is still animating: keep redrawing.
     pub fn animations_active(&self) -> bool {
         let ms = self.config.effects.animation_ms;
-        ms > 0 && (self.desktop.windows.iter().any(|m| m.animating(ms)) || self.overview.as_ref().is_some_and(|o| o.animating(ms)))
+        ms > 0
+            && (self.desktop.windows.iter().any(|m| m.animating(ms))
+                || self.overview.as_ref().is_some_and(|o| o.animating(ms))
+                || self.wallpaper_fading())
     }
 
     pub fn focus_window(&mut self, id: WindowId) {
@@ -1276,6 +1291,32 @@ fn shows_game(surface: &WlSurface) -> bool {
         *states.cached_state.get::<ContentTypeSurfaceCachedState>().current().content_type()
             == wp_content_type_v1::Type::Game
     })
+}
+
+/// The client marks `surface` or one of its subsurfaces as video (`wp-content-type-v1`); players draw
+/// the picture on a subsurface, so the whole tree counts.
+fn shows_video(surface: &WlSurface) -> bool {
+    let mut video = false;
+    with_surface_tree_downward(
+        surface,
+        (),
+        |_, _, ()| TraversalAction::DoChildren(()),
+        |_, states, ()| {
+            video |= *states.cached_state.get::<ContentTypeSurfaceCachedState>().current().content_type()
+                == wp_content_type_v1::Type::Video;
+        },
+        |_, _, ()| true,
+    );
+    video
+}
+
+/// The toplevel surface `surface` is a (sub)surface of.
+fn root_surface(surface: &WlSurface) -> WlSurface {
+    let mut root = surface.clone();
+    while let Some(parent) = get_parent(&root) {
+        root = parent;
+    }
+    root
 }
 
 /// Wine's Wayland driver names its windows after the executable (`Game.exe`).

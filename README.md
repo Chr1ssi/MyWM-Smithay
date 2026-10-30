@@ -53,7 +53,7 @@ Farbfamilien des Bildes: Die drei nach Fläche × Sättigung stärksten werden p
 tertiary, die Flächen nehmen den Farbton der dunklen Bildbereiche an, error ist immer ein kräftiges Rot,
 und die Terminalfarben behalten ihre Rolle (rot bleibt rot), drehen sich aber zu den Farben des Bildes.
 
-Außerdem: Effekte (abgerundete Ecken, Transparenz, Schatten, Animationen, Xray-Blur; siehe
+Außerdem: Effekte (abgerundete Ecken, Transparenz für alle Fenster außer Videos, Schatten, Animationen samt Überblendung beim Wallpaper-Wechsel, Xray-Blur; siehe
 `docs/effects.md`), eingebaute Screenshots (`Super+s`) und eine Workspace-Übersicht (`Super+Tab`).
 Ragen gekachelte Fenster über den linken oder rechten Rand eines Monitors hinaus, zeichnet der Compositor dort
 einen 5 Pixel breiten Streifen in der Farbe des aktiven Rahmens und hält ihn frei von Fenstern (früher zwei

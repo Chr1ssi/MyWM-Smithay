@@ -1,4 +1,5 @@
-"""The compositor's own wallpaper: spans the outputs and follows the picker's choice.
+"""The compositor's own wallpaper: spans the outputs and follows the picker's choice, fading to a new one when
+animations are on.
 
 Needs grim and ImageMagick. Run from the repository root with $DISPLAY set:
     PYTHONPATH=tests python3 tests/wallpaper_smoke.py
@@ -14,6 +15,12 @@ def pixel(env, output, x, y):
         subprocess.run(["grim", "-o", output, shot.name], env=env, check=True, timeout=15)
         out = subprocess.check_output(["convert", shot.name, "-crop", "1x1+%d+%d" % (x, y), "txt:-"]).decode()
     return out.strip().splitlines()[-1].split()[2].upper()[:7]
+
+
+def mixed(color):
+    """Neither the green nor the red wallpaper: a blend of both."""
+    red, green = int(color[1:3], 16), int(color[3:5], 16)
+    return 0 < red < 255 and 0 < green < 255
 
 
 images = tempfile.mkdtemp()
@@ -44,6 +51,27 @@ try:
     assert bar.send("theme-reload") == "v1 ok"
     assert wait(lambda: pixel(env, "winit", 640, 400) == RED, 15), pixel(env, "winit", 640, 400)
     assert pixel(env, "virtual-1", 640, 400) == BLUE, pixel(env, "virtual-1", 640, 400)
+    assert comp.stop()
+except BaseException:
+    comp.process.kill()
+    print(open(comp.dir + "/log").read()[-3000:])
+    raise
+
+# With animations the new picture fades in over the old one: a blend shows, then only the new one.
+only_green = tempfile.mkdtemp()
+subprocess.run(["cp", green, only_green], check=True)
+red_image = f"{images}/red.png"
+subprocess.run(["convert", "-size", "64x32", "xc:#ff0000", red_image], check=True)
+comp = Compositor(config="[effects]\nanimation_ms = 100\n", top=f'wallpaper_directory = "{only_green}"\n')
+try:
+    env = comp.env()
+    assert wait(lambda: pixel(env, "winit", 640, 400) == GREEN, 15), pixel(env, "winit", 640, 400)
+    choose(comp.dir + "/state", red_image)
+    assert Bar(comp.sock).send("theme-reload") == "v1 ok"
+    seen = []
+    assert wait(lambda: seen.append(pixel(env, "winit", 640, 400)) or seen[-1] == RED, 15), seen
+    print("fade samples", seen)
+    assert any(mixed(color) for color in seen), seen
     assert comp.stop()
     print("OK")
 except BaseException:

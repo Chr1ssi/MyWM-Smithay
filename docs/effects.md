@@ -7,7 +7,8 @@ für Spiele: Direct Scanout und Latenz bleiben unberührt. Einstellungen in `con
 ```toml
 [effects]
 corner_radius = 12       # abgerundete Fenster und Rahmen (logische Pixel, 0-64)
-inactive_opacity = 0.95  # Fenster ohne Fokus
+window_opacity = 0.94    # alle Fenster leicht durchsichtig (nie Videofenster)
+inactive_opacity = 0.95  # Fenster ohne Fokus (nie Videofenster)
 animation_ms = 160       # Fenster gleiten an ihren Platz und blenden ein (0 = aus)
 shadow = 24              # weicher Schatten
 blur = 6                 # unscharfes Wallpaper hinter durchsichtigen Fenstern (1-16)
@@ -17,10 +18,23 @@ app_id = "kitty"
 opacity = 0.92
 ```
 
+- **Videofenster** bleiben undurchsichtig, auch ohne Vollbild, und bekommen weder `window_opacity` noch
+  `inactive_opacity` noch Blur. Ein Fenster gilt als Video, wenn eine Regel `video = true` setzt (`video = false`
+  nimmt es aus), sonst wenn der Client seiner Fläche oder einer Unterfläche den Inhaltstyp `video`
+  (`wp-content-type`) gibt oder einen Idle-Inhibitor auf dem Fenster hält (mpv, VLC, solange sie spielen). Browser
+  sperren den Bildschirm über das Portal, das kein Fenster nennt: Für sie braucht es eine Regel
+  (`app_id = "librewolf"`, `video = true`), dann ist das ganze Browserfenster undurchsichtig.
+- Eine Regel mit `opacity` **ersetzt** `window_opacity` für ihr Fenster (`opacity = 1.0` nimmt es aus); die
+  Deckkraft ohne Fokus wird darauf multipliziert.
+
 - **Blur** ist „Xray“: Durchsichtige Fenster zeigen eine weichgezeichnete Kopie des
   Wallpapers (samt Layern unter den Fenstern), nicht der Fenster dahinter. Die Kopie wird nur neu
-  berechnet, wenn sich das Wallpaper ändert. Ein Fenster ist durchsichtig, wenn eine Regel
-  `opacity` setzt oder `inactive_opacity` < 1 ist und es keinen Fokus hat.
+  berechnet, wenn sich das Wallpaper ändert. Ein Fenster ist durchsichtig, wenn seine Deckkraft
+  (`window_opacity`, Regel, `inactive_opacity` ohne Fokus) unter 1 liegt und es kein Video ist.
+- **Wallpaper-Wechsel**: Mit `animation_ms` > 0 blendet ein neues Wallpaper in 600 ms über das alte (ease-out).
+  Dasselbe Bild für eine andere Monitorgröße ersetzt das alte ohne Überblendung. Wechselt man mitten in der
+  Überblendung, verschwindet das auslaufende Bild sofort. Der Blur zeigt während der Überblendung noch das
+  alte Wallpaper und springt danach um.
 - Die Shader wurden nested (Mesa) getestet; auf der NVIDIA-Hardware bitte kurz ansehen. Kompilieren
   sie nicht oder schlägt die Berechnung fehl, steht einmal eine Warnung im Log und der Effekt bleibt
   bis zum nächsten Neuladen der Konfiguration aus.

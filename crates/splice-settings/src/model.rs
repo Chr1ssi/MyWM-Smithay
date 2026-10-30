@@ -75,6 +75,7 @@ pub static SETTINGS: &[Setting] = &[
     restart(s("xwayland", "Xwayland", "X11-Programme (Steam, ältere Spiele) unterstützen.", Windows, Bool, "true")),
     // Effects
     s("effects.corner_radius", "Abgerundete Ecken", "Radius in Pixeln; 0 = eckig. Nie bei Vollbild.", Effects, Int { min: 0, max: 64 }, "0"),
+    s("effects.window_opacity", "Deckkraft aller Fenster", "1.0 = undurchsichtig. Videofenster bleiben undurchsichtig; eine Regel mit opacity ersetzt den Wert.", Effects, Float { min: 0.1, max: 1.0 }, "1.0"),
     s("effects.inactive_opacity", "Deckkraft ohne Fokus", "1.0 = undurchsichtig.", Effects, Float { min: 0.1, max: 1.0 }, "1.0"),
     s("effects.animation_ms", "Animationsdauer (ms)", "Fenster gleiten an ihren Platz und blenden ein; 0 = keine Animationen.", Effects, Int { min: 0, max: 1000 }, "0"),
     s("effects.shadow", "Schatten", "Ausdehnung in Pixeln; 0 = kein Schatten.", Effects, Int { min: 0, max: 64 }, "0"),

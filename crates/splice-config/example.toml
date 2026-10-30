@@ -51,7 +51,8 @@
 # Effekte (nie bei Vollbildfenstern, also nicht in Spielen).
 #[effects]
 #corner_radius = 12        # abgerundete Fenster und Rahmen, logische Pixel
-#inactive_opacity = 0.95   # Fenster ohne Fokus leicht durchsichtig
+#window_opacity = 0.94     # alle Fenster leicht durchsichtig (Videofenster nie, eine Regel mit opacity ersetzt den Wert)
+#inactive_opacity = 0.95   # Fenster ohne Fokus leicht durchsichtig (Videofenster nie)
 #animation_ms = 160        # Fenster gleiten an ihren Platz und blenden ein (0 = aus)
 #shadow = 24               # weicher Schatten, Ausdehnung in logischen Pixeln
 #blur = 6                  # unscharfes Wallpaper hinter durchsichtigen Fenstern (1-16, 0 = aus)
@@ -59,6 +60,11 @@
 # [[rules]]
 # app_id = "kitty"
 # opacity = 0.92
+# Videofenster bleiben undurchsichtig, auch ohne Vollbild. Erkannt am Inhaltstyp `video` (wp-content-type) oder an
+# einem Idle-Inhibitor des Fensters (mpv, VLC); Browser sperren über das Portal und brauchen eine Regel:
+# [[rules]]
+# app_id = "librewolf"
+# video = true
 
 # Nur Smithay-Compositor (Hardware): Frames so spaet wie moeglich vor dem Vblank
 # rendern, damit sie den neuesten Client-Inhalt zeigen (weniger Latenz). Bei VRR

@@ -278,6 +278,8 @@ impl State {
     /// Idle timers stand still while a video player (or anything else) holds an inhibitor.
     pub fn update_idle_inhibition(&mut self) {
         self.idle_inhibitors.retain(|surface, _| surface.is_alive());
+        // A player starting or stopping changes how translucent its window is.
+        self.queue_redraw_all();
         // Games rarely inhibit idle themselves, and a controller makes no input the compositor sees.
         let inhibited = !self.idle_inhibitors.is_empty() || !self.ipc_idle_inhibitors.is_empty() || self.game_shown();
         self.idle_notifier_state.set_is_inhibited(inhibited);
