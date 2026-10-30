@@ -1,7 +1,7 @@
 //! The bar at the top of every monitor (`bar.qml`): rounded islands with the workspaces on the left, media
 //! and clock in the middle, recording, status and power on the right.
 use crate::{
-    Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme,
+    Align, Color, Measure, Node, Rect, Scene, Shape, TextStyle, Theme,
     i18n::Language,
     scene::Picture,
     theme::{BAR_HEIGHT, BAR_MARGIN, ISLAND_HEIGHT},
@@ -155,6 +155,12 @@ pub fn control_icon(bluetooth: Option<(bool, usize)>, night_light: bool) -> Stri
     if icons.is_empty() { "󰒓".into() } else { icons.join(" ") }
 }
 
+/// The cyberdeck bar's volume as eight segments, filled from the left.
+fn volume_segments(volume: f32) -> String {
+    let filled = (volume.clamp(0.0, 1.0) * 8.0).round() as usize;
+    "▮".repeat(filled) + &"▯".repeat(8 - filled)
+}
+
 /// The volume after `steps` wheel notches over the audio button (5 % each, as the Quickshell bar).
 pub fn scrolled_volume(volume: f32, steps: f32) -> f32 {
     (volume + steps * 0.05).clamp(0.0, 1.0)
@@ -165,12 +171,17 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
     let mut scene = Scene::new(model.width, BAR_HEIGHT);
     scene.target(Rect::new(0.0, 0.0, model.width, BAR_HEIGHT), BarTarget::Background);
     let tr = |text| model.language.tr(text);
+    let deck = theme.shape == Shape::Chamfer;
 
     let mut workspaces: Vec<Button> = model
         .workspaces
         .iter()
         .map(|w| {
-            let text = if w.number == 0 { "G".to_owned() } else { w.number.to_string() };
+            let text = match w.number {
+                0 => "G".to_owned(),
+                number if deck => format!("{number:02}"),
+                number => number.to_string(),
+            };
             Button::fixed(text, 26.0, BarTarget::Workspace(w.number))
                 .selected(model.active == Some(w.number))
                 .marked(w.occupied)
@@ -189,7 +200,8 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
         middle.push(Content::Buttons(vec![button.selected(model.open_panel == Some(Panel::Media))]));
     }
     let open = |p: Panel| model.open_panel == Some(p);
-    let clock = Button::fit(measure, model.clock.clone(), false, BarTarget::Panel(Panel::Calendar), open(Panel::Calendar));
+    let clock_text = if deck { model.clock.to_uppercase() } else { model.clock.clone() };
+    let clock = Button::fit(measure, clock_text, false, BarTarget::Panel(Panel::Calendar), open(Panel::Calendar));
     middle.push(Content::Buttons(vec![clock]));
 
     let mut right = Vec::new();
@@ -205,6 +217,7 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
     let audio = match model.audio {
         None => "󰕾 —".to_owned(),
         Some(Audio { muted: true, .. }) => format!("󰖁 {}", tr("Stumm")),
+        Some(Audio { volume, .. }) if deck => format!("󰕾 {} {}%", volume_segments(volume), (volume * 100.0).round()),
         Some(Audio { volume, .. }) => format!("󰕾 {} %", (volume * 100.0).round()),
     };
     right.push(Content::Buttons(vec![
@@ -285,11 +298,18 @@ pub fn button_shape<T: Clone>(
     marked: bool,
     hovered: bool,
 ) {
+    // The cyberdeck lights a selected button up solid, with dark text on it.
+    let solid = selected && theme.shape == Shape::Chamfer;
     if selected || hovered {
-        scene.push(Node::Rect { rect, radius: rect.h / 2.0, fill: theme.surface, border: None });
+        let fill = if solid { theme.accent } else { theme.surface };
+        scene.push(Node::Rect { rect, radius: rect.h / 2.0, fill, border: None });
     }
     let label = Rect::new(rect.x + 6.0, rect.y, (rect.w - 12.0).max(0.0), rect.h);
-    let color = if selected { theme.accent } else { theme.text };
+    let color = match (selected, solid) {
+        (true, true) => theme.background,
+        (true, false) => theme.accent,
+        _ => theme.text,
+    };
     let style = BUTTON_TEXT.icons(icons).bold(marked || selected);
     scene.push(Node::Label { rect: label, text: text.to_owned(), style, color, align: Align::Center });
     if marked && !selected {
@@ -416,6 +436,33 @@ mod tests {
         assert_eq!(texts(BarModel { notifications: 3, audio, ..model() }), ("󰂚 3".into(), "󰕾 80 %".into()));
         let audio = Some(Audio { volume: 0.8, muted: true });
         assert_eq!(texts(BarModel { audio, language: Language::German, ..model() }).1, "󰖁 Stumm");
+    }
+
+    #[test]
+    fn the_cyberdeck_bar_numbers_workspaces_segments_the_volume_and_lights_the_selection() {
+        let deck = theme().with_shape(Shape::Chamfer);
+        let audio = Some(Audio { volume: 0.5, muted: false });
+        let scene = scene(&BarModel { audio, ..model() }, &deck, &mut Mono);
+        assert_eq!(label(&scene, BarTarget::Workspace(1)), "01");
+        assert_eq!(label(&scene, BarTarget::Panel(Panel::Audio)), "󰕾 ▮▮▮▮▯▯▯▯ 50%");
+        assert_eq!(label(&scene, BarTarget::Panel(Panel::Calendar)), "DI. 20. OKT.  19:15");
+        // The selected workspace is filled with the accent and its number is dark.
+        let first = scene.target_rect(&BarTarget::Workspace(1)).unwrap();
+        assert!(scene.nodes.iter().any(|n| matches!(n, Node::Rect { rect, fill, .. } if *rect == first && *fill == deck.accent)));
+        assert!(scene.nodes.iter().any(|n| matches!(n, Node::Label { text, color, .. } if text == "01" && *color == deck.background)));
+        // The normal bar keeps its texts and lights the selection with the accent text on the surface.
+        let plain = super::scene(&BarModel { audio, ..model() }, &theme(), &mut Mono);
+        assert_eq!(label(&plain, BarTarget::Workspace(1)), "1");
+        assert_eq!(label(&plain, BarTarget::Panel(Panel::Audio)), "󰕾 50 %");
+        assert!(plain.nodes.iter().any(|n| matches!(n, Node::Label { text, color, .. } if text == "1" && *color == theme().accent)));
+    }
+
+    #[test]
+    fn volume_segments_are_filled_from_the_left() {
+        assert_eq!(volume_segments(0.0), "▯▯▯▯▯▯▯▯");
+        assert_eq!(volume_segments(0.62), "▮▮▮▮▮▯▯▯");
+        assert_eq!(volume_segments(1.0), "▮▮▮▮▮▮▮▮");
+        assert_eq!(volume_segments(1.5), "▮▮▮▮▮▮▮▮");
     }
 
     #[test]

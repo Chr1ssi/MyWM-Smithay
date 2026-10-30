@@ -2,7 +2,7 @@
 //! applications whose texts contain every word typed (those whose name starts with the search first), and a
 //! footer with the count and the keys.
 use crate::{
-    Align, Measure, Node, Rect, Scene, TextStyle, Theme,
+    Align, Measure, Node, Rect, Scene, Shape, TextStyle, Theme,
     edit::Input,
     i18n::Language,
     scene::Picture,
@@ -139,9 +139,12 @@ pub fn scene(model: &LauncherModel, theme: &Theme, measure: &mut impl Measure) -
     let x = PANEL_PADDING;
     let mut y = PANEL_PADDING;
 
+    let deck = theme.shape == Shape::Chamfer;
     let header = TextStyle::new(14.0).bold(true);
     let header_h = measure.line_height(header);
-    scene.push(Node::Label { rect: Rect::new(x, y, inner, header_h), text: tr("ANWENDUNGEN").into(), style: header, color: theme.text, align: Align::Left });
+    // The cyberdeck marks the card like a console section: in the accent color, closed by slashes.
+    let (title, title_color) = if deck { (format!("{} //", tr("ANWENDUNGEN")), theme.accent) } else { (tr("ANWENDUNGEN").to_owned(), theme.text) };
+    scene.push(Node::Label { rect: Rect::new(x, y, inner, header_h), text: title, style: header, color: title_color, align: Align::Left });
     y += header_h + SPACING;
 
     // The search field, which always has the keyboard.
@@ -179,7 +182,10 @@ pub fn scene(model: &LauncherModel, theme: &Theme, measure: &mut impl Measure) -
             continue;
         }
         let target = LauncherTarget::App(index);
-        if index == model.selected || model.hover == Some(target) {
+        if index == model.selected && deck {
+            // A washed accent with its line, as a selected row of a console menu.
+            scene.push(Node::Rect { rect: row, radius: 14.0, fill: theme.accent.with_alpha(0.14), border: Some((1.0, theme.accent)) });
+        } else if index == model.selected || model.hover == Some(target) {
             scene.push(Node::Rect { rect: row, radius: 14.0, fill: theme.surface, border: None });
         }
         if let Some(picture) = &app.icon {
@@ -274,6 +280,24 @@ mod tests {
         let empty = super::scene(&LauncherModel { apps: Vec::new(), query: Input::default(), ..model }, &theme(), &mut Mono);
         let texts: Vec<&str> = empty.nodes.iter().filter_map(|n| match n { Node::Label { text, .. } => Some(text.as_str()), _ => None }).collect();
         assert!(texts.contains(&"App suchen …") && texts.contains(&"Keine passenden Anwendungen"), "{texts:?}");
+    }
+
+    #[test]
+    fn the_cyberdeck_launcher_titles_in_accent_and_outlines_the_selected_row() {
+        let deck = theme().with_shape(Shape::Chamfer);
+        let model = LauncherModel {
+            output: (1280.0, 800.0),
+            query: Input::new("web"),
+            apps: vec![AppView { name: "Probe Browser".into(), detail: "Web Browser".into(), icon: None }],
+            selected: 0,
+            scroll: 0.0,
+            hover: None,
+            language: Language::German,
+        };
+        let scene = scene(&model, &deck, &mut Mono);
+        assert!(scene.nodes.iter().any(|n| matches!(n, Node::Label { text, color, .. } if text == "ANWENDUNGEN //" && *color == deck.accent)));
+        let row = scene.target_rect(&LauncherTarget::App(0)).unwrap();
+        assert!(scene.nodes.iter().any(|n| matches!(n, Node::Rect { rect, border: Some((width, color)), .. } if *rect == row && *width == 1.0 && *color == deck.accent)));
     }
 
     #[test]

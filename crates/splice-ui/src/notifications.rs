@@ -1,7 +1,7 @@
 //! Notifications: the card (`NotificationCard.qml`) that toasts and the notification center show, and the
 //! notification center itself (`NotificationCenter.qml` in the panel frame of `bar.qml`).
 use crate::{
-    Align, Measure, Node, Rect, Scene, TextStyle, Theme,
+    Align, Measure, Node, Rect, Scene, Shape, TextStyle, Theme,
     bar::{BUTTON_HEIGHT, button_shape},
     i18n::Language,
     markup::Span,
@@ -66,6 +66,18 @@ pub fn card(view: &NotificationView, theme: &Theme, measure: &mut impl Measure, 
     let column = (width - 2.0 * PADDING - if has_image { IMAGE + PADDING } else { 0.0 } - 32.0).max(0.0);
     let mut y = PADDING;
 
+    // The cyberdeck gives a card a console tag (`MSG·07 · APP`) on top, in place of the app name below the text.
+    let deck = theme.shape == Shape::Chamfer;
+    if deck {
+        let style = TextStyle::new(12.0);
+        let height = measure.line_height(style);
+        let app = if view.app_name.is_empty() { String::new() } else { format!(" · {}", view.app_name.to_uppercase()) };
+        let color = if view.critical { theme.alert } else { theme.accent };
+        let rect = Rect::new(left, y, column, height);
+        nodes.push(Node::Label { rect, text: format!("MSG·{:02}{app}", id % 100), style, color, align: Align::Left });
+        y += height + SPACING;
+    }
+
     let title_style = TextStyle::new(15.0).bold(true);
     let title_height = measure.line_height(title_style);
     let title = [&view.summary, &view.app_name].into_iter().find(|t| !t.is_empty()).cloned();
@@ -86,7 +98,7 @@ pub fn card(view: &NotificationView, theme: &Theme, measure: &mut impl Measure, 
         nodes.push(Node::RichText { rect, spans: view.body.clone(), style: TEXT, color: theme.text, max_lines });
         y += SPACING + height;
     }
-    if !view.app_name.is_empty() {
+    if !view.app_name.is_empty() && !deck {
         let style = TextStyle::new(12.0);
         let height = measure.line_height(style);
         let rect = Rect::new(left, y + SPACING, column, height);
@@ -244,6 +256,23 @@ mod tests {
         let second = card.targets.iter().find(|(_, t)| *t == CardTarget::Action(1, 1)).unwrap().0;
         assert_eq!(second.x, first.right() + 6.0);
         assert_eq!(card.targets[0], (Rect::new(0.0, 0.0, 390.0, card.height), CardTarget::Card(1)));
+    }
+
+    #[test]
+    fn the_cyberdeck_card_has_a_console_tag_in_place_of_the_app_name() {
+        let deck = theme().with_shape(Shape::Chamfer);
+        let card = card(&view(107), &deck, &mut Mono, 390.0, true, None, Language::English);
+        let labels: Vec<(&str, crate::Color)> =
+            card.nodes.iter().filter_map(|n| match n { Node::Label { text, color, .. } => Some((text.as_str(), *color)), _ => None }).collect();
+        // The tag on top in the accent color (the id modulo 100), the app name not repeated below.
+        assert_eq!(labels[0], ("MSG·07 · APP", deck.accent));
+        assert!(!labels.iter().any(|(text, _)| *text == "App"), "{labels:?}");
+        // The same height as the normal card: the tag takes the app name's row.
+        let plain = super::card(&view(107), &theme(), &mut Mono, 390.0, true, None, Language::English);
+        assert_eq!(card.height, plain.height);
+        let critical = NotificationView { critical: true, ..view(1) };
+        let card = super::card(&critical, &deck, &mut Mono, 390.0, true, None, Language::English);
+        assert!(card.nodes.iter().any(|n| matches!(n, Node::Label { text, color, .. } if text.starts_with("MSG·01") && *color == deck.alert)));
     }
 
     #[test]

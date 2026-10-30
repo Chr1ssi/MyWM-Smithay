@@ -33,6 +33,11 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   des Primärakzents und färbt auch die Terminalfarben kräftiger; Terminal, GTK, Vesktop und Neovim folgen, weil sie
   aus derselben `theme.json` erzeugt werden. Alle Kontraste des normalen Farbschemas bleiben erhalten. Beim Wechsel des
   Stils (Config-Reload) erzeugt der Compositor das Farbschema aus dem gewählten Wallpaper neu und lädt danach die Shell.
+  Dazu kommen Kleinigkeiten: In der Bar heißen die Workspaces `01`, `02`, …, der ausgewählte Knopf ist solide in der
+  Akzentfarbe gefüllt (dunkle Schrift), die Uhr steht in Großbuchstaben, und die Lautstärke zeigt acht Segmente
+  (`▮▮▮▮▮▯▯▯ 62%`). Der Launcher trägt den Titel in der Akzentfarbe (`ANWENDUNGEN //`) und umrandet die ausgewählte
+  Zeile mit einer Akzentlinie. Jede Benachrichtigung hat oben eine Kennung (`MSG·07 · APP`, bei kritischen in der
+  Warnfarbe), die den Namen der App ersetzt, der sonst unten steht.
   Sprache nach `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` (Deutsch, sonst Englisch).
 
 - **Benachrichtigungen**: Die Shell ist selbst der Freedesktop-Benachrichtigungsdienst (Dunst wird nicht
