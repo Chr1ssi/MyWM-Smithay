@@ -31,7 +31,8 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   Wallpaper: Der Generator (`splice-theme`) lässt die Akzente mit hoher Chroma (Primär, Sekundär, Tertiär bei Ton 66 bis
   74) auf Flächen leuchten, die Richtung Schwarz sinken (Oberfläche Ton 4 statt 7), zeichnet die Linien im Farbton
   des Primärakzents und färbt auch die Terminalfarben kräftiger; Terminal, GTK, Vesktop und Neovim folgen, weil sie
-  aus derselben `theme.json` erzeugt werden. Alle Kontraste des normalen Farbschemas bleiben erhalten. Beim Wechsel des
+  aus derselben `theme.json` erzeugt werden. Alle Kontraste des normalen Farbschemas bleiben erhalten. Auch die Fensterrahmen folgen dem Stil (Abschrägung,
+  Klammern, Leuchten: `docs/effects.md`). Beim Wechsel des
   Stils (Config-Reload) erzeugt der Compositor das Farbschema aus dem gewählten Wallpaper neu und lädt danach die Shell.
   Dazu kommen Kleinigkeiten: In der Bar heißen die Workspaces `01`, `02`, …, der ausgewählte Knopf ist solide in der
   Akzentfarbe gefüllt (dunkle Schrift), die Uhr steht in Großbuchstaben, und die Lautstärke zeigt acht Segmente

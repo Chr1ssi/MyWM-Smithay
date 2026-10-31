@@ -60,6 +60,9 @@ Monitor, steht dort der Grund (kein CRTC, Modus nicht angeboten, Surface-Fehler)
 4. VT-Wechsel `Ctrl+Alt+F2` und zurück: Bild und Eingabe müssen wiederkommen.
 5. Monitor aus-/einstecken: Workspaces wandern zum ersten Monitor und zurück.
 6. Ein Vollbild-Spiel/Video: läuft flüssig, kein Tearing.
+7. Cyberdeck-Fensterrahmen (`[appearance] style = "cyberdeck"`, `[effects] corner_radius`, `shadow`): Ecken oben
+   links/unten rechts abgeschrägt, Klammern an den anderen beiden, Leuchten in der Rahmenfarbe; Ränder sauber auf
+   Monitoren mit Skalierung, Blur-Hintergrund passt zur Form, im Vollbild nichts davon.
 
 ## Spiele und VRR (M3)
 

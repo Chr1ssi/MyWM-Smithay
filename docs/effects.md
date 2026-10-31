@@ -35,6 +35,13 @@ opacity = 0.92
   Dasselbe Bild für eine andere Monitorgröße ersetzt das alte ohne Überblendung. Wechselt man mitten in der
   Überblendung, verschwindet das auslaufende Bild sofort. Der Blur zeigt während der Überblendung noch das
   alte Wallpaper und springt danach um.
+- **Cyberdeck-Stil** (`[appearance] style = "cyberdeck"`, siehe `docs/shell.md`): Mit `corner_radius` > 0 bekommen
+  Fenster statt gerundeter abgeschrägte Ecken oben links und unten rechts (die Abschrägung ist `corner_radius` lang,
+  auch beim Blur-Hintergrund), die Rahmenlinie folgt dem Schnitt, und an den anderen beiden Ecken (oben rechts, unten
+  links) stehen Klammern in der Rahmenfarbe knapp außerhalb des Rahmens (16 Pixel lang). Mit `shadow` > 0 wird der
+  Schatten zum Leuchten in der Rahmenfarbe des Fensters: um das fokussierte kräftig, um die anderen schwach, ohne
+  den Versatz nach unten. `corner_radius = 0` schaltet das alles aus, `style = "default"` stellt Rundung und
+  schwarzen Schatten wieder her. Auch das gilt nie für Vollbildfenster.
 - Die Shader wurden nested (Mesa) getestet; auf der NVIDIA-Hardware bitte kurz ansehen. Kompilieren
   sie nicht oder schlägt die Berechnung fehl, steht einmal eine Warnung im Log und der Effekt bleibt
   bis zum nächsten Neuladen der Konfiguration aus.

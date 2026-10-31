@@ -268,6 +268,7 @@ impl State {
         let (Some(cache), Some(shaders)) = (self.blur.get(&name), self.effect_shaders.as_ref()) else { return Vec::new() };
         let visible_area = Rectangle::<i32, Physical>::from_size(geo.size.to_physical_precise_round(scale));
         let radius_logical = self.config.effects.corner_radius;
+        let corners = crate::effects::Corners::of(self.config.appearance.style);
         let mut elements = Vec::new();
         for (area, border) in translucent {
             let phys: Rectangle<i32, Physical> = area.to_f64().to_physical(scale).to_i32_round();
@@ -290,7 +291,11 @@ impl State {
                 Kind::Unspecified,
             );
             let Some(cropped) = CropRenderElement::from_element(element, scale, visible_area) else { continue };
-            let radius = if radius_logical > 0 { f64::from(radius_logical + border) * scale / 2.0 } else { 0.0 };
+            let radius = if radius_logical > 0 {
+                f64::from(corners.outer(radius_logical as f32, border as f32)) * scale / 2.0
+            } else {
+                0.0
+            };
             let geo_px = [
                 (f64::from(phys.loc.x) / 2.0) as f32,
                 (f64::from(phys.loc.y) / 2.0) as f32,
@@ -303,6 +308,7 @@ impl State {
                 (half.w as f32, half.h as f32),
                 geo_px,
                 radius as f32,
+                corners,
             )));
         }
         elements

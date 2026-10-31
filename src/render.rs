@@ -277,9 +277,17 @@ impl State {
                                 geometry.size.to_f64().to_physical(scale),
                             );
                             let corner = f64::from(self.config.effects.corner_radius) * scale;
+                            let corners = crate::effects::Corners::of(self.config.appearance.style);
                             bucket.push(OutputElement::from(
-                                crate::effects::Rounded::new(cropped, shader.tex.clone(), (buf.w as f32, buf.h as f32), geo_px, radius)
-                                    .with_opaque_shape(shape, corner),
+                                crate::effects::Rounded::new(
+                                    cropped,
+                                    shader.tex.clone(),
+                                    (buf.w as f32, buf.h as f32),
+                                    geo_px,
+                                    radius,
+                                    corners,
+                                )
+                                .with_opaque_shape(shape, corner),
                             ));
                         }
                         None => bucket.push(OutputElement::from(cropped)),

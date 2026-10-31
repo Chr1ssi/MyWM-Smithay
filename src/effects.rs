@@ -1,4 +1,5 @@
-//! Visual effects outside of fullscreen: rounded window corners and borders, window opacity.
+//! Visual effects outside of fullscreen: rounded (or, in the cyberdeck style, chamfered) window corners and borders,
+//! window opacity.
 //!
 //! Windows are drawn through a texture shader that fades out everything beyond the rounded
 //! rectangle of the window's geometry; the borders become one shader-drawn ring. Both cost a
@@ -22,10 +23,66 @@ pub struct Shaders {
     pub tile: GlesTexProgram,
 }
 
+/// How the corners of a window are cut: rounded, or chamfered at the top left and bottom right like the cyberdeck
+/// shell's islands. `[effects] corner_radius` sizes both (for a chamfer it is the length of the cut along each edge).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Corners {
+    Round,
+    Chamfer,
+}
+
+/// Room (logical pixels) between a window's border and the brackets drawn around it.
+const BRACKET_GAP: i32 = 3;
+/// How far the brackets' arms reach along the window's edges (logical pixels).
+const BRACKET_ARM: f32 = 16.0;
+/// What a chamfer's outer edge sits further out along its diagonal than the geometry's edge, per pixel of border:
+/// the diagonal ring is as wide as the straight ones (2 - sqrt 2).
+const CHAMFER_OUTWARD: f32 = 0.585_786_4;
+
+impl Corners {
+    pub fn of(style: splice_config::ShellStyle) -> Self {
+        match style {
+            splice_config::ShellStyle::Default => Corners::Round,
+            splice_config::ShellStyle::Cyberdeck => Corners::Chamfer,
+        }
+    }
+
+    /// The corner of the border's outer edge (and of what is drawn around the window) for a window geometry
+    /// corner `size`, `border` further out.
+    pub fn outer(self, size: f32, border: f32) -> f32 {
+        match self {
+            Corners::Round => size + border,
+            Corners::Chamfer => size + CHAMFER_OUTWARD * border,
+        }
+    }
+
+    /// Logical pixels the border's element reaches beyond the window frame: the room for the brackets.
+    pub fn frame_pad(self, border: i32) -> i32 {
+        match self {
+            Corners::Round => 0,
+            Corners::Chamfer => border + BRACKET_GAP,
+        }
+    }
+
+    fn uniform(self) -> Uniform<'static> {
+        Uniform::new("deck", if self == Corners::Chamfer { 1.0f32 } else { 0.0 })
+    }
+}
+
 const ROUNDED_SDF: &str = "
 float rounded_box(vec2 p, vec2 hs, float r) {
     vec2 q = abs(p) - (hs - vec2(r));
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+// The cyberdeck's shape: the corners at the top left and bottom right are cut off, `cut` along each edge.
+float deck_box(vec2 p, vec2 hs, float cut) {
+    vec2 q = abs(p) - hs;
+    float tl = (cut - ((p.x + hs.x) + (p.y + hs.y))) * 0.70710678;
+    float br = (cut - ((hs.x - p.x) + (hs.y - p.y))) * 0.70710678;
+    return max(max(q.x, q.y), max(tl, br));
+}
+float corner_box(vec2 p, vec2 hs, float r, float deck) {
+    return deck > 0.5 ? deck_box(p, hs, r) : rounded_box(p, hs, r);
 }
 ";
 
@@ -58,6 +115,7 @@ uniform float tint;
 uniform vec2 buf_size;
 uniform vec4 geo;
 uniform float radius;
+uniform float deck;
 {ROUNDED_SDF}
 void main() {{
     vec4 color = texture2D(tex, v_coords);
@@ -65,7 +123,7 @@ void main() {{
     color = vec4(color.rgb, 1.0);
 #endif
     vec2 p = v_coords * buf_size - (geo.xy + geo.zw * 0.5);
-    float d = rounded_box(p, geo.zw * 0.5, radius);
+    float d = corner_box(p, geo.zw * 0.5, radius, deck);
     color *= alpha * clamp(0.5 - d, 0.0, 1.0);
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
@@ -77,6 +135,9 @@ void main() {{
     )
 }
 
+/// The ring of a window's border. In the cyberdeck style the element reaches `pad` pixels beyond the frame, and
+/// there, at the top right and bottom left corners, sit brackets: an L of the border's width and `arm` long,
+/// `gap` away from the frame.
 fn ring_shader() -> String {
     format!(
         "{PRECISION}
@@ -86,18 +147,41 @@ varying vec2 v_coords;
 uniform vec4 color;
 uniform float border;
 uniform float radius;
+uniform float deck;
+uniform float pad;
+uniform float gap;
+uniform float arm;
 {ROUNDED_SDF}
+float bar(vec2 p, vec2 from, vec2 to) {{
+    vec2 c = (from + to) * 0.5;
+    vec2 d = abs(p - c) - (abs(to - from) * 0.5);
+    return clamp(0.5 - (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0)), 0.0, 1.0);
+}}
+// The bracket at the top right corner `k`: a bar along the top edge and one along the right edge.
+float bracket(vec2 p, vec2 k) {{
+    float o = gap + border;
+    float top = bar(p, vec2(k.x - arm, k.y - o), vec2(k.x + o, k.y - gap));
+    float right = bar(p, vec2(k.x + gap, k.y - o), vec2(k.x + o, k.y + arm));
+    return max(top, right);
+}}
 void main() {{
     vec2 p = (v_coords - 0.5) * size;
-    float outer = rounded_box(p, size * 0.5, radius + border);
-    float inner = rounded_box(p, size * 0.5 - vec2(border), radius);
+    vec2 hs = size * 0.5 - vec2(pad);
+    float outer = corner_box(p, hs, deck > 0.5 ? radius + {CHAMFER_OUTWARD} * border : radius + border, deck);
+    float inner = corner_box(p, hs - vec2(border), radius, deck);
     float m = clamp(0.5 - outer, 0.0, 1.0) * clamp(0.5 + inner, 0.0, 1.0);
+    if (deck > 0.5) {{
+        vec2 k = vec2(hs.x, -hs.y);
+        m = max(m, max(bracket(p, k), bracket(-p, k)));
+    }}
     gl_FragColor = color * (m * alpha);
 }}
 "
     )
 }
 
+/// The shadow of a window, or in the cyberdeck style its glow: the shape's own, in the window's border color
+/// (`tint`), around the window instead of dropping down.
 fn shadow_shader() -> String {
     format!(
         "{PRECISION}
@@ -107,13 +191,17 @@ varying vec2 v_coords;
 uniform float spread;
 uniform float radius;
 uniform float strength;
+uniform vec3 tint;
+uniform float deck;
 {ROUNDED_SDF}
 void main() {{
     vec2 p = (v_coords - 0.5) * size;
-    float d = rounded_box(p - vec2(0.0, spread * 0.25), size * 0.5 - vec2(spread), radius);
+    float d = deck > 0.5
+        ? deck_box(p, size * 0.5 - vec2(spread), radius)
+        : rounded_box(p - vec2(0.0, spread * 0.25), size * 0.5 - vec2(spread), radius);
     float fall = 1.0 - smoothstep(0.0, spread, d);
     float a = fall * fall * strength * clamp(d + 0.5, 0.0, 1.0);
-    gl_FragColor = vec4(0.0, 0.0, 0.0, a) * alpha;
+    gl_FragColor = vec4(tint * a, a) * alpha;
 }}
 "
     )
@@ -191,6 +279,7 @@ pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
             UniformName::new("buf_size", UniformType::_2f),
             UniformName::new("geo", UniformType::_4f),
             UniformName::new("radius", UniformType::_1f),
+            UniformName::new("deck", UniformType::_1f),
         ],
     )?;
     let ring = renderer.compile_custom_pixel_shader(
@@ -199,6 +288,10 @@ pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
             UniformName::new("color", UniformType::_4f),
             UniformName::new("border", UniformType::_1f),
             UniformName::new("radius", UniformType::_1f),
+            UniformName::new("deck", UniformType::_1f),
+            UniformName::new("pad", UniformType::_1f),
+            UniformName::new("gap", UniformType::_1f),
+            UniformName::new("arm", UniformType::_1f),
         ],
     )?;
     let shadow = renderer.compile_custom_pixel_shader(
@@ -207,6 +300,8 @@ pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
             UniformName::new("spread", UniformType::_1f),
             UniformName::new("radius", UniformType::_1f),
             UniformName::new("strength", UniformType::_1f),
+            UniformName::new("tint", UniformType::_3f),
+            UniformName::new("deck", UniformType::_1f),
         ],
     )?;
     let tile = renderer.compile_custom_texture_shader(
@@ -227,18 +322,30 @@ pub fn compile(renderer: &mut GlesRenderer) -> Result<Shaders, GlesError> {
     Ok(Shaders { tex, ring, shadow, tile })
 }
 
-/// Uniforms of the ring around a window frame (physical pixels; premultiplied color).
-pub fn ring_uniforms(color: [f32; 4], border: f32, radius: f32) -> Vec<Uniform<'static>> {
+/// Uniforms of the ring around a window frame (physical pixels, `scale` per logical one; premultiplied color).
+pub fn ring_uniforms(color: [f32; 4], border: f32, radius: f32, corners: Corners, scale: f32) -> Vec<Uniform<'static>> {
     let [r, g, b, a] = color;
+    let gap = BRACKET_GAP as f32 * scale;
     vec![
         Uniform::new("color", (r * a, g * a, b * a, a)),
         Uniform::new("border", border),
         Uniform::new("radius", radius),
+        corners.uniform(),
+        Uniform::new("pad", if corners == Corners::Chamfer { border + gap } else { 0.0 }),
+        Uniform::new("gap", gap),
+        Uniform::new("arm", BRACKET_ARM * scale),
     ]
 }
 
-pub fn shadow_uniforms(spread: f32, radius: f32, strength: f32) -> Vec<Uniform<'static>> {
-    vec![Uniform::new("spread", spread), Uniform::new("radius", radius), Uniform::new("strength", strength)]
+/// `tint` is the glow's color (black for the plain shadow).
+pub fn shadow_uniforms(spread: f32, radius: f32, strength: f32, tint: [f32; 3], corners: Corners) -> Vec<Uniform<'static>> {
+    vec![
+        Uniform::new("spread", spread),
+        Uniform::new("radius", radius),
+        Uniform::new("strength", strength),
+        Uniform::new("tint", (tint[0], tint[1], tint[2])),
+        corners.uniform(),
+    ]
 }
 
 /// A surface element drawn with the rounded-corner shader.
@@ -253,12 +360,13 @@ pub struct Rounded<E> {
 
 impl<E> Rounded<E> {
     /// `buf_size`: size of the surface's buffer in pixels; `geo`: the window geometry and
-    /// `radius` in the same pixels.
-    pub fn new(inner: E, program: GlesTexProgram, buf_size: (f32, f32), geo: [f32; 4], radius: f32) -> Self {
+    /// `radius` (the corner's size) in the same pixels.
+    pub fn new(inner: E, program: GlesTexProgram, buf_size: (f32, f32), geo: [f32; 4], radius: f32, corners: Corners) -> Self {
         let uniforms = vec![
             Uniform::new("buf_size", buf_size),
             Uniform::new("geo", (geo[0], geo[1], geo[2], geo[3])),
             Uniform::new("radius", radius),
+            corners.uniform(),
         ];
         Self { inner, program, uniforms, opaque_shape: None }
     }

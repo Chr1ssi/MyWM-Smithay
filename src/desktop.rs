@@ -32,7 +32,7 @@ use smithay::wayland::seat::WaylandFocus;
 
 pub type WindowId = u64;
 
-pub type RingKey = (Rectangle<i32, Logical>, i32, i32, [f32; 4]);
+pub type RingKey = (Rectangle<i32, Logical>, i32, i32, [f32; 4], crate::effects::Corners);
 
 pub struct Managed {
     pub id: WindowId,
@@ -861,6 +861,7 @@ impl State {
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
         let radius = self.config.effects.corner_radius;
         let anim_ms = self.config.effects.animation_ms;
+        let corners = crate::effects::Corners::of(self.config.appearance.style);
         let rounded = radius > 0 && self.ensure_effect_shaders(renderer);
         let ring_shader = self.effect_shaders.as_ref().map(|s| s.ring.clone());
         let monitors: Vec<Option<usize>> = self.desktop.windows.iter().map(|m| self.monitor_of_window(m)).collect();
@@ -882,20 +883,22 @@ impl State {
                 continue;
             }
             if let (true, false, Some(shader)) = (rounded, m.fullscreen, &ring_shader) {
+                // The cyberdeck's brackets lie outside the frame, in room the element reaches into.
+                let pad = corners.frame_pad(b);
                 let area = Rectangle::<i32, Logical>::new(
-                    (frame.x - geo.loc.x, frame.y - geo.loc.y).into(),
-                    (frame.width, frame.height).into(),
+                    (frame.x - geo.loc.x - pad, frame.y - geo.loc.y - pad).into(),
+                    (frame.width + 2 * pad, frame.height + 2 * pad).into(),
                 );
                 let (border, radius) = ((f64::from(b) * scale) as f32, (f64::from(radius) * scale) as f32);
                 let [r, g, bl, a] = m.border_color;
                 let color = [r, g, bl, a * fade];
-                let key = (area, (border * 64.0) as i32, (radius * 64.0) as i32, color);
-                let uniforms = || crate::effects::ring_uniforms(color, border, radius);
+                let key = (area, (border * 64.0) as i32, (radius * 64.0) as i32, color, corners);
+                let uniforms = || crate::effects::ring_uniforms(color, border, radius, corners, scale as f32);
                 match &mut m.ring {
                     Some((_, old)) if *old == key => {}
                     Some((element, old)) => {
                         element.resize(area, None);
-                        element.update_uniforms(crate::effects::ring_uniforms(key.3, border, radius));
+                        element.update_uniforms(uniforms());
                         *old = key;
                     }
                     None => {
@@ -946,6 +949,8 @@ impl State {
         let Some(this_monitor) = self.outputs.iter().position(|e| &e.output == output) else { return Vec::new() };
         let scale = output.current_scale().fractional_scale();
         let (radius_logical, anim_ms) = (self.config.effects.corner_radius, self.config.effects.animation_ms);
+        let corners = crate::effects::Corners::of(self.config.appearance.style);
+        let focused = self.desktop.focused();
         let monitors: Vec<Option<usize>> = self.desktop.windows.iter().map(|m| self.monitor_of_window(m)).collect();
         let visible_area = Rectangle::<i32, Physical>::from_size(geo.size.to_physical_precise_round(scale));
         let mut elements = Vec::new();
@@ -960,14 +965,26 @@ impl State {
                 (frame.width + 2 * spread_logical, frame.height + 2 * spread_logical).into(),
             );
             let spread = (f64::from(spread_logical) * scale) as f32;
-            let radius = (f64::from(radius_logical + if radius_logical > 0 { b } else { 0 }) * scale) as f32;
-            let strength = 0.5 * m.fade(anim_ms);
-            let key = (area, (spread * 64.0) as i32, (radius * 64.0) as i32, [strength, 0.0, 0.0, 0.0]);
+            let radius = if radius_logical > 0 {
+                corners.outer((f64::from(radius_logical) * scale) as f32, (f64::from(b) * scale) as f32)
+            } else {
+                0.0
+            };
+            // The cyberdeck's glow takes the window's border color, strongest around the focused window.
+            let (tint, level) = match corners {
+                crate::effects::Corners::Round => ([0.0; 3], 0.5),
+                crate::effects::Corners::Chamfer => {
+                    let [r, g, bl, _] = m.border_color;
+                    ([r, g, bl], if focused == Some(m.id) { 0.6 } else { 0.2 })
+                }
+            };
+            let strength = level * m.fade(anim_ms);
+            let key = (area, (spread * 64.0) as i32, (radius * 64.0) as i32, [strength, tint[0], tint[1], tint[2]], corners);
             match &mut m.shadow {
                 Some((_, old)) if *old == key => {}
                 Some((element, old)) => {
                     element.resize(area, None);
-                    element.update_uniforms(crate::effects::shadow_uniforms(spread, radius, strength));
+                    element.update_uniforms(crate::effects::shadow_uniforms(spread, radius, strength, tint, corners));
                     *old = key;
                 }
                 None => {
@@ -976,7 +993,7 @@ impl State {
                         area,
                         None,
                         1.0,
-                        crate::effects::shadow_uniforms(spread, radius, strength),
+                        crate::effects::shadow_uniforms(spread, radius, strength, tint, corners),
                         Kind::Unspecified,
                     );
                     m.shadow = Some((element, key));
