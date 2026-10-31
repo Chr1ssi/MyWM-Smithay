@@ -40,10 +40,11 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   Warnfarbe), die den Namen der App ersetzt, der sonst unten steht.
   Sperr- und Anmeldebildschirm bekommen eine Kennungszeile in der Karte (`SPLICE // LOCK` oder `SPLICE // LOGIN`, daneben
   die Monitorgröße), das Datum in Großbuchstaben und ein feines Zeilenraster (Scanlines: jede dritte Zeile ein dunkler
-  Strich) über dem abgedunkelten Bild, auf jedem Monitor. Der Anmeldebildschirm zeigt auf Monitoren ab 1112 Pixel Breite links
+  Strich) über dem abgedunkelten Bild, auf jedem Monitor. Der Anmeldebildschirm zeigt auf Monitoren ab 1172 Pixel Breite links
   neben der Karte den Ablauf einer Anmeldung als Pseudocode (reine Dekoration) und rechts Statuszeilen, die stimmen:
-  Monitorgröße, gewählte Sitzung und ob er auf Eingaben wartet, prüft (`checking`) oder das Passwort abgelehnt hat
-  (`denied`). Der Anmeldebildschirm liest die Config aus `programs.splice.greeter.settings`: Dort muss
+  Monitorgröße, Benutzer, gewählte Sitzung und ob er auf Eingaben wartet, prüft (`checking`) oder das Passwort abgelehnt hat
+  (`denied`). Beide Spalten stehen auf Höhe der Karte, und ihre Schrift wächst ab 1080 Pixel Monitorhöhe
+  mit (bis zum 1,5-fachen, bei 1440 Pixeln um ein Drittel), damit sie auf großen Monitoren nicht untergeht. Der Anmeldebildschirm liest die Config aus `programs.splice.greeter.settings`: Dort muss
   `appearance.style` stehen, damit er den Stil zeigt; die Farben kommen wie sonst aus `theme.json` im
   `greeterDirectory`.
   Sprache nach `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` (Deutsch, sonst Englisch).

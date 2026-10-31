@@ -162,7 +162,9 @@ pub fn scene(model: &PowerModel, theme: &Theme, measure: &mut impl Measure) -> S
             let sweep = full * model.progress.clamp(0.0, 1.0);
             scene.push(Node::Arc { center: ring, radius: 50.0, width: 5.0, color: theme.accent, start: -FRAC_PI_2, sweep });
             let disc = Rect::new(ring.0 - 44.0, ring.1 - 44.0, 88.0, 88.0);
-            scene.push(Node::Rect { rect: disc, radius: 44.0, fill: theme.surface, border: None });
+            // A circle in either style (a rectangle with this radius would be cut to an octagon-like square in the
+            // cyberdeck's), as a wide stroke around the middle.
+            scene.push(Node::Arc { center: ring, radius: 22.0, width: 44.0, color: theme.surface, start: 0.0, sweep: full });
             let style = TextStyle::new(42.0);
             scene.push(Node::Label { rect: disc, text: action.icon().into(), style, color: theme.accent, align: Align::Center });
             y += 112.0 + 14.0;
@@ -244,6 +246,14 @@ mod tests {
         assert!(texts_of(&countdown).contains(&"Automatically in 1 seconds".to_owned()));
         countdown.error = Some("Action failed (1)".into());
         assert!(texts_of(&countdown).contains(&"Action failed (1)".to_owned()));
+    }
+
+    #[test]
+    fn the_countdown_disc_is_a_circle_whatever_the_shape() {
+        // A rectangle with the disc's radius would be chamfered into a square in the cyberdeck style.
+        let scene = scene(&model(Some(PowerAction::Reboot)), &theme(), &mut Mono);
+        assert!(!scene.nodes.iter().any(|node| matches!(node, Node::Rect { radius, .. } if *radius == 44.0)));
+        assert!(scene.nodes.iter().any(|node| matches!(node, Node::Arc { width, .. } if *width == 44.0)));
     }
 
     fn texts_of(model: &PowerModel) -> Vec<String> {

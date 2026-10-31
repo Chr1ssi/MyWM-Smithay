@@ -35,23 +35,35 @@ const REBOOT: &str = "󰜉";
 const POWEROFF: &str = "⏻";
 /// The black over the background, so text and glass stay readable on any wallpaper.
 pub const DIM: f32 = 0.35;
-/// The cyberdeck's console lines: the card's tag and the texts beside the login card.
+/// The cyberdeck's console lines: the card's tag, and the texts beside the login card, whose size and width grow with
+/// the monitor (from 1080 pixels of height, up to 1.5 times) so that they hold their own on large screens.
 const TAG: TextStyle = TextStyle::new(12.0);
-const SIDE_WIDTH: f32 = 300.0;
+const SIDE: TextStyle = TextStyle::new(13.0);
+const SIDE_WIDTH: f32 = 330.0;
 const SIDE_GAP: f32 = 32.0;
 /// How dark the cyberdeck's scanlines are (of 255), and how many rows lie between two of them.
 const SCANLINE_ALPHA: u8 = 46;
 const SCANLINE_STEP: usize = 3;
 /// What the login screen's left column shows: the flow of a login, as decoration.
-const LOGIN_FLOW: [&str; 11] = [
+const LOGIN_FLOW: [&str; 21] = [
     "// splice::greeter",
+    "use greetd::{Request, Response};",
+    "",
     "fn run() -> Result<()> {",
     "  let s = greetd::connect()?;",
     "  s.create_session(user)?;",
     "  loop {",
-    "    match s.authenticate(pw) {",
-    "      Ok(_)  => return s.start(session),",
-    "      Err(e) => { delay(2s); retry(e) }",
+    "    match s.read()? {",
+    "      Response::AuthMessage(_) => {",
+    "        s.post_auth(pw.take())?;",
+    "      }",
+    "      Response::Success => {",
+    "        return s.start(session);",
+    "      }",
+    "      Response::Error(e) => {",
+    "        delay(2s);",
+    "        retry(e);",
+    "      }",
     "    }",
     "  }",
     "}",
@@ -326,22 +338,31 @@ fn island(
     (scene, origin)
 }
 
+/// How much larger than at 1080 pixels of height the side texts are on a monitor `h` high.
+fn side_scale(h: f32) -> f32 {
+    (h / 1080.0).clamp(1.0, 1.5)
+}
+
 /// The cyberdeck's login screen: beside the card the flow of a login on the left and what the screen knows on the
-/// right, as console text. Only where the monitor is wide enough for both.
-fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> Vec<(Scene<LockTarget>, (f32, f32))> {
+/// right, as console text, both centered on the card's height. Only where the monitor is wide enough for both.
+fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure, card_middle: f32) -> Vec<(Scene<LockTarget>, (f32, f32))> {
     let (w, h) = model.output;
     let card_w = CARD_WIDTH.min(w - 48.0).max(0.0);
-    if theme.shape != Shape::Chamfer || !model.show_power || w < CARD_WIDTH + 2.0 * (SIDE_WIDTH + SIDE_GAP + ISLAND_MARGIN) {
+    let k = side_scale(h);
+    let side_w = (SIDE_WIDTH * k).floor();
+    if theme.shape != Shape::Chamfer || !model.show_power || w < CARD_WIDTH + 2.0 * (side_w + SIDE_GAP + ISLAND_MARGIN) {
         return Vec::new();
     }
-    let line_h = measure.line_height(TAG);
-    let top = (h * 0.52).floor();
+    let style = TextStyle::new(SIDE.size * k);
+    let line_h = measure.line_height(style);
     let card_x = (w - card_w) / 2.0;
+    let place = |height: f32, x: f32| (x, (card_middle - height / 2.0).floor().max(0.0));
 
-    let mut flow = Scene::new(SIDE_WIDTH, LOGIN_FLOW.len() as f32 * line_h);
+    let code = theme.text.faded(0.8);
+    let mut flow = Scene::new(side_w, LOGIN_FLOW.len() as f32 * line_h);
     for (index, line) in LOGIN_FLOW.iter().enumerate() {
-        let color = if index == 0 { theme.accent } else { theme.muted };
-        flow.push(Node::Label { rect: Rect::new(0.0, index as f32 * line_h, SIDE_WIDTH, line_h), text: (*line).into(), style: TAG, color, align: Align::Left });
+        let color = if index == 0 { theme.accent } else { code };
+        flow.push(Node::Label { rect: Rect::new(0.0, index as f32 * line_h, side_w, line_h), text: (*line).into(), style, color, align: Align::Left });
     }
 
     let session = model.sessions.get(model.session).cloned().unwrap_or_else(|| "—".into());
@@ -350,29 +371,38 @@ fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> 
         (false, true) => ("[ .. ]", theme.accent, "checking", theme.text),
         (false, false) => ("[ .. ]", theme.muted, "waiting for input", theme.muted),
     };
+    let user = if model.user.is_empty() { "—".to_owned() } else { model.user.clone() };
     let rows = [
+        ("", theme.accent, "// splice::status", String::new(), theme.text),
         ("[ ok ]", theme.accent, "output", format!("{}x{}", w as i32, h as i32), theme.text),
+        ("[ ok ]", theme.accent, "user", user, theme.text),
         ("[ ok ]", theme.accent, "session", session, theme.text),
         (marker, marker_color, "auth", auth.to_owned(), auth_color),
     ];
-    let mut status = Scene::new(SIDE_WIDTH, rows.len() as f32 * line_h);
+    let mut status = Scene::new(side_w, rows.len() as f32 * line_h);
     for (index, (marker, marker_color, key, value, value_color)) in rows.into_iter().enumerate() {
         let y = index as f32 * line_h;
-        status.push(Node::Label { rect: Rect::new(0.0, y, 56.0, line_h), text: marker.into(), style: TAG, color: marker_color, align: Align::Left });
-        status.push(Node::Label { rect: Rect::new(62.0, y, 70.0, line_h), text: key.into(), style: TAG, color: theme.muted, align: Align::Left });
-        status.push(Node::Label { rect: Rect::new(138.0, y, SIDE_WIDTH - 138.0, line_h), text: value, style: TAG, color: value_color, align: Align::Left });
+        if index == 0 {
+            status.push(Node::Label { rect: Rect::new(0.0, y, side_w, line_h), text: key.into(), style, color: theme.accent, align: Align::Left });
+            continue;
+        }
+        status.push(Node::Label { rect: Rect::new(0.0, y, 62.0 * k, line_h), text: marker.into(), style, color: marker_color, align: Align::Left });
+        status.push(Node::Label { rect: Rect::new(68.0 * k, y, 80.0 * k, line_h), text: key.into(), style, color: theme.muted, align: Align::Left });
+        status.push(Node::Label { rect: Rect::new(154.0 * k, y, side_w - 154.0 * k, line_h), text: value, style, color: value_color, align: Align::Left });
     }
-    vec![
-        (flow, ((card_x - SIDE_GAP - SIDE_WIDTH).floor(), top)),
-        (status, ((card_x + card_w + SIDE_GAP).ceil(), top)),
-    ]
+    let (left, right) = ((card_x - SIDE_GAP - side_w).floor(), (card_x + card_w + SIDE_GAP).ceil());
+    let (flow_at, status_at) = (place(flow.height, left), place(status.height, right));
+    vec![(flow, flow_at), (status, status_at)]
 }
 
 /// What the primary monitor shows in front of the background: the card's scene and, on the login screen, the
 /// islands (and the cyberdeck's side texts), each with where its origin lies on the monitor.
 pub fn scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> Vec<(Scene<LockTarget>, (f32, f32))> {
-    let mut scenes = vec![card_scene(model, theme, measure)];
-    scenes.extend(side_scenes(model, theme, measure));
+    let (card, origin) = card_scene(model, theme, measure);
+    // The scene also holds the clock and the date above the card itself.
+    let card_middle = card.target_rect(&LockTarget::Card).map_or(origin.1 + card.height / 2.0, |rect| origin.1 + rect.y + rect.h / 2.0);
+    let mut scenes = vec![(card, origin)];
+    scenes.extend(side_scenes(model, theme, measure, card_middle));
     if model.sessions.len() > 1 {
         let buttons: Vec<_> =
             model.sessions.iter().enumerate().map(|(i, name)| (name.clone(), false, i == model.session, LockTarget::Session(i))).collect();
@@ -539,10 +569,21 @@ mod tests {
         assert_eq!(shown.len(), scenes(&wide, &theme(), &mut Mono).len() + 2);
         let (flow, status) = (&shown[1], &shown[2]);
         let card = shown[0].0.target_rect(&LockTarget::Card).unwrap().translated(shown[0].1 .0, shown[0].1 .1);
-        // Left and right of the card, 32 px away, at the height of its top.
-        assert_eq!(flow.1 .0 + SIDE_WIDTH + SIDE_GAP, card.x);
+        // Left and right of the card, 32 px away, centered on its height.
+        assert_eq!(flow.1 .0 + flow.0.width + SIDE_GAP, card.x);
         assert_eq!(status.1 .0, card.right() + SIDE_GAP);
-        assert_eq!(flow.1 .1, card.y.floor());
+        let middle = card.y + card.h / 2.0;
+        assert!((flow.1 .1 + flow.0.height / 2.0 - middle).abs() <= 1.0 && (status.1 .1 + status.0.height / 2.0 - middle).abs() <= 1.0);
+        // On a monitor of 1440 pixels the texts are a third larger, and the columns still fit beside the card.
+        let large = LockModel { output: (2560.0, 1440.0), ..greeter() };
+        let big = scenes(&large, &deck(), &mut Mono);
+        let size_of = |scene: &Scene<LockTarget>| match &scene.nodes[0] {
+            Node::Label { style, .. } => style.size,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(size_of(&shown[1].0), SIDE.size);
+        assert_eq!(size_of(&big[1].0), SIDE.size * 1440.0 / 1080.0);
+        assert!(big[1].0.width > shown[1].0.width && big[1].1 .0 >= 0.0);
         let labels = deck_labels(&wide);
         assert!(labels.contains(&"fn run() -> Result<()> {".to_owned()) && labels.contains(&"1920x1080".to_owned()), "{labels:?}");
         assert!(labels.contains(&"waiting for input".to_owned()), "{labels:?}");
