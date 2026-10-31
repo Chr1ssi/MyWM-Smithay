@@ -4,7 +4,7 @@
 //! at the bottom left and restart and shut down at the bottom right. The background (an image cut to the monitor,
 //! dimmed) is the compositor's: it is the same on every monitor and needs no painting on the CPU.
 use crate::{
-    Align, Measure, Node, Rect, Scene, TextStyle, Theme,
+    Align, Measure, Node, Rect, Scene, Shape, TextStyle, Theme,
     bar::{BUTTON_HEIGHT, BUTTON_TEXT, button_shape},
     i18n::Language,
     theme::ISLAND_HEIGHT,
@@ -35,6 +35,39 @@ const REBOOT: &str = "󰜉";
 const POWEROFF: &str = "⏻";
 /// The black over the background, so text and glass stay readable on any wallpaper.
 pub const DIM: f32 = 0.35;
+/// The cyberdeck's console lines: the card's tag and the texts beside the login card.
+const TAG: TextStyle = TextStyle::new(12.0);
+const SIDE_WIDTH: f32 = 300.0;
+const SIDE_GAP: f32 = 32.0;
+/// How dark the cyberdeck's scanlines are (of 255), and how many rows lie between two of them.
+const SCANLINE_ALPHA: u8 = 46;
+const SCANLINE_STEP: usize = 3;
+/// What the login screen's left column shows: the flow of a login, as decoration.
+const LOGIN_FLOW: [&str; 11] = [
+    "// splice::greeter",
+    "fn run() -> Result<()> {",
+    "  let s = greetd::connect()?;",
+    "  s.create_session(user)?;",
+    "  loop {",
+    "    match s.authenticate(pw) {",
+    "      Ok(_)  => return s.start(session),",
+    "      Err(e) => { delay(2s); retry(e) }",
+    "    }",
+    "  }",
+    "}",
+];
+
+/// The cyberdeck's scanlines for a screen `width` × `height` pixels large: every third row a faint black line
+/// (premultiplied pixels, byte order R, G, B, A).
+pub fn scanline_pixels(width: usize, height: usize) -> Vec<u8> {
+    let mut pixels = vec![0u8; width * height * 4];
+    for row in (0..height).step_by(SCANLINE_STEP) {
+        for pixel in pixels[row * width * 4..(row + 1) * width * 4].as_chunks_mut::<4>().0 {
+            pixel[3] = SCANLINE_ALPHA;
+        }
+    }
+    pixels
+}
 
 /// What the card says under the fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,7 +188,9 @@ fn card_scene(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> (
     let (w, h) = model.output;
     let card_w = CARD_WIDTH.min(w - 48.0).max(0.0);
     let clock_w = measure.width(&model.time, CLOCK).ceil();
-    let date_w = measure.width(&model.date, DATE).ceil();
+    let deck = theme.shape == Shape::Chamfer;
+    let date = if deck { model.date.to_uppercase() } else { model.date.clone() };
+    let date_w = measure.width(&date, DATE).ceil();
     // A pixel more on each side for the card's smoothed edge.
     let width = (card_w.max(clock_w).max(date_w) + 2.0).min(w);
     let origin = (((w - width) / 2.0).floor(), (h * 0.16).floor());
@@ -174,19 +209,30 @@ fn card_scene(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> (
     if let Some(message_h) = message_h {
         column += SPACING + message_h;
     }
+    // The cyberdeck's card starts with a tag line.
+    let tag_h = if deck { measure.line_height(TAG) + SPACING } else { 0.0 };
+    column += tag_h;
     let card = Rect::new((w - card_w) / 2.0 - origin.0, top(h * 0.52), card_w, column + 2.0 * CARD_PADDING);
     let mut scene = Scene::new(width, card.y + card.h + 1.0);
 
     let y = top(h * 0.16);
     scene.push(Node::Label { rect: Rect::new(left, y, width, clock_h), text: model.time.clone(), style: CLOCK, color: theme.text, align: Align::Center });
     let y = y + clock_h + 4.0;
-    let date = Node::Label { rect: Rect::new(left, y, width, date_h), text: model.date.clone(), style: DATE, color: theme.text, align: Align::Center };
+    let date = Node::Label { rect: Rect::new(left, y, width, date_h), text: date, style: DATE, color: theme.text, align: Align::Center };
     scene.push(date.faded(0.8));
 
     scene.push(Node::Rect { rect: card, radius: CARD_RADIUS, fill: theme.glass(), border: Some((1.0, theme.glass_border())) });
     scene.target(card, LockTarget::Card);
     let x = card.x + CARD_PADDING;
     let mut y = card.y + CARD_PADDING;
+    if deck {
+        let (kind, size) = (if model.show_power { "SPLICE // LOGIN" } else { "SPLICE // LOCK" }, format!("{}×{}", model.output.0 as i32, model.output.1 as i32));
+        let height = measure.line_height(TAG);
+        scene.push(Node::Label { rect: Rect::new(x, y, inner, height), text: kind.into(), style: TAG, color: theme.accent, align: Align::Left });
+        let size_w = measure.width(&size, TAG).ceil();
+        scene.push(Node::Label { rect: Rect::new(x + inner - size_w, y, size_w, height), text: size, style: TAG, color: theme.muted, align: Align::Left });
+        y += tag_h;
+    }
 
     let avatar = Rect::new(card.x + (card_w - AVATAR_SIZE) / 2.0, y, AVATAR_SIZE, AVATAR_SIZE);
     scene.push(Node::Rect { rect: avatar, radius: AVATAR_SIZE / 2.0, fill: theme.accent, border: None });
@@ -280,10 +326,53 @@ fn island(
     (scene, origin)
 }
 
+/// The cyberdeck's login screen: beside the card the flow of a login on the left and what the screen knows on the
+/// right, as console text. Only where the monitor is wide enough for both.
+fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> Vec<(Scene<LockTarget>, (f32, f32))> {
+    let (w, h) = model.output;
+    let card_w = CARD_WIDTH.min(w - 48.0).max(0.0);
+    if theme.shape != Shape::Chamfer || !model.show_power || w < CARD_WIDTH + 2.0 * (SIDE_WIDTH + SIDE_GAP + ISLAND_MARGIN) {
+        return Vec::new();
+    }
+    let line_h = measure.line_height(TAG);
+    let top = (h * 0.52).floor();
+    let card_x = (w - card_w) / 2.0;
+
+    let mut flow = Scene::new(SIDE_WIDTH, LOGIN_FLOW.len() as f32 * line_h);
+    for (index, line) in LOGIN_FLOW.iter().enumerate() {
+        let color = if index == 0 { theme.accent } else { theme.muted };
+        flow.push(Node::Label { rect: Rect::new(0.0, index as f32 * line_h, SIDE_WIDTH, line_h), text: (*line).into(), style: TAG, color, align: Align::Left });
+    }
+
+    let session = model.sessions.get(model.session).cloned().unwrap_or_else(|| "—".into());
+    let (marker, marker_color, auth, auth_color) = match (model.failed, model.busy) {
+        (true, _) => ("[ !! ]", theme.alert, "denied", theme.alert),
+        (false, true) => ("[ .. ]", theme.accent, "checking", theme.text),
+        (false, false) => ("[ .. ]", theme.muted, "waiting for input", theme.muted),
+    };
+    let rows = [
+        ("[ ok ]", theme.accent, "output", format!("{}x{}", w as i32, h as i32), theme.text),
+        ("[ ok ]", theme.accent, "session", session, theme.text),
+        (marker, marker_color, "auth", auth.to_owned(), auth_color),
+    ];
+    let mut status = Scene::new(SIDE_WIDTH, rows.len() as f32 * line_h);
+    for (index, (marker, marker_color, key, value, value_color)) in rows.into_iter().enumerate() {
+        let y = index as f32 * line_h;
+        status.push(Node::Label { rect: Rect::new(0.0, y, 56.0, line_h), text: marker.into(), style: TAG, color: marker_color, align: Align::Left });
+        status.push(Node::Label { rect: Rect::new(62.0, y, 70.0, line_h), text: key.into(), style: TAG, color: theme.muted, align: Align::Left });
+        status.push(Node::Label { rect: Rect::new(138.0, y, SIDE_WIDTH - 138.0, line_h), text: value, style: TAG, color: value_color, align: Align::Left });
+    }
+    vec![
+        (flow, ((card_x - SIDE_GAP - SIDE_WIDTH).floor(), top)),
+        (status, ((card_x + card_w + SIDE_GAP).ceil(), top)),
+    ]
+}
+
 /// What the primary monitor shows in front of the background: the card's scene and, on the login screen, the
-/// islands, each with where its origin lies on the monitor.
+/// islands (and the cyberdeck's side texts), each with where its origin lies on the monitor.
 pub fn scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> Vec<(Scene<LockTarget>, (f32, f32))> {
     let mut scenes = vec![card_scene(model, theme, measure)];
+    scenes.extend(side_scenes(model, theme, measure));
     if model.sessions.len() > 1 {
         let buttons: Vec<_> =
             model.sessions.iter().enumerate().map(|(i, name)| (name.clone(), false, i == model.session, LockTarget::Session(i))).collect();
@@ -404,6 +493,75 @@ mod tests {
             LockTarget::Poweroff
         ]);
         assert_eq!(focus_chain(false, 1, false), [LockTarget::Password]);
+    }
+
+    fn deck() -> Theme {
+        theme().with_shape(Shape::Chamfer)
+    }
+
+    fn deck_labels(model: &LockModel) -> Vec<String> {
+        scenes(model, &deck(), &mut Mono)
+            .into_iter()
+            .flat_map(|(scene, _)| scene.nodes)
+            .filter_map(|node| match node {
+                Node::Label { text, .. } | Node::Paragraph { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_cyberdeck_card_has_a_tag_line_and_the_date_in_capitals() {
+        let plain = scenes(&model(), &theme(), &mut Mono);
+        let shown = scenes(&model(), &deck(), &mut Mono);
+        let card = |scenes: &[(Scene<LockTarget>, (f32, f32))]| scenes[0].0.target_rect(&LockTarget::Card).unwrap();
+        // The tag line (12 px at 1.32, rounded up) and the space after it make the card taller.
+        assert_eq!(card(&shown).h, card(&plain).h + (12.0f32 * 1.32).ceil() + 16.0);
+        let labels = deck_labels(&model());
+        assert!(labels.contains(&"SPLICE // LOCK".to_owned()) && labels.contains(&"1280×800".to_owned()), "{labels:?}");
+        assert!(labels.contains(&"DIENSTAG, 20. OKTOBER".to_owned()), "{labels:?}");
+        assert!(deck_labels(&greeter()).contains(&"SPLICE // LOGIN".to_owned()));
+        // The normal card has neither.
+        assert!(!labels_of(&model()).iter().any(|text| text.starts_with("SPLICE")));
+    }
+
+    fn labels_of(model: &LockModel) -> Vec<String> {
+        labels(model)
+    }
+
+    #[test]
+    fn the_cyberdeck_login_screen_shows_console_text_beside_the_card() {
+        // 1000 px is too narrow for the card and a column on either side; 1920 is wide enough.
+        let narrow = LockModel { output: (1000.0, 800.0), ..greeter() };
+        assert_eq!(scenes(&narrow, &deck(), &mut Mono).len(), scenes(&narrow, &theme(), &mut Mono).len());
+        let wide = LockModel { output: (1920.0, 1080.0), ..greeter() };
+        let shown = scenes(&wide, &deck(), &mut Mono);
+        assert_eq!(shown.len(), scenes(&wide, &theme(), &mut Mono).len() + 2);
+        let (flow, status) = (&shown[1], &shown[2]);
+        let card = shown[0].0.target_rect(&LockTarget::Card).unwrap().translated(shown[0].1 .0, shown[0].1 .1);
+        // Left and right of the card, 32 px away, at the height of its top.
+        assert_eq!(flow.1 .0 + SIDE_WIDTH + SIDE_GAP, card.x);
+        assert_eq!(status.1 .0, card.right() + SIDE_GAP);
+        assert_eq!(flow.1 .1, card.y.floor());
+        let labels = deck_labels(&wide);
+        assert!(labels.contains(&"fn run() -> Result<()> {".to_owned()) && labels.contains(&"1920x1080".to_owned()), "{labels:?}");
+        assert!(labels.contains(&"waiting for input".to_owned()), "{labels:?}");
+        // What the status says follows the screen: a check running, a refused password.
+        assert!(deck_labels(&LockModel { busy: true, ..wide.clone() }).contains(&"checking".to_owned()));
+        assert!(deck_labels(&LockModel { failed: true, ..wide.clone() }).contains(&"denied".to_owned()));
+        // The lock screen has no such columns, whatever the monitor.
+        assert_eq!(scenes(&LockModel { output: (1920.0, 1080.0), ..model() }, &deck(), &mut Mono).len(), 1);
+    }
+
+    #[test]
+    fn scanlines_darken_every_third_row() {
+        let pixels = scanline_pixels(4, 7);
+        assert_eq!(pixels.len(), 4 * 7 * 4);
+        let alpha = |x: usize, y: usize| pixels[(y * 4 + x) * 4 + 3];
+        assert_eq!([alpha(0, 0), alpha(3, 0), alpha(0, 3), alpha(2, 6)], [SCANLINE_ALPHA; 4]);
+        assert_eq!([alpha(0, 1), alpha(3, 2), alpha(1, 4), alpha(2, 5)], [0; 4]);
+        // Black, and nothing else but alpha.
+        assert!(pixels.as_chunks::<4>().0.iter().all(|p| p[..3] == [0, 0, 0]));
     }
 
     #[test]

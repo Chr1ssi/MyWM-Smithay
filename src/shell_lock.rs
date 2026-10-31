@@ -74,6 +74,8 @@ pub struct LockScreen {
     source: Option<PathBuf>,
     /// The image cut to the sizes of the monitors, uploaded.
     backgrounds: Vec<Background>,
+    /// The cyberdeck's scanlines in the sizes of the monitors, uploaded while the style asks for them.
+    scanlines: Vec<Background>,
     /// Sizes asked of a worker, and pixels of them waiting for the renderer.
     requested: Vec<Size<i32, Physical>>,
     decoded: Vec<(Size<i32, Physical>, Vec<u8>)>,
@@ -232,6 +234,7 @@ impl State {
         let lock = &mut self.shell.lock;
         lock.painted = None;
         lock.backgrounds.clear();
+        lock.scanlines.clear();
         lock.requested.clear();
         lock.decoded.clear();
         lock.source = None;
@@ -509,6 +512,21 @@ impl State {
                 Err(error) => tracing::warn!("cannot upload the lock screen's image: {error}"),
             }
         }
+        if self.shell.theme.shape == splice_ui::Shape::Chamfer {
+            for entry in &self.outputs {
+                let Some(geo) = self.space.output_geometry(&entry.output) else { continue };
+                let size = pixel_size(geo, &entry.output);
+                if lock.scanlines.iter().any(|b| b.size == size) {
+                    continue;
+                }
+                let pixels = lock_screen::scanline_pixels(size.w.max(1) as usize, size.h.max(1) as usize);
+                let buffer = Size::<i32, Buffer>::from((size.w.max(1), size.h.max(1)));
+                match renderer.import_memory(&pixels, Fourcc::Abgr8888, buffer, false) {
+                    Ok(texture) => lock.scanlines.push(Background { size, texture, id: Id::new() }),
+                    Err(error) => tracing::warn!("cannot upload the lock screen's scanlines: {error}"),
+                }
+            }
+        }
     }
 
     /// What the lock screen shows on `output`, front to back: the clock and the card (on the primary monitor),
@@ -520,11 +538,30 @@ impl State {
         let area: Rectangle<i32, Physical> = geo.to_physical_precise_round(scale);
         let area = Rectangle::from_size(area.size);
         let mut elements = Vec::new();
+        let chamfer = self.shell.theme.shape == splice_ui::Shape::Chamfer;
         let lock = &mut self.shell.lock;
         if let Some(shown) = lock.painted.as_ref().filter(|s| &s.output == output) {
             for (painted, (x, y)) in shown.painted.iter().rev() {
                 elements.extend(element(renderer, painted, (f64::from(*x), f64::from(*y)), scale));
             }
+        }
+        let size = pixel_size(geo, output);
+        // The cyberdeck's scanlines lie over the dimmed image, behind the card.
+        if chamfer && let Some(lines) = lock.scanlines.iter().find(|b| b.size == size) {
+            let src = Rectangle::<f64, Logical>::from_size((f64::from(size.w), f64::from(size.h)).into());
+            elements.push(OutputElement::from(TextureRenderElement::from_static_texture(
+                lines.id.clone(),
+                renderer.context_id(),
+                Point::<f64, Physical>::from((0.0, 0.0)),
+                lines.texture.clone(),
+                1,
+                Transform::Normal,
+                None,
+                Some(src),
+                Some(geo.size),
+                None,
+                Kind::Unspecified,
+            )));
         }
         let solid = |id: &Id, commit: CommitCounter, color: [f32; 4]| {
             let element = SolidColorRenderElement::new(id.clone(), area, commit, color, Kind::Unspecified);
@@ -532,7 +569,6 @@ impl State {
         };
         let dim = lock.dim.get_or_insert_with(Id::new);
         elements.extend(solid(dim, CommitCounter::default(), [0.0, 0.0, 0.0, lock_screen::DIM]));
-        let size = pixel_size(geo, output);
         if let Some(background) = lock.backgrounds.iter().find(|b| b.size == size) {
             let src = Rectangle::<f64, Logical>::from_size((f64::from(size.w), f64::from(size.h)).into());
             elements.push(OutputElement::from(TextureRenderElement::from_static_texture(
