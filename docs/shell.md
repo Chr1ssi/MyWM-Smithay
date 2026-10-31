@@ -14,7 +14,7 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
 
 - **Bar** auf jedem Monitor: Workspaces (Klick wechselt, `+` legt einen an, `S` für das Scratchpad),
   Medien-Pill (Titel des ersten MPRIS-Players, der spielt), Datum und Uhrzeit (`LC_TIME`, CLDR-Abkürzungen wie
-  Qt), Aufnahme-Anzeige, Commandcenter-Symbol (Bluetooth an oder verbunden, Nachtlicht, sonst Zahnrad),
+  Qt), Aufnahme-Anzeige (roter Punkt und „Rec“), Commandcenter-Symbol (Bluetooth an oder verbunden, Nachtlicht, sonst Zahnrad),
   Lautstärke des Standardausgangs (Mausrad: 5 % je Raste, Rechtsklick: stumm) und Power-Knopf. Sie hält die oberen
   40 Pixel frei wie früher ihre Exclusive Zone; Vollbildfenster und `Top`-Layer anderer Programme liegen davor.
 - **Powermenü**: Sperren, Abmelden, Neustart, Ausschalten; Fünf-Sekunden-Countdown mit Ring, Escape, Klick
@@ -32,7 +32,14 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   74) auf Flächen leuchten, die Richtung Schwarz sinken (Oberfläche Ton 4 statt 7), zeichnet die Linien im Farbton
   des Primärakzents und färbt auch die Terminalfarben kräftiger; Terminal, GTK, Vesktop und Neovim folgen, weil sie
   aus derselben `theme.json` erzeugt werden. Alle Kontraste des normalen Farbschemas bleiben erhalten. Auch die Fensterrahmen folgen dem Stil (Abschrägung,
-  Klammern, Leuchten: `docs/effects.md`). Beim Wechsel des
+  Klammern, Leuchten: `docs/effects.md`).
+  **Farbe im Text:** Damit nicht alles weiß ist, setzt der Stil einiges in den beiden anderen Akzenten des Wallpapers
+  (`secondary`, `tertiary` der `theme.json`) und in Rot: in der Bar die Uhr (sekundär), Lautstärke und Medientitel
+  (tertiär) und der Ausschalter (Rot, ebenso Neustart und Ausschalten am Anmeldebildschirm); am Sperr- und
+  Anmeldebildschirm das Datum (sekundär) und der Code links der Karte wie in einem Editor (Schlüsselwörter tertiär,
+  Typen sekundär, Kommentare gedämpft); im Ausschaltmenü jede Aktion in einer Farbe (Sperren Primärakzent, Abmelden
+  tertiär, Neustart sekundär, Ausschalten rot) samt Countdown; beim Benachrichtigungskopf (`MSG·…`) und dem gewählten
+  Eintrag des Launchers die zweite Akzentfarbe. Der normale Stil bleibt unverändert. Beim Wechsel des
   Stils (Config-Reload) erzeugt der Compositor das Farbschema aus dem gewählten Wallpaper neu und lädt danach die Shell.
   Dazu kommen Kleinigkeiten: In der Bar heißen die Workspaces `01`, `02`, …, der ausgewählte Knopf ist solide in der
   Akzentfarbe gefüllt (dunkle Schrift), die Uhr steht in Großbuchstaben, und die Lautstärke zeigt acht Segmente
@@ -41,10 +48,10 @@ Propo“, das dafür installiert sein muss. Die Panels gliedern ihren Inhalt in 
   Warnfarbe), die den Namen der App ersetzt, der sonst unten steht.
   Sperr- und Anmeldebildschirm bekommen eine Kennungszeile in der Karte (`SPLICE // LOCK` oder `SPLICE // LOGIN`, daneben
   die Monitorgröße), das Datum in Großbuchstaben und ein feines Zeilenraster (Scanlines: jede dritte Zeile ein dunkler
-  Strich) über dem abgedunkelten Bild, auf jedem Monitor. Der Anmeldebildschirm zeigt auf Monitoren ab 1172 Pixel Breite links
+  Strich) über dem abgedunkelten Bild, auf jedem Monitor. Die Karte sitzt höher als im normalen Stil (bei 42 % der Monitorhöhe, mindestens 48 Pixel unter dem Datum). Der Anmeldebildschirm zeigt auf Monitoren ab 1212 Pixel Breite links
   neben der Karte den Ablauf einer Anmeldung als Pseudocode (reine Dekoration) und rechts Statuszeilen, die stimmen:
   Monitorgröße, Benutzer, gewählte Sitzung und ob er auf Eingaben wartet, prüft (`checking`) oder das Passwort abgelehnt hat
-  (`denied`). Beide Spalten stehen auf Höhe der Karte, und ihre Schrift wächst ab 1080 Pixel Monitorhöhe
+  (`denied`). Beide Spalten stehen auf Höhe der Karte (die Statuszeilen mit mehr Abstand zu ihr als der Code), und ihre Schrift wächst ab 1080 Pixel Monitorhöhe
   mit (bis zum 1,5-fachen, bei 1440 Pixeln um ein Drittel), damit sie auf großen Monitoren nicht untergeht. Der Anmeldebildschirm liest die Config aus `programs.splice.greeter.settings`: Dort muss
   `appearance.style` stehen, damit er den Stil zeigt; die Farben kommen wie sonst aus `theme.json` im
   `greeterDirectory`.

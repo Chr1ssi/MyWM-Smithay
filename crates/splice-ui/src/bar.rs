@@ -96,6 +96,8 @@ struct Button {
     icons: bool,
     selected: bool,
     marked: bool,
+    /// The text's color where the button is neither selected nor lit (the cyberdeck's colored bar).
+    tint: Option<Color>,
     target: BarTarget,
 }
 
@@ -113,11 +115,11 @@ impl Button {
     /// measured bold.
     fn fit(measure: &mut impl Measure, text: String, icons: bool, target: BarTarget, selected: bool) -> Self {
         let width = measure.width(&text, BUTTON_TEXT.icons(icons).bold(selected)).ceil() + 16.0;
-        Self { text, width, icons, selected, marked: false, target }
+        Self { text, width, icons, selected, marked: false, tint: None, target }
     }
 
     fn fixed(text: String, width: f32, target: BarTarget) -> Self {
-        Self { text, width, icons: false, selected: false, marked: false, target }
+        Self { text, width, icons: false, selected: false, marked: false, tint: None, target }
     }
 
     fn selected(self, selected: bool) -> Self {
@@ -126,6 +128,10 @@ impl Button {
 
     fn marked(self, marked: bool) -> Self {
         Self { marked, ..self }
+    }
+
+    fn tinted(self, tint: Option<Color>) -> Self {
+        Self { tint, ..self }
     }
 }
 
@@ -197,16 +203,17 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
     let mut middle = Vec::new();
     if let Some(title) = &model.media {
         let button = Button::fixed(format!("󰎆 {title}"), (model.width * 0.24).min(260.0), BarTarget::Panel(Panel::Media));
-        middle.push(Content::Buttons(vec![button.selected(model.open_panel == Some(Panel::Media))]));
+        let button = button.selected(model.open_panel == Some(Panel::Media)).tinted(deck.then_some(theme.tertiary));
+        middle.push(Content::Buttons(vec![button]));
     }
     let open = |p: Panel| model.open_panel == Some(p);
     let clock_text = if deck { model.clock.to_uppercase() } else { model.clock.clone() };
     let clock = Button::fit(measure, clock_text, false, BarTarget::Panel(Panel::Calendar), open(Panel::Calendar));
-    middle.push(Content::Buttons(vec![clock]));
+    middle.push(Content::Buttons(vec![clock.tinted(deck.then_some(theme.secondary))]));
 
     let mut right = Vec::new();
     if model.capturing {
-        right.push(Content::Text { text: format!("󰑊 {}", tr("Aufnahme")), color: theme.alert });
+        right.push(Content::Text { text: "󰑊 Rec".into(), color: theme.alert });
     }
     // Tray icons belong to other applications; the shell's own status sits apart.
     if !model.tray.is_empty() {
@@ -222,10 +229,12 @@ pub fn scene(model: &BarModel, theme: &Theme, measure: &mut impl Measure) -> Sce
     };
     right.push(Content::Buttons(vec![
         Button::fit(measure, model.control_icon.clone(), true, panel(Panel::Control), open(Panel::Control)),
-        Button::fit(measure, notifications, false, panel(Panel::Notifications), open(Panel::Notifications)),
-        Button::fit(measure, audio, false, panel(Panel::Audio), open(Panel::Audio)),
+        Button::fit(measure, notifications, false, panel(Panel::Notifications), open(Panel::Notifications))
+            .tinted((deck && model.notifications > 0).then_some(theme.accent)),
+        Button::fit(measure, audio, false, panel(Panel::Audio), open(Panel::Audio)).tinted(deck.then_some(theme.tertiary)),
     ]));
-    right.push(Content::Buttons(vec![Button::fit(measure, "⏻".into(), true, BarTarget::Power, model.power_open)]));
+    let power = Button::fit(measure, "⏻".into(), true, BarTarget::Power, model.power_open);
+    right.push(Content::Buttons(vec![power.tinted(deck.then_some(theme.alert))]));
 
     let row_width = |islands: &[Content], measure: &mut _| {
         islands.iter().map(|i| i.width(measure)).sum::<f32>() + ISLAND_SPACING * islands.len().saturating_sub(1) as f32
@@ -282,7 +291,7 @@ fn island(scene: &mut Scene<BarTarget>, model: &BarModel, theme: &Theme, x: f32,
 }
 
 fn draw_button(scene: &mut Scene<BarTarget>, theme: &Theme, rect: Rect, button: &Button, hovered: bool) {
-    button_shape(scene, theme, rect, &button.text, button.icons, button.selected, button.marked, hovered);
+    button_shape_tinted(scene, theme, rect, &button.text, button.tint, button.icons, button.selected, button.marked, hovered);
 }
 
 /// A `BarButton` in `rect`: a pill that lights up when selected or hovered, its text in the middle and,
@@ -298,6 +307,22 @@ pub fn button_shape<T: Clone>(
     marked: bool,
     hovered: bool,
 ) {
+    button_shape_tinted(scene, theme, rect, text, None, icons, selected, marked, hovered);
+}
+
+/// `button_shape` with the text in `tint` (instead of the theme's text color) while the button is not selected.
+#[allow(clippy::too_many_arguments)]
+pub fn button_shape_tinted<T: Clone>(
+    scene: &mut Scene<T>,
+    theme: &Theme,
+    rect: Rect,
+    text: &str,
+    tint: Option<Color>,
+    icons: bool,
+    selected: bool,
+    marked: bool,
+    hovered: bool,
+) {
     // The cyberdeck lights a selected button up solid, with dark text on it.
     let solid = selected && theme.shape == Shape::Chamfer;
     if selected || hovered {
@@ -308,7 +333,7 @@ pub fn button_shape<T: Clone>(
     let color = match (selected, solid) {
         (true, true) => theme.background,
         (true, false) => theme.accent,
-        _ => theme.text,
+        _ => tint.unwrap_or(theme.text),
     };
     let style = BUTTON_TEXT.icons(icons).bold(marked || selected);
     scene.push(Node::Label { rect: label, text: text.to_owned(), style, color, align: Align::Center });
@@ -384,6 +409,30 @@ mod tests {
         assert_eq!(scene.target_at(power.x + 10.0, 20.0), Some(BarTarget::Power));
     }
 
+    #[test]
+    fn the_cyberdeck_bar_colors_the_clock_the_volume_and_the_power_button() {
+        let json = r##"{"version":1,"colors":{"primary":{"default":{"hex":"#8799ff"}},"secondary":{"default":{"hex":"#00a9fa"}},"tertiary":{"default":{"hex":"#c085ff"}},"error":{"default":{"hex":"#ff291a"}}}}"##;
+        let c = |v| Color::rgba(v, v, v, 255);
+        let normal = Theme::new(Palette { background: c(10), surface: c(20), text: c(200), muted: c(150), accent: c(90), border: c(60) }, Some(json));
+        let deck = normal.clone().with_shape(Shape::Chamfer);
+        let color_of = |theme: &Theme, starts: &str| {
+            scene(&model(), theme, &mut Mono)
+                .nodes
+                .iter()
+                .find_map(|node| match node {
+                    Node::Label { text, color, .. } if text.starts_with(starts) => Some(*color),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no label {starts:?}"))
+        };
+        assert_eq!(color_of(&deck, "⏻"), deck.alert);
+        assert_eq!(color_of(&deck, "DI."), deck.secondary);
+        assert_eq!(color_of(&deck, "󰕾"), deck.tertiary);
+        // The normal bar sets them all like the other text.
+        assert_eq!(color_of(&normal, "⏻"), normal.text);
+        assert_eq!(color_of(&normal, "Di."), normal.text);
+    }
+
     /// Like `Mono`, but bold text is a fifth wider.
     struct BoldWider;
 
@@ -422,7 +471,7 @@ mod tests {
         assert_eq!(islands(&scene).len(), plain + 2);
         assert!(scene.target_rect(&BarTarget::Scratchpad).is_some());
         assert_eq!(label(&scene, BarTarget::Panel(Panel::Media)), "󰎆 Song");
-        assert!(scene.nodes.iter().any(|n| matches!(n, Node::Label { text, .. } if text == "󰑊 Recording")));
+        assert!(scene.nodes.iter().any(|n| matches!(n, Node::Label { text, .. } if text == "󰑊 Rec")));
     }
 
     #[test]

@@ -73,7 +73,6 @@ const ENGLISH: &[(&str, &str)] = &[
     ("Anwendung", "Application"),
     ("Anwendungen", "Applications"),
     ("App suchen …", "Search apps …"),
-    ("Aufnahme", "Recording"),
     ("Aus", "Off"),
     ("Ausgabe", "Output"),
     ("Ausschalten", "Shut down"),

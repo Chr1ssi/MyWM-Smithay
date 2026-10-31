@@ -2,7 +2,7 @@
 //! and shut down. The last three count down five seconds around their icon before they happen.
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use crate::{Align, Color, Measure, Node, Rect, Scene, TextStyle, Theme, bar::button_shape, i18n::Language};
+use crate::{Align, Color, Measure, Node, Rect, Scene, Shape, TextStyle, Theme, bar::button_shape, i18n::Language};
 
 /// The dimming over the whole monitor behind the card.
 pub const BACKDROP: Color = Color::rgba(0, 0, 0, 0x66);
@@ -31,6 +31,20 @@ impl PowerAction {
             PowerAction::Logout => "󰍃",
             PowerAction::Reboot => "󰜉",
             PowerAction::Poweroff => "⏻",
+        }
+    }
+
+    /// The color of the tile's icon and countdown: the theme's accent, or in the cyberdeck style one of the wallpaper's
+    /// accents for each action, with the alert color for shutting down.
+    fn color(self, theme: &Theme) -> Color {
+        if theme.shape != Shape::Chamfer {
+            return theme.accent;
+        }
+        match self {
+            PowerAction::Lock => theme.accent,
+            PowerAction::Logout => theme.tertiary,
+            PowerAction::Reboot => theme.secondary,
+            PowerAction::Poweroff => theme.alert,
         }
     }
 
@@ -139,13 +153,13 @@ pub fn scene(model: &PowerModel, theme: &Theme, measure: &mut impl Measure) -> S
                 let rect = Rect::new(MARGIN + index as f32 * (tile_width + 12.0), y, tile_width, 112.0);
                 let target = PowerTarget::Tile(action);
                 let lit = model.hover == Some(target) || model.focus == Some(target);
-                let fill = if lit { theme.accent } else { theme.glass_surface() };
+                let fill = if lit { action.color(theme) } else { theme.glass_surface() };
                 scene.push(Node::Rect { rect, radius: 22.0, fill, border: None });
                 // Icon and label as one column in the middle of the tile, 10 apart.
                 let (icon, label) = (TextStyle::new(34.0), TextStyle::new(13.0));
                 let (icon_h, label_h) = (measure.line_height(icon), measure.line_height(label));
                 let top = rect.y + (rect.h - icon_h - 10.0 - label_h) / 2.0;
-                let (icon_color, label_color) = if lit { (theme.background, theme.background) } else { (theme.accent, theme.text) };
+                let (icon_color, label_color) = if lit { (theme.background, theme.background) } else { (action.color(theme), theme.text) };
                 let row = |top, h| Rect::new(rect.x, top, rect.w, h);
                 let text = action.icon().into();
                 scene.push(Node::Label { rect: row(top, icon_h), text, style: icon, color: icon_color, align: Align::Center });
@@ -160,13 +174,13 @@ pub fn scene(model: &PowerModel, theme: &Theme, measure: &mut impl Measure) -> S
             let full = 2.0 * PI;
             scene.push(Node::Arc { center: ring, radius: 50.0, width: 5.0, color: theme.border, start: 0.0, sweep: full });
             let sweep = full * model.progress.clamp(0.0, 1.0);
-            scene.push(Node::Arc { center: ring, radius: 50.0, width: 5.0, color: theme.accent, start: -FRAC_PI_2, sweep });
+            scene.push(Node::Arc { center: ring, radius: 50.0, width: 5.0, color: action.color(theme), start: -FRAC_PI_2, sweep });
             let disc = Rect::new(ring.0 - 44.0, ring.1 - 44.0, 88.0, 88.0);
             // A circle in either style (a rectangle with this radius would be cut to an octagon-like square in the
             // cyberdeck's), as a wide stroke around the middle.
             scene.push(Node::Arc { center: ring, radius: 22.0, width: 44.0, color: theme.surface, start: 0.0, sweep: full });
             let style = TextStyle::new(42.0);
-            scene.push(Node::Label { rect: disc, text: action.icon().into(), style, color: theme.accent, align: Align::Center });
+            scene.push(Node::Label { rect: disc, text: action.icon().into(), style, color: action.color(theme), align: Align::Center });
             y += 112.0 + 14.0;
             let title = action.title(model.language).into();
             y += centered(&mut scene, y, title, TextStyle::new(22.0).bold(true), theme.text, measure) + 14.0;
@@ -246,6 +260,30 @@ mod tests {
         assert!(texts_of(&countdown).contains(&"Automatically in 1 seconds".to_owned()));
         countdown.error = Some("Action failed (1)".into());
         assert!(texts_of(&countdown).contains(&"Action failed (1)".to_owned()));
+    }
+
+    #[test]
+    fn the_cyberdeck_gives_each_action_its_own_color_and_shutting_down_red() {
+        let json = r##"{"version":1,"colors":{"primary":{"default":{"hex":"#8799ff"}},"secondary":{"default":{"hex":"#00a9fa"}},"tertiary":{"default":{"hex":"#c085ff"}},"error":{"default":{"hex":"#ff291a"}}}}"##;
+        let normal = Theme::new(Palette { background: Color::rgba(10, 10, 10, 255), surface: Color::rgba(20, 20, 20, 255), text: Color::rgba(240, 240, 240, 255), muted: Color::rgba(150, 150, 150, 255), accent: Color::rgba(90, 90, 90, 255), border: Color::rgba(60, 60, 60, 255) }, Some(json));
+        let deck = normal.clone().with_shape(Shape::Chamfer);
+        let icon_color = |theme: &Theme, action: PowerAction| {
+            scene(&model(None), theme, &mut Mono)
+                .nodes
+                .iter()
+                .find_map(|node| match node {
+                    Node::Label { text, color, .. } if *text == action.icon() => Some(*color),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(icon_color(&deck, PowerAction::Poweroff), deck.alert);
+        assert_eq!(icon_color(&deck, PowerAction::Reboot), deck.secondary);
+        assert_eq!(icon_color(&deck, PowerAction::Logout), deck.tertiary);
+        assert_eq!(icon_color(&normal, PowerAction::Poweroff), normal.accent);
+        // The countdown's ring and icon follow the action.
+        let counting = scene(&model(Some(PowerAction::Poweroff)), &deck, &mut Mono);
+        assert!(counting.nodes.iter().any(|node| matches!(node, Node::Arc { color, start, .. } if *color == deck.alert && *start < 0.0)));
     }
 
     #[test]

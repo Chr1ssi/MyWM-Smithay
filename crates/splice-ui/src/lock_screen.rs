@@ -5,7 +5,7 @@
 //! dimmed) is the compositor's: it is the same on every monitor and needs no painting on the CPU.
 use crate::{
     Align, Measure, Node, Rect, Scene, Shape, TextStyle, Theme,
-    bar::{BUTTON_HEIGHT, BUTTON_TEXT, button_shape},
+    bar::{BUTTON_HEIGHT, BUTTON_TEXT, button_shape_tinted},
     i18n::Language,
     theme::ISLAND_HEIGHT,
 };
@@ -41,6 +41,8 @@ const TAG: TextStyle = TextStyle::new(12.0);
 const SIDE: TextStyle = TextStyle::new(13.0);
 const SIDE_WIDTH: f32 = 330.0;
 const SIDE_GAP: f32 = 32.0;
+/// The status column keeps more room from the card: its text starts at the card's side, the code's ends ragged.
+const SIDE_GAP_RIGHT: f32 = 72.0;
 /// How dark the cyberdeck's scanlines are (of 255), and how many rows lie between two of them.
 const SCANLINE_ALPHA: u8 = 46;
 const SCANLINE_STEP: usize = 3;
@@ -224,13 +226,16 @@ fn card_scene(model: &LockModel, theme: &Theme, measure: &mut impl Measure) -> (
     // The cyberdeck's card starts with a tag line.
     let tag_h = if deck { measure.line_height(TAG) + SPACING } else { 0.0 };
     column += tag_h;
-    let card = Rect::new((w - card_w) / 2.0 - origin.0, top(h * 0.52), card_w, column + 2.0 * CARD_PADDING);
+    // The cyberdeck's card sits higher, with room for a gap below the date at any monitor height.
+    let card_top = if deck { (h * 0.42).max(h * 0.16 + clock_h + 4.0 + date_h + 48.0).floor() } else { h * 0.52 };
+    let card = Rect::new((w - card_w) / 2.0 - origin.0, top(card_top), card_w, column + 2.0 * CARD_PADDING);
     let mut scene = Scene::new(width, card.y + card.h + 1.0);
 
     let y = top(h * 0.16);
     scene.push(Node::Label { rect: Rect::new(left, y, width, clock_h), text: model.time.clone(), style: CLOCK, color: theme.text, align: Align::Center });
     let y = y + clock_h + 4.0;
-    let date = Node::Label { rect: Rect::new(left, y, width, date_h), text: date, style: DATE, color: theme.text, align: Align::Center };
+    let date_color = if deck { theme.secondary } else { theme.text };
+    let date = Node::Label { rect: Rect::new(left, y, width, date_h), text: date, style: DATE, color: date_color, align: Align::Center };
     scene.push(date.faded(0.8));
 
     scene.push(Node::Rect { rect: card, radius: CARD_RADIUS, fill: theme.glass(), border: Some((1.0, theme.glass_border())) });
@@ -331,11 +336,59 @@ fn island(
     for ((text, icons, selected, target), width) in buttons.iter().zip(widths) {
         let rect = Rect::new(x, (ISLAND_HEIGHT - BUTTON_HEIGHT) / 2.0, width, BUTTON_HEIGHT);
         let lit = model.hover == Some(*target) || model.focus == *target;
-        button_shape(&mut scene, theme, rect, text, *icons, *selected, false, lit);
+        // The cyberdeck sets the restart and shut down buttons in the alert color, like the bar's.
+        let tint = (theme.shape == Shape::Chamfer && matches!(target, LockTarget::Reboot | LockTarget::Poweroff)).then_some(theme.alert);
+        button_shape_tinted(&mut scene, theme, rect, text, tint, *icons, *selected, false, lit);
         scene.target(rect, *target);
         x += width + BUTTON_SPACING;
     }
     (scene, origin)
+}
+
+/// What a stretch of the login flow's code is, for its color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Code {
+    Plain,
+    Keyword,
+    Type,
+    Comment,
+}
+
+/// `line` cut into runs of one kind each (their texts joined give `line` again): keywords, capitalized names
+/// (types and variants), and a trailing `//` comment, as far as a few lines of decoration need.
+fn code_runs(line: &str) -> Vec<(Code, String)> {
+    const KEYWORDS: [&str; 6] = ["use", "fn", "let", "loop", "match", "return"];
+    let mut runs: Vec<(Code, String)> = Vec::new();
+    let mut push = |kind: Code, text: &str| match runs.last_mut() {
+        Some((last, run)) if *last == kind => run.push_str(text),
+        _ => runs.push((kind, text.to_owned())),
+    };
+    let mut rest = line;
+    while !rest.is_empty() {
+        if rest.starts_with("//") {
+            push(Code::Comment, rest);
+            break;
+        }
+        let first = rest.chars().next().unwrap_or(' ');
+        if first.is_alphabetic() || first == '_' {
+            let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(rest.len());
+            let (word, tail) = rest.split_at(end);
+            let kind = if KEYWORDS.contains(&word) {
+                Code::Keyword
+            } else if first.is_uppercase() {
+                Code::Type
+            } else {
+                Code::Plain
+            };
+            push(kind, word);
+            rest = tail;
+        } else {
+            let len = first.len_utf8();
+            push(Code::Plain, &rest[..len]);
+            rest = &rest[len..];
+        }
+    }
+    runs
 }
 
 /// How much larger than at 1080 pixels of height the side texts are on a monitor `h` high.
@@ -350,7 +403,7 @@ fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure, car
     let card_w = CARD_WIDTH.min(w - 48.0).max(0.0);
     let k = side_scale(h);
     let side_w = (SIDE_WIDTH * k).floor();
-    if theme.shape != Shape::Chamfer || !model.show_power || w < CARD_WIDTH + 2.0 * (side_w + SIDE_GAP + ISLAND_MARGIN) {
+    if theme.shape != Shape::Chamfer || !model.show_power || w < CARD_WIDTH + 2.0 * side_w + SIDE_GAP + SIDE_GAP_RIGHT + 2.0 * ISLAND_MARGIN {
         return Vec::new();
     }
     let style = TextStyle::new(SIDE.size * k);
@@ -358,11 +411,27 @@ fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure, car
     let card_x = (w - card_w) / 2.0;
     let place = |height: f32, x: f32| (x, (card_middle - height / 2.0).floor().max(0.0));
 
-    let code = theme.text.faded(0.8);
     let mut flow = Scene::new(side_w, LOGIN_FLOW.len() as f32 * line_h);
     for (index, line) in LOGIN_FLOW.iter().enumerate() {
-        let color = if index == 0 { theme.accent } else { code };
-        flow.push(Node::Label { rect: Rect::new(0.0, index as f32 * line_h, side_w, line_h), text: (*line).into(), style, color, align: Align::Left });
+        let y = index as f32 * line_h;
+        if index == 0 {
+            flow.push(Node::Label { rect: Rect::new(0.0, y, side_w, line_h), text: (*line).into(), style, color: theme.accent, align: Align::Left });
+            continue;
+        }
+        // Colored like a code editor does: keywords and types stand out, comments sink.
+        let mut shown = String::new();
+        for (kind, run) in code_runs(line) {
+            let color = match kind {
+                Code::Comment => theme.muted,
+                Code::Keyword => theme.tertiary,
+                Code::Type => theme.secondary,
+                Code::Plain => theme.text.faded(0.8),
+            };
+            let x = measure.width(&shown, style);
+            let width = measure.width(&run, style).ceil() + 1.0;
+            shown.push_str(&run);
+            flow.push(Node::Label { rect: Rect::new(x, y, width, line_h), text: run, style, color, align: Align::Left });
+        }
     }
 
     let session = model.sessions.get(model.session).cloned().unwrap_or_else(|| "—".into());
@@ -374,9 +443,9 @@ fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure, car
     let user = if model.user.is_empty() { "—".to_owned() } else { model.user.clone() };
     let rows = [
         ("", theme.accent, "// splice::status", String::new(), theme.text),
-        ("[ ok ]", theme.accent, "output", format!("{}x{}", w as i32, h as i32), theme.text),
-        ("[ ok ]", theme.accent, "user", user, theme.text),
-        ("[ ok ]", theme.accent, "session", session, theme.text),
+        ("[ ok ]", theme.secondary, "output", format!("{}x{}", w as i32, h as i32), theme.text),
+        ("[ ok ]", theme.secondary, "user", user, theme.text),
+        ("[ ok ]", theme.secondary, "session", session, theme.text),
         (marker, marker_color, "auth", auth.to_owned(), auth_color),
     ];
     let mut status = Scene::new(side_w, rows.len() as f32 * line_h);
@@ -390,7 +459,7 @@ fn side_scenes(model: &LockModel, theme: &Theme, measure: &mut impl Measure, car
         status.push(Node::Label { rect: Rect::new(68.0 * k, y, 80.0 * k, line_h), text: key.into(), style, color: theme.muted, align: Align::Left });
         status.push(Node::Label { rect: Rect::new(154.0 * k, y, side_w - 154.0 * k, line_h), text: value, style, color: value_color, align: Align::Left });
     }
-    let (left, right) = ((card_x - SIDE_GAP - side_w).floor(), (card_x + card_w + SIDE_GAP).ceil());
+    let (left, right) = ((card_x - SIDE_GAP - side_w).floor(), (card_x + card_w + SIDE_GAP_RIGHT).ceil());
     let (flow_at, status_at) = (place(flow.height, left), place(status.height, right));
     vec![(flow, flow_at), (status, status_at)]
 }
@@ -569,9 +638,9 @@ mod tests {
         assert_eq!(shown.len(), scenes(&wide, &theme(), &mut Mono).len() + 2);
         let (flow, status) = (&shown[1], &shown[2]);
         let card = shown[0].0.target_rect(&LockTarget::Card).unwrap().translated(shown[0].1 .0, shown[0].1 .1);
-        // Left and right of the card, 32 px away, centered on its height.
+        // Left and right of the card, the status column further away, both centered on its height.
         assert_eq!(flow.1 .0 + flow.0.width + SIDE_GAP, card.x);
-        assert_eq!(status.1 .0, card.right() + SIDE_GAP);
+        assert_eq!(status.1 .0, card.right() + SIDE_GAP_RIGHT);
         let middle = card.y + card.h / 2.0;
         assert!((flow.1 .1 + flow.0.height / 2.0 - middle).abs() <= 1.0 && (status.1 .1 + status.0.height / 2.0 - middle).abs() <= 1.0);
         // On a monitor of 1440 pixels the texts are a third larger, and the columns still fit beside the card.
@@ -585,13 +654,80 @@ mod tests {
         assert_eq!(size_of(&big[1].0), SIDE.size * 1440.0 / 1080.0);
         assert!(big[1].0.width > shown[1].0.width && big[1].1 .0 >= 0.0);
         let labels = deck_labels(&wide);
-        assert!(labels.contains(&"fn run() -> Result<()> {".to_owned()) && labels.contains(&"1920x1080".to_owned()), "{labels:?}");
+        assert!(labels.contains(&"fn".to_owned()) && labels.contains(&"Result".to_owned()) && labels.contains(&"1920x1080".to_owned()), "{labels:?}");
         assert!(labels.contains(&"waiting for input".to_owned()), "{labels:?}");
         // What the status says follows the screen: a check running, a refused password.
         assert!(deck_labels(&LockModel { busy: true, ..wide.clone() }).contains(&"checking".to_owned()));
         assert!(deck_labels(&LockModel { failed: true, ..wide.clone() }).contains(&"denied".to_owned()));
         // The lock screen has no such columns, whatever the monitor.
         assert_eq!(scenes(&LockModel { output: (1920.0, 1080.0), ..model() }, &deck(), &mut Mono).len(), 1);
+    }
+
+    /// The cyberdeck theme with three different accents, as a wallpaper gives them.
+    fn colorful() -> Theme {
+        let json = r##"{"version":1,"colors":{"primary":{"default":{"hex":"#8799ff"}},"secondary":{"default":{"hex":"#00a9fa"}},"tertiary":{"default":{"hex":"#c085ff"}},"error":{"default":{"hex":"#ff291a"}}}}"##;
+        let palette = Palette { background: Color::rgba(10, 10, 10, 255), surface: Color::rgba(20, 20, 20, 255), text: Color::rgba(240, 240, 240, 255), muted: Color::rgba(150, 150, 150, 255), accent: Color::rgba(90, 90, 90, 255), border: Color::rgba(60, 60, 60, 255) };
+        Theme::new(palette, Some(json)).with_shape(Shape::Chamfer)
+    }
+
+    fn color_of(scenes: &[(Scene<LockTarget>, (f32, f32))], text: &str) -> Color {
+        scenes
+            .iter()
+            .flat_map(|(scene, _)| &scene.nodes)
+            .find_map(|node| match node {
+                Node::Label { text: label, color, .. } if label == text => Some(*color),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no label {text:?}"))
+    }
+
+    #[test]
+    fn the_cyberdeck_sets_some_text_in_the_wallpapers_other_accents() {
+        let theme = colorful();
+        let shown = scenes(&LockModel { output: (1920.0, 1080.0), ..greeter() }, &theme, &mut Mono);
+        // The date is a little faded.
+        assert_eq!(color_of(&shown, "DIENSTAG, 20. OKTOBER"), theme.secondary.faded(0.8));
+        // Code: keywords in the third accent, capitalized names in the second, the rest quiet.
+        assert_eq!(color_of(&shown, "fn"), theme.tertiary);
+        assert_eq!(color_of(&shown, "Result"), theme.secondary);
+        assert_eq!(color_of(&shown, "// splice::greeter"), theme.accent);
+        assert_eq!(color_of(&shown, "[ ok ]"), theme.secondary);
+        // Restart and shut down are red; the normal theme keeps them like the other buttons.
+        assert_eq!(color_of(&shown, POWEROFF), theme.alert);
+        let normal = scenes(&LockModel { output: (1920.0, 1080.0), ..greeter() }, &colorful().with_shape(Shape::Round), &mut Mono);
+        assert_eq!(color_of(&normal, POWEROFF), theme.text);
+    }
+
+    #[test]
+    fn code_runs_join_to_the_line_and_name_what_they_are() {
+        for line in LOGIN_FLOW {
+            assert_eq!(code_runs(line).into_iter().map(|(_, run)| run).collect::<String>(), line);
+        }
+        assert_eq!(
+            code_runs("  let s = Foo::new(); // go"),
+            [
+                (Code::Plain, "  ".to_owned()),
+                (Code::Keyword, "let".to_owned()),
+                (Code::Plain, " s = ".to_owned()),
+                (Code::Type, "Foo".to_owned()),
+                (Code::Plain, "::new(); ".to_owned()),
+                (Code::Comment, "// go".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_cyberdeck_card_sits_higher_than_the_normal_one() {
+        let (deck_card, normal_card) = (card_top(&deck(), 1440.0), card_top(&theme(), 1440.0));
+        assert!(deck_card < normal_card, "{deck_card} {normal_card}");
+        // On a short monitor it keeps its distance from the date instead of overlapping it.
+        assert!(card_top(&deck(), 800.0) >= 800.0 * 0.16 + (112.0 * 1.32) + 4.0 + 22.0 * 1.32 + 48.0 - 4.0);
+    }
+
+    fn card_top(theme: &Theme, height: f32) -> f32 {
+        let model = LockModel { output: (2560.0, height), ..greeter() };
+        let (scene, origin) = card_scene(&model, theme, &mut Mono);
+        origin.1 + scene.target_rect(&LockTarget::Card).unwrap().y
     }
 
     #[test]

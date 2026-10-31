@@ -72,7 +72,7 @@ pub fn card(view: &NotificationView, theme: &Theme, measure: &mut impl Measure, 
         let style = TextStyle::new(12.0);
         let height = measure.line_height(style);
         let app = if view.app_name.is_empty() { String::new() } else { format!(" · {}", view.app_name.to_uppercase()) };
-        let color = if view.critical { theme.alert } else { theme.accent };
+        let color = if view.critical { theme.alert } else { theme.secondary };
         let rect = Rect::new(left, y, column, height);
         nodes.push(Node::Label { rect, text: format!("MSG·{:02}{app}", id % 100), style, color, align: Align::Left });
         y += height + SPACING;

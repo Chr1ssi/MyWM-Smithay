@@ -193,7 +193,9 @@ pub fn scene(model: &LauncherModel, theme: &Theme, measure: &mut impl Measure) -
         }
         let column_w = (inner - 70.0).max(0.0);
         let top = row.y + (ROW_HEIGHT - name_h - 3.0 - detail_h) / 2.0;
-        scene.push(Node::Label { rect: Rect::new(row.x + 56.0, top, column_w, name_h), text: app.name.clone(), style: name_style, color: theme.text, align: Align::Left });
+        // The cyberdeck's selected row names its app in the second accent.
+        let name_color = if index == model.selected && deck { theme.secondary } else { theme.text };
+        scene.push(Node::Label { rect: Rect::new(row.x + 56.0, top, column_w, name_h), text: app.name.clone(), style: name_style, color: name_color, align: Align::Left });
         let detail = Rect::new(row.x + 56.0, top + name_h + 3.0, column_w, detail_h);
         scene.push(Node::Label { rect: detail, text: app.detail.clone(), style: detail_style, color: theme.muted, align: Align::Left });
         let reachable = crate::panel::intersect(row, list);

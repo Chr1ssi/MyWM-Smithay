@@ -19,7 +19,7 @@ Fenster, `cast_monitor` den fokussierten Monitor, `cast_clear` nichts (schwarze 
 letzte Bild). Er beginnt schwarz. Die Tasten haben keine Standardbelegung (`[bindings]`, siehe
 `example.toml`). Ändert sich die Größe, handelt der Stream sie mit dem Empfänger neu aus.
 
-Die Bar zeigt währenddessen „Aufnahme“, solange etwas aufgenommen wird, und beim Auswählen einen
+Die Bar zeigt währenddessen einen roten Punkt mit „Rec“, solange etwas aufgenommen wird, und beim Auswählen einen
 Hinweis mit den Tasten; ein einzeln geteiltes Fenster hat einen Rahmen in `appearance.capture_border`.
 
 ## Fenster aus Aufnahmen heraushalten

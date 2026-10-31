@@ -29,6 +29,10 @@ pub struct Theme {
     pub text: Color,
     pub muted: Color,
     pub accent: Color,
+    /// The wallpaper's other two accents: the cyberdeck style sets some text and icons in them (its clock, code and
+    /// power buttons) so that not everything is white.
+    pub secondary: Color,
+    pub tertiary: Color,
     /// Recording and other things that should not go unnoticed.
     pub alert: Color,
     pub border: Color,
@@ -81,6 +85,8 @@ impl Theme {
             text: token("on_surface", palette.text),
             muted: token("on_surface_variant", palette.muted),
             accent: token("primary", palette.accent),
+            secondary: token("secondary", palette.accent),
+            tertiary: token("tertiary", palette.accent),
             alert: token("error", Color::rgba(0xf3, 0x8b, 0xa8, 255)),
             border: token("outline_variant", palette.border),
             shape: Shape::Round,
@@ -123,9 +129,12 @@ mod tests {
 
     #[test]
     fn generated_colors_win_over_the_palette() {
-        let json = r##"{"version":1,"colors":{"primary":{"default":{"hex":"#112233"}},"error":{"default":{"hex":"#ff0000"}}}}"##;
+        let json = r##"{"version":1,"colors":{"primary":{"default":{"hex":"#112233"}},"secondary":{"default":{"hex":"#445566"}},"error":{"default":{"hex":"#ff0000"}}}}"##;
         let theme = Theme::new(palette(), Some(json));
         assert_eq!(theme.accent, Color::rgba(0x11, 0x22, 0x33, 255));
+        assert_eq!(theme.secondary, Color::rgba(0x44, 0x55, 0x66, 255));
+        // What the file lacks comes from the palette's accent.
+        assert_eq!(theme.tertiary, palette().accent);
         assert_eq!(theme.alert, Color::rgba(255, 0, 0, 255));
         assert_eq!(theme.background, palette().background);
         assert_eq!(theme.glass(), palette().background.with_alpha(0.7));
